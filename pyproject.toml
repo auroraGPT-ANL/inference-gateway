@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "inference-gateway-backend"
+version = "0.1.0"
+description = ""
+authors = ["Benoit Cote <bcote@anl.gov>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+django = "^4.2.5"
+globus-sdk = "^3.28.0"
+djangorestframework = "^3.14.0"
+django-cors-headers = "^4.2.0"
+django-admin = "^2.0.2"
+python-dotenv = "^1.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+include = '\.pyi?$'
+exclude = '\.git|\.venv|build|_build|dist'
+
+[tool.isort]
+profile = "black"
