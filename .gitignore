@@ -1,0 +1,33 @@
+__pycache__/
+.DS_Store
+.env
+
+# VS code
+.vscode/
+.editorconfig
+
+#  Django 
+db.sqlite3
+media/
+
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/*
+
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
+.angular/cache/
+
+# System files
+Thumbs.db
