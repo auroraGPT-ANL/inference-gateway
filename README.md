@@ -22,6 +22,7 @@ Create a file named ``.env`` with the following content:
 SECRET_KEY="<SOME_SUPER_SECRET_KEY>"
 SOCIAL_AUTH_GLOBUS_KEY="<Globus-vLLM-API-CLIENT-ID>"
 SOCIAL_AUTH_GLOBUS_SECRET="<Globus-vLLM-API-CLIENT-SECRET>"
+INFERENCE_SERVICE_URL="http://<inference-service-url-ending-with-slash>/"
 DEBUG=False
 ```
 
