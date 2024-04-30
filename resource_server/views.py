@@ -4,6 +4,8 @@ from django.conf import settings
 import globus_sdk
 import functools
 import time
+import requests
+import json
 
 # Tool to log access requests
 import logging
@@ -65,9 +67,14 @@ def globus_authenticated(f):
         # Make sure the token is not expired
         expires_in = introspection["exp"] - time.time()
         if expires_in <= 0:
-            return Response({"Error": "Not Authorized. Access token expired"}, status=401)
+            return Response({"Error": "User not Authorized. Access token expired"}, status=401)
         
         # TODO: Make sure we restrict access here whenever needed.
+        approved_username_list = [
+        ]
+        if len(approved_username_list) > 0:
+            if not introspection["username"] in approved_username_list:
+                return Response({"Error": f"{introspection['username']} not Authorized."}, status=401)
 
         return f(self, request, *args, **kwargs)        
     return check_bearer_token
@@ -80,6 +87,54 @@ class VLLM(APIView):
     # Post request call
     @globus_authenticated
     def post(self, request, *args, **kwargs):
+        """Public point of entry to make post requests to interneal inference services."""
+    
+        # Extract the identity of the authenticated user
         name = kwargs["user"]["name"]
         username = kwargs["user"]["username"]
-        return Response({"server_response": f"Hello {name} ({username})! You provided an authenticated post request."})
+
+        # Validate and build the inference request data
+        data = self.__validate_request_body(request)
+        if len(data) == 0:
+            return Response({"Error": "Request data invalid."}, status=400)
+
+        # Send the post request
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(
+            settings.INFERENCE_SERVICE_URL,
+            data=data
+        )
+
+        return Response({"server_response": f"Hello {name} ({username})! {response.json()}"})
+
+
+    # Validate request body
+    def __validate_request_body(self, request):
+        """Build data dictionary for inference request if user inputs are valid."""
+
+        # Decode request body into a dictionary
+        body = json.loads(request.body.decode("utf-8"))
+
+        # Make main fields
+        for key in body.keys():
+            if not key in ["model", "messages"]:
+                return ""
+        if not isinstance(body["model"], str) or not isinstance(body["messages"], list):
+            return "" 
+
+        # Check sub fields
+        for dictionary in body["messages"]:
+            if not isinstance(dictionary, dict):
+                return ""
+            for key in dictionary.keys():
+                if not key in ["role", "content"]:
+                    return ""
+            if not isinstance(dictionary["role"], str) or not isinstance(dictionary["content"], str):
+                return ""
+        
+        # Build request data if nothing wrong was caught
+        data = {
+            "model": body["model"],
+            "messages": body["messages"]
+        }
+        return json.dumps(data)
