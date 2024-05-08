@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from inference_gateway.utils import textfield_to_strlist
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,11 +23,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load .env variables
 load_dotenv()
+
+# Django secret key
 SECRET_KEY = os.getenv("SECRET_KEY")
+
+# Globus App credentials
 SOCIAL_AUTH_GLOBUS_KEY = os.getenv("SOCIAL_AUTH_GLOBUS_KEY")
 SOCIAL_AUTH_GLOBUS_SECRET = os.getenv("SOCIAL_AUTH_GLOBUS_SECRET")
+
+# Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
-INFERENCE_SERVICE_URL = os.getenv("INFERENCE_SERVICE_URL")
+
+# URL to the persistent inference service
+INFERENCE_SERVICE_URL = os.getenv("INFERENCE_SERVICE_URL", "")
+
+# Extract Globus policies that will determine which domains get access
+GLOBUS_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_POLICIES", ""))
+NUMBER_OF_GLOBUS_POLICIES = len(GLOBUS_POLICIES)
+GLOBUS_POLICIES = ",".join(GLOBUS_POLICIES)
+
+# Extract allowed Globus groups that will determine which individuals get access
+GLOBUS_GROUPS = textfield_to_strlist(os.getenv("GLOBUS_GROUPS", ""))
+NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
+GLOBUS_GROUPS = ",".join(GLOBUS_GROUPS)
 
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]
