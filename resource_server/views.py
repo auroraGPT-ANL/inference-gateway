@@ -1,7 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.conf import settings
-import globus_sdk
 import functools
 import time
 import requests
@@ -11,15 +10,8 @@ import json
 import logging
 log = logging.getLogger(__name__)
 
-
-# Get App Client
-def get_app_client():
-    """Create a Globus confidential client using the vLLM Client API credentials."""
-    return globus_sdk.ConfidentialAppAuthClient(
-        settings.SOCIAL_AUTH_GLOBUS_KEY, 
-        settings.SOCIAL_AUTH_GLOBUS_SECRET
-    )
-
+# Utils functions
+from resource_server.utils import get_app_client, get_compute_client_from_globus_app
 
 # Check Globus Policies
 def check_globus_policies(client, bearer_token):
@@ -141,7 +133,6 @@ class VLLM(APIView):
 
         # Send the post request
         if len(settings.INFERENCE_SERVICE_URL) > 0:
-            headers = {"Content-Type": "application/json"}
             response = requests.post(
                 settings.INFERENCE_SERVICE_URL,
                 data=data

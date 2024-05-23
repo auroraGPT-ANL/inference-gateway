@@ -28,8 +28,8 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # Globus App credentials
-SOCIAL_AUTH_GLOBUS_KEY = os.getenv("SOCIAL_AUTH_GLOBUS_KEY")
-SOCIAL_AUTH_GLOBUS_SECRET = os.getenv("SOCIAL_AUTH_GLOBUS_SECRET")
+GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
+GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
 
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
