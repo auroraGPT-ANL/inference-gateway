@@ -19,8 +19,9 @@ class ResourceServerError(Exception):
 def get_app_client():
     """Create a Globus confidential client using the Globus Application credentials."""
     return globus_sdk.ConfidentialAppAuthClient(
-        settings.GLOBUS_APPLICATION_ID, 
-        settings.GLOBUS_APPLICATION_SECRET
+        #TODO: Make sure you select the endpoint credentials dynamically
+        settings.POLARIS_ENDPOINT_ID, 
+        settings.POLARIS_ENDPOINT_SECRET
     )
 
 

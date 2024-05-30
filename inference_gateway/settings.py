@@ -30,6 +30,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # Globus App credentials
 GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
 GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
+POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
+POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
 
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")

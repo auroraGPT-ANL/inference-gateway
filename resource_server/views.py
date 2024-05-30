@@ -5,13 +5,16 @@ import functools
 import time
 import requests
 import json
+import globus_sdk
+from django.utils.text import slugify
+from resource_server.models import Endpoint
 
 # Tool to log access requests
 import logging
 log = logging.getLogger(__name__)
 
 # Utils functions
-from resource_server.utils import get_app_client, get_compute_client_from_globus_app
+from resource_server.utils import get_compute_client_from_globus_app
 
 # Check Globus Policies
 def check_globus_policies(client, bearer_token):
@@ -65,7 +68,10 @@ def globus_authenticated(f):
     def check_bearer_token(self, request, *args, **kwargs):
 
         # Create vLLM service client
-        client = get_app_client()
+        client =  globus_sdk.ConfidentialAppAuthClient(
+            settings.GLOBUS_APPLICATION_ID, 
+            settings.GLOBUS_APPLICATION_SECRET
+        )
 
         # Make sure the request is authenticated
         auth_header = request.headers.get("Authorization")
@@ -142,7 +148,7 @@ class VLLM(APIView):
             response_json = "No Post request sent."
 
         return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
-
+        
 
     # Validate request body
     def __validate_request_body(self, request):
@@ -174,3 +180,105 @@ class VLLM(APIView):
             "messages": body["messages"]
         }
         return json.dumps(data)
+
+
+# Polaris view
+class Polaris(APIView):
+    """API view to reach Polaris Globus Compute endpoints."""
+
+    # Define the targetted cluster
+    cluster = "polaris"
+    
+    # Post request call
+    # TODO: We might want to pull this out of the Polaris view if 
+    #       we want to reuse the post definition for other cluster.
+    @globus_authenticated
+    def post(self, request, *args, **kwargs):
+        """Public point of entry to call Globus Compute endpoints on Polaris."""
+    
+        # Validate and build the inference request data
+        data = self.__validate_request_body(request)
+        if len(data) == 0:
+            return Response({"Error": "Request data invalid."}, status=400)
+
+        # Create the endpoint slug
+        endpoint_slug = slugify(" ".join([
+            self.cluster, 
+            data["framework"],
+            data["model_params"]["model_name"]
+        ]))
+
+        # Pull the targetted endpoint UUID and function UUID from the database
+        try:
+            endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
+            endpoint_uuid = endpoint.endpoint_uuid
+            function_uuid = endpoint.function_uuid
+        except Endpoint.DoesNotExist:
+            return Response({"server_response": "The requested endpoint does not exist."})
+        
+        # Get Globus Compute client (using the endpoint identity)
+        gcc = get_compute_client_from_globus_app()
+
+        # Start a Globus Compute task
+        #TODO: Try/Except
+        #TODO: Add more parameters in the function
+        #TODO: Add database for function and endpoint UUIDs
+        task_uuid = gcc.run(
+            data["model_params"]["prompt"],
+            endpoint_id=endpoint_uuid,
+            function_id=function_uuid,
+        )
+
+        # Wait until results are done
+        # TODO: We need to be careful here if we are thinking of using Executor and future().
+        #       With Executor you can deactivate a client if a parallel request creates an 
+        #       other executor with the same Globus App credentials.
+        pending = True
+        while pending:
+            task = gcc.get_task(task_uuid)
+            pending = task["pending"]
+            print(task)
+            time.sleep(2)
+
+        # TODO: Check status to see if it succeeded
+        result = gcc.get_result(task_uuid)
+
+        #return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
+        return Response({"server_response": result})
+
+
+    # Validate request body
+    def __validate_request_body(self, request):
+        """Build data dictionary for inference request if user inputs are valid."""
+
+        # Decode request body into a dictionary
+        body = json.loads(request.body.decode("utf-8"))
+
+        print("Request received") # This is just for development and debuging
+
+        # Make main fields
+        for key in body.keys():
+            if not key in ["framework", "model_params"]:
+                return ""
+        if not isinstance(body["framework"], str) or not isinstance(body["model_params"], dict):
+            return "" 
+
+        # Check sub fields
+        # TODO: Streamline this with loop and enable optional parameters
+        if not isinstance(body["model_params"]["model_name"], str):
+            return ""
+        if not isinstance(body["model_params"]["temperature"], (float,int)):
+            return ""
+        if not isinstance(body["model_params"]["max_tokens"], int):
+            return ""
+        if not isinstance(body["model_params"]["prompt"], str):
+            return ""
+        if not isinstance(body["model_params"]["logprobs"], bool):
+            return ""
+
+        # Build request data if nothing wrong was caught
+        # TODO: Enable optional parametres
+        return {
+            "framework": body["framework"],
+            "model_params": body["model_params"]
+        }
