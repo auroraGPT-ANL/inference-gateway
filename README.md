@@ -51,9 +51,13 @@ poetry shell
 ```
 
 Set up the initial database (``db.sqlite3``):
-
 ```bash
 python manage.py migrate
+```
+
+Fill the database with the various inference endpoints
+```bash
+python manage.py loaddata fixtures/endpoints.json
 ```
 
 ## Run Server
