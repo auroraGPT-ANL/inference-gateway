@@ -15,11 +15,6 @@ poetry install
 
 Alternatively, if you want to use `pip install`, a requirements.txt file is available.
 
-Install the Globus Compute SDK (TODO: Should add this in the installation requirement files).
-```bash
-pip install globus-compute-sdk
-```
-
 ### Configuration
 Create a file named ``.env`` with the following content:
 
