@@ -16,6 +16,7 @@ excel-base==1.0.4
 globus-compute-common==0.4.1; python_version >= "3.7"
 globus-compute-sdk==2.21.0; python_version >= "3.7"
 globus-sdk==3.41.0; python_version >= "3.7"
+gunicorn==21.2.0; python_version >= "3.5"
 idna==3.7; python_version >= "3.8"
 isoweek==1.3.3; python_version >= "3.5"
 packaging==24.0; python_version >= "3.7"
