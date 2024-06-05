@@ -5,8 +5,8 @@ from django.utils.text import slugify
 class Endpoint(models.Model):
 
     # Slug for the endpoint
-    # In the form of <cluster>_<framework>_<model> (all lower case)
-    # An example is polaris_llama-cpp_meta-llama3-8b-instruct
+    # In the form of <cluster>-<framework>-<model> (all lower case)
+    # An example is polaris-llama-cpp_meta-llama3-8b-instruct
     endpoint_slug = models.SlugField(
         max_length=250,
         unique=True,

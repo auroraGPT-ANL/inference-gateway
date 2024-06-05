@@ -1,0 +1,14 @@
+[
+    {
+        "model": "resource_server.endpoint",
+        "pk": 1,
+        "fields": {
+            "endpoint_slug": "polaris-llama-cpp-meta-llama3-8b-instruct",
+            "cluster": "polaris",
+            "framework": "llama-cpp",
+            "model": "meta-llama3-8b-instruct",
+            "endpoint_uuid": "fca33615-a291-45d6-a839-91d560ec19cb",
+            "function_uuid": "34765efb-c3af-4f21-a5f4-a48689e813d4"
+        }
+    }
+]
