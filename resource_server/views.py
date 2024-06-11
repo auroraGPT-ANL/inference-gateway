@@ -3,11 +3,10 @@ from rest_framework.response import Response
 from django.conf import settings
 import functools
 import time
-import requests
 import json
 import globus_sdk
 from django.utils.text import slugify
-from resource_server.models import Endpoint
+from resource_server.models import Endpoint, Log
 
 # Tool to log access requests
 import logging
@@ -15,8 +14,8 @@ log = logging.getLogger(__name__)
 
 # Utils functions
 from resource_server.utils import get_compute_client_from_globus_app
-
 log.info("Utils functions loaded.")
+
 # Check Globus Policies
 def check_globus_policies(client, bearer_token):
     """
@@ -181,6 +180,19 @@ class Polaris(APIView):
             function_id=function_uuid,
         )
 
+        # Log request in the Django database
+        try:
+            Log(
+                name=kwargs["user"]["name"],
+                username=kwargs["user"]["username"],
+                cluster=self.cluster.lower(),
+                framework=framework.lower(),
+                model=data["model_params"]["model"].lower(),
+                prompt=data["model_params"]["prompt"],
+                task_uuid=task_uuid
+            ).save()
+        except Exception as e:
+            return Response({"server_response": f"Error: {e}"})
 
         # Wait until results are done
         # TODO: We need to be careful here if we are thinking of using Executor and future().
@@ -202,12 +214,14 @@ class Polaris(APIView):
     # Validate request body
     def __validate_request_body(self, request):
         """Build data dictionary for inference request if user inputs are valid."""
+
         # Define the expected keys and their types
         mandatory_keys = {
             "model": str,
             "prompt": (str, list),
         }
 
+        # Define optional keys that can be sent with requests
         optional_keys = {
            "temperature": (float, int),
             "dynatemp_range": (float, int),
