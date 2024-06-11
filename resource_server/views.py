@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 # Utils functions
 from resource_server.utils import get_compute_client_from_globus_app
 
+log.info("Utils functions loaded.")
 # Check Globus Policies
 def check_globus_policies(client, bearer_token):
     """
@@ -66,121 +67,60 @@ def globus_authenticated(f):
 
     @functools.wraps(f)
     def check_bearer_token(self, request, *args, **kwargs):
-
-        # Create vLLM service client
-        client =  globus_sdk.ConfidentialAppAuthClient(
-            settings.GLOBUS_APPLICATION_ID, 
-            settings.GLOBUS_APPLICATION_SECRET
-        )
-
-        # Make sure the request is authenticated
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-            return Response(
-                {"Error": "Missing ('Authorization': 'Bearer <your-access-token>') in request headers."},status=400
-            )
-        
-        # Make sure the bearer flag is mentioned
         try:
-            ttype, bearer_token = auth_header.split()
-            if ttype != "Bearer":
-                return Response({"Error": "Only Authorization: Bearer <token> is allowed."}, status=400)
-        except (AttributeError, ValueError):
-            return Response({"Error": "Auth only allows header type Authorization: Bearer <token>"}, status=400)
-        
-        # Introspect the access token
-        introspection = client.oauth2_token_introspect(bearer_token)
-
-        # Make sure the access token is active and filled with user information
-        if introspection["active"] is False:
-            return Response({"Error": "Token is either not active or invalid"}, status=401)
-
-        # Prepare user details to be passed to the Django view
-        kwargs["user"] = {
-            "name": introspection["name"],
-            "username": introspection["username"]
-        }
-
-        # Log access request
-        log.debug(f"{introspection['name']} requesting {introspection['scope']}")
-
-        # Make sure the token is not expired
-        expires_in = introspection["exp"] - time.time()
-        if expires_in <= 0:
-            return Response({"Error": "User not Authorized. Access token expired"}, status=401)
-        
-        # Make sure the authenticated user comes from an allowed domain
-        if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
-            successful, error_message = check_globus_policies(client, bearer_token)
-            if not successful:
-                return Response({"Error": error_message}, status=401)
-
-        return f(self, request, *args, **kwargs)        
-    return check_bearer_token
-
-
-# Inference VLLM view
-class VLLM(APIView):
-    """API view to reach vLLM checkpoint before accessing the protected inference service."""
-    
-    # Post request call
-    @globus_authenticated
-    def post(self, request, *args, **kwargs):
-        """Public point of entry to make post requests to interneal inference services."""
-    
-        # Extract the identity of the authenticated user
-        name = kwargs["user"]["name"]
-        username = kwargs["user"]["username"]
-
-        # Validate and build the inference request data
-        data = self.__validate_request_body(request)
-        if len(data) == 0:
-            return Response({"Error": "Request data invalid."}, status=400)
-
-        # Send the post request
-        if len(settings.INFERENCE_SERVICE_URL) > 0:
-            response = requests.post(
-                settings.INFERENCE_SERVICE_URL,
-                data=data
+            # Create vLLM service client
+            client =  globus_sdk.ConfidentialAppAuthClient(
+                settings.GLOBUS_APPLICATION_ID, 
+                settings.GLOBUS_APPLICATION_SECRET
             )
-            response_json = response.json()
-        else:
-            response_json = "No Post request sent."
 
-        return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
-        
+            # Make sure the request is authenticated
+            auth_header = request.headers.get("Authorization")
+            if not auth_header:
+                return Response(
+                    {"Error": "Missing ('Authorization': 'Bearer <your-access-token>') in request headers."},status=400
+                )
+            
+            # Make sure the bearer flag is mentioned
+            try:
+                ttype, bearer_token = auth_header.split()
+                if ttype != "Bearer":
+                    return Response({"Error": "Only Authorization: Bearer <token> is allowed."}, status=400)
+            except (AttributeError, ValueError):
+                return Response({"Error": "Auth only allows header type Authorization: Bearer <token>"}, status=400)
+            
+            # Introspect the access token
+            introspection = client.oauth2_token_introspect(bearer_token)
 
-    # Validate request body
-    def __validate_request_body(self, request):
-        """Build data dictionary for inference request if user inputs are valid."""
+            # Make sure the access token is active and filled with user information
+            if introspection["active"] is False:
+                return Response({"Error": "Token is either not active or invalid"}, status=401)
 
-        # Decode request body into a dictionary
-        body = json.loads(request.body.decode("utf-8"))
+            # Prepare user details to be passed to the Django view
+            kwargs["user"] = {
+                "name": introspection["name"],
+                "username": introspection["username"]
+            }
 
-        # Make main fields
-        for key in body.keys():
-            if not key in ["model", "messages"]:
-                return ""
-        if not isinstance(body["model"], str) or not isinstance(body["messages"], list):
-            return "" 
+            # Log access request
+            log.debug(f"{introspection['name']} requesting {introspection['scope']}")
 
-        # Check sub fields
-        for dictionary in body["messages"]:
-            if not isinstance(dictionary, dict):
-                return ""
-            for key in dictionary.keys():
-                if not key in ["role", "content"]:
-                    return ""
-            if not isinstance(dictionary["role"], str) or not isinstance(dictionary["content"], str):
-                return ""
-        
-        # Build request data if nothing wrong was caught
-        data = {
-            "model": body["model"],
-            "messages": body["messages"]
-        }
-        return json.dumps(data)
+            # Make sure the token is not expired
+            expires_in = introspection["exp"] - time.time()
+            if expires_in <= 0:
+                return Response({"Error": "User not Authorized. Access token expired"}, status=401)
+            
+            # Make sure the authenticated user comes from an allowed domain
+            if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
+                successful, error_message = check_globus_policies(client, bearer_token)
+                if not successful:
+                    return Response({"Error": error_message}, status=401)
 
+            return f(self, request, *args, **kwargs) 
+        except Exception as e:
+            return Response({"Error Here": str(e)}, status=500)
+
+    return check_bearer_token
 
 # Polaris view
 class Polaris(APIView):
@@ -188,6 +128,7 @@ class Polaris(APIView):
 
     # Define the targetted cluster
     cluster = "polaris"
+    allowed_frameworks = ["llama-cpp", "vllm"]
     
     # Post request call
     # TODO: We might want to pull this out of the Polaris view if 
@@ -195,19 +136,24 @@ class Polaris(APIView):
     @globus_authenticated
     def post(self, request, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
-    
+
+        framework = 'llama-cpp'
+        if not framework in self.allowed_frameworks:
+            return Response({"Error": "The requested framework is not supported."}, status=400)
+        
         # Validate and build the inference request data
         data = self.__validate_request_body(request)
+
         if len(data) == 0:
             return Response({"Error": "Request data invalid."}, status=400)
 
         # Create the endpoint slug
         endpoint_slug = slugify(" ".join([
-            self.cluster, 
-            data["framework"],
-            data["model_params"]["model_name"]
+            self.cluster,
+            framework, 
+            data["model_params"]["model"]
         ]))
-
+        log.info("endpoint_slug", endpoint_slug)
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
@@ -215,6 +161,8 @@ class Polaris(APIView):
             function_uuid = endpoint.function_uuid
         except Endpoint.DoesNotExist:
             return Response({"server_response": "The requested endpoint does not exist."})
+        except Exception as e:
+            return Response({"server_response": f"Error: {e}"})
         
         # Get Globus Compute client (using the endpoint identity)
         gcc = get_compute_client_from_globus_app()
@@ -223,11 +171,14 @@ class Polaris(APIView):
         #TODO: Try/Except
         #TODO: Add more parameters in the function
         #TODO: Add database for function and endpoint UUIDs
+
+        log.info("data", data)
         task_uuid = gcc.run(
-            data["model_params"]["prompt"],
+            data,
             endpoint_id=endpoint_uuid,
             function_id=function_uuid,
         )
+
 
         # Wait until results are done
         # TODO: We need to be careful here if we are thinking of using Executor and future().
@@ -237,7 +188,6 @@ class Polaris(APIView):
         while pending:
             task = gcc.get_task(task_uuid)
             pending = task["pending"]
-            print(task)
             time.sleep(2)
 
         # TODO: Check status to see if it succeeded
@@ -250,35 +200,60 @@ class Polaris(APIView):
     # Validate request body
     def __validate_request_body(self, request):
         """Build data dictionary for inference request if user inputs are valid."""
+        # Define the expected keys and their types
+        mandatory_keys = {
+            "model": str,
+            "prompt": (str, list),
+        }
 
+        optional_keys = {
+           "temperature": (float, int),
+            "dynatemp_range": (float, int),
+            "dynatemp_exponent": (float, int),
+            "top_k": int,
+            "top_p": (float, int),
+            "min_p": (float, int),
+            "n_predict": int,
+            "n_keep": int,
+            "stream": bool,
+            "stop": list,
+            "tfs_z": (float, int),
+            "typical_p": (float, int),
+            "repeat_penalty": (float, int),
+            "repeat_last_n": int,
+            "penalize_nl": bool,
+            "presence_penalty": (float, int),
+            "frequency_penalty": (float, int),
+            "penalty_prompt": (str, list, type(None)),
+            "mirostat": int,
+            "mirostat_tau": (float, int),
+            "mirostat_eta": (float, int),
+            "grammar": str,
+            "json_schema": dict,
+            "seed": int,
+            "ignore_eos": bool,
+            "logit_bias": list,
+            "n_probs": int,
+            "min_keep": int,
+            "image_data": list,
+            "id_slot": int,
+            "cache_prompt": bool,
+            "system_prompt": str,
+            "samplers": list
+        } # TODO: Add more parameters
+        
         # Decode request body into a dictionary
-        body = json.loads(request.body.decode("utf-8"))
+        model_params = json.loads(request.body.decode("utf-8"))
 
-        print("Request received") # This is just for development and debuging
-
-        # Make main fields
-        for key in body.keys():
-            if not key in ["framework", "model_params"]:
+        # Check mandatory keys
+        for key, expected_type in mandatory_keys.items():
+            if not isinstance(model_params.get(key), expected_type):
                 return ""
-        if not isinstance(body["framework"], str) or not isinstance(body["model_params"], dict):
-            return "" 
-
-        # Check sub fields
-        # TODO: Streamline this with loop and enable optional parameters
-        if not isinstance(body["model_params"]["model_name"], str):
-            return ""
-        if not isinstance(body["model_params"]["temperature"], (float,int)):
-            return ""
-        if not isinstance(body["model_params"]["max_tokens"], int):
-            return ""
-        if not isinstance(body["model_params"]["prompt"], str):
-            return ""
-        if not isinstance(body["model_params"]["logprobs"], bool):
-            return ""
+        
+        # Check optional keys
+        for key, expected_type in optional_keys.items():
+            if key in model_params and not isinstance(model_params.get(key), expected_type):
+                return ""
 
         # Build request data if nothing wrong was caught
-        # TODO: Enable optional parametres
-        return {
-            "framework": body["framework"],
-            "model_params": body["model_params"]
-        }
+        return {"model_params": model_params}
