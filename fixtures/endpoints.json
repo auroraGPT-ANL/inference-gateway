@@ -8,7 +8,43 @@
             "framework": "llama-cpp",
             "model": "meta-llama3-8b-instruct",
             "endpoint_uuid": "fca33615-a291-45d6-a839-91d560ec19cb",
-            "function_uuid": "34765efb-c3af-4f21-a5f4-a48689e813d4"
+            "function_uuid": "d65c4e9b-607b-4c71-a413-cc3af0dc79b3"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 2,
+        "fields": {
+            "endpoint_slug": "polaris-llama-cpp-mistral-7b",
+            "cluster": "polaris",
+            "framework": "llama-cpp",
+            "model": "mistral-7b",
+            "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
+            "function_uuid": "d65c4e9b-607b-4c71-a413-cc3af0dc79b3"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 3,
+        "fields": {
+            "endpoint_slug": "polaris-llama-cpp-meta-llama3-70b-instruct",
+            "cluster": "polaris",
+            "framework": "llama-cpp",
+            "model": "meta-llama3-70b-instruct",
+            "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
+            "function_uuid": "ddeb1af5-2be3-4cd0-a41c-671311724054"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 4,
+        "fields": {
+            "endpoint_slug": "polaris-llama-cpp-llama2-70b-instruct",
+            "cluster": "polaris",
+            "framework": "llama-cpp",
+            "model": "meta-llama2-70b",
+            "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
+            "function_uuid": "ddeb1af5-2be3-4cd0-a41c-671311724054"
         }
     }
 ]

@@ -1,0 +1,34 @@
+openapi: 3.0.3
+info:
+  title: Inference Gateway API
+  version: 0.0.1
+  description: Inference Gateway
+paths:
+  /resource_server/polaris/{framework}/completions:
+    post:
+      operationId: resource_server_polaris_completions_create
+      description: Public point of entry to call Globus Compute endpoints on Polaris.
+      parameters:
+      - in: path
+        name: framework
+        schema:
+          type: string
+        required: true
+      tags:
+      - resource_server
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
