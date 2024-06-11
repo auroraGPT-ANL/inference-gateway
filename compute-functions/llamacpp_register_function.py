@@ -21,7 +21,7 @@ def llamacpp_inference (parameters, **kwargs):
 
     start_time = time.time()
     print("parameters",parameters)
-    response = requests.post(base_url, data=json.dumps(parameters['model_params']))
+    response = requests.post(base_url, data=json.dumps(**parameters['model_params']))
     end_time = time.time()
     response_time = end_time - start_time        
 

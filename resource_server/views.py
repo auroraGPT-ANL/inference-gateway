@@ -134,12 +134,14 @@ class Polaris(APIView):
     # TODO: We might want to pull this out of the Polaris view if 
     #       we want to reuse the post definition for other cluster.
     @globus_authenticated
-    def post(self, request, *args, **kwargs):
+    def post(self, request, framework, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
-
-        framework = 'llama-cpp'
+        
+        # Make sure the requested framework is supported
+        if not framework:
+            return Response({"Error": "framework not provided."}, status=400)
         if not framework in self.allowed_frameworks:
-            return Response({"Error": "The requested framework is not supported."}, status=400)
+            return Response({"Error": f"The requested {framework} is not supported."}, status=400)
         
         # Validate and build the inference request data
         data = self.__validate_request_body(request)
