@@ -7,7 +7,7 @@
             "cluster": "polaris",
             "framework": "llama-cpp",
             "model": "meta-llama3-8b-instruct",
-            "endpoint_uuid": "fca33615-a291-45d6-a839-91d560ec19cb",
+            "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
             "function_uuid": "d65c4e9b-607b-4c71-a413-cc3af0dc79b3"
         }
     },
