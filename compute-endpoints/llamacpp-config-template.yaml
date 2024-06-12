@@ -15,7 +15,7 @@ engine:
   queue: 'debug'
   walltime: 00:60:00
   scheduler_options: "#PBS -l filesystems=home:eagle"
-  worker_init: 'module use /soft/modulefiles; module load conda; conda activate /home/openinference_svc/envs/llama-cpp-cuda-env/; /home/openinference_svc/frameworks/llama.cpp/build/bin/server -m /eagle/argonne_tpc/model_weights/gguf_files/Mistral-7B-Instruct-v0.3-Q6_K.gguf --batch-size 2048 --ubatch-size 512 --ctx-size 2048 --predict -1 --flash-attn --cont-batching --numa distribute --n-gpu-layers 4 --main-gpu 0 --split-mode layer --parallel 4 --log-format json --metrics --threads 32 --threads-batch 16 & sleep 20'
+  worker_init: 'module use /soft/modulefiles; module load conda; conda activate /home/openinference_svc/envs/llama-cpp-cuda-env/; nohup /home/openinference_svc/frameworks/llama.cpp/build/bin/server -m /eagle/argonne_tpc/model_weights/gguf_files/Mistral-7B-Instruct-v0.3-Q6_K.gguf --batch-size 2048 --ubatch-size 512 --ctx-size 2048 --flash-attn --cont-batching --numa distribute --n-gpu-layers 4 --main-gpu 0 --split-mode layer --parallel 4 --log-format json --metrics --threads 32 --threads-batch 16 > /path/to/your/logfile.log 2>&1 & sleep 20'
  max_workers_per_node: 1
  job_status_kwargs:
   max_idletime: 3000
@@ -25,4 +25,4 @@ engine:
  type: GlobusComputeEngine
 
 allowed_functions:
-  - 3e3d62cd-5acb-4dd9-a049-667f558e0946
+  - f5129f81-ab07-4910-8391-52d1316296a9

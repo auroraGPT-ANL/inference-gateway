@@ -8,7 +8,7 @@
             "framework": "llama-cpp",
             "model": "meta-llama-3-8b-instruct",
             "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
-            "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
         }
     },
     {
@@ -20,7 +20,7 @@
             "framework": "llama-cpp",
             "model": "mistral-7b-instruct-v03",
             "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
-            "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
         }
     },
     {
@@ -32,7 +32,7 @@
             "framework": "llama-cpp",
             "model": "meta-llama-3-70b-instruct",
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
-            "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
         }
     }
 ]
