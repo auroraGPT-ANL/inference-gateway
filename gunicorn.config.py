@@ -3,6 +3,7 @@
 bind = '0.0.0.0:7000'
 max_requests = 100
 workers = 4
+timeout = 1800
 
 # Access log - records incoming requests
 accesslog = "/var/log/inference-service/backend_gateway.access.log"
