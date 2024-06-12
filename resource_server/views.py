@@ -102,7 +102,7 @@ def globus_authenticated(f):
             }
 
             # Log access request
-            log.debug(f"{introspection['name']} requesting {introspection['scope']}")
+            log.info(f"{introspection['name']} requesting {introspection['scope']}")
 
             # Make sure the token is not expired
             expires_in = introspection["exp"] - time.time()
@@ -155,6 +155,7 @@ class Polaris(APIView):
             data["model_params"]["model"]
         ]))
         log.info("endpoint_slug", endpoint_slug)
+        print("endpoint_slug", endpoint_slug)
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)

@@ -27,7 +27,6 @@ media/
 testem.log
 /typings
 .angular/cache/
-*.ipynb
 .ipynb_checkpoints/
 debug.log
 
