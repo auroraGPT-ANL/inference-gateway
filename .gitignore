@@ -28,6 +28,7 @@ testem.log
 /typings
 .angular/cache/
 .ipynb_checkpoints/
+debug.log
 
 # System files
 Thumbs.db
