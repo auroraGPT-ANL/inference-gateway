@@ -155,6 +155,7 @@ class Polaris(APIView):
             data["model_params"]["model"]
         ]))
         log.info("endpoint_slug", endpoint_slug)
+        print("endpoint_slug", endpoint_slug)
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)

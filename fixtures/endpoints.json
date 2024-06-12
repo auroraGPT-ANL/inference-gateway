@@ -3,10 +3,10 @@
         "model": "resource_server.endpoint",
         "pk": 1,
         "fields": {
-            "endpoint_slug": "polaris-llama-cpp-meta-llama-3-8B-instruct",
+            "endpoint_slug": "polaris-llama-cpp-meta-llama-3-8b-instruct",
             "cluster": "polaris",
             "framework": "llama-cpp",
-            "model": "meta-llama-3-8B-instruct",
+            "model": "meta-llama-3-8b-instruct",
             "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
             "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
         }
@@ -15,10 +15,10 @@
         "model": "resource_server.endpoint",
         "pk": 2,
         "fields": {
-            "endpoint_slug": "polaris-llama-cpp-mistral-7B-instruct-v0.3",
+            "endpoint_slug": "polaris-llama-cpp-mistral-7b-instruct-v03",
             "cluster": "polaris",
             "framework": "llama-cpp",
-            "model": "mistral-7B-instruct-v0.3",
+            "model": "mistral-7b-instruct-v03",
             "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
             "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
         }
@@ -27,10 +27,10 @@
         "model": "resource_server.endpoint",
         "pk": 3,
         "fields": {
-            "endpoint_slug": "polaris-llama-cpp-meta-llama-3-70B-instruct",
+            "endpoint_slug": "polaris-llama-cpp-meta-llama-3-70b-instruct",
             "cluster": "polaris",
             "framework": "llama-cpp",
-            "model": "meta-llama-3-70B-instruct",
+            "model": "meta-llama-3-70b-instruct",
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
             "function_uuid": "3e3d62cd-5acb-4dd9-a049-667f558e0946"
         }
