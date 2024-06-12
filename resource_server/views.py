@@ -103,7 +103,7 @@ def globus_authenticated(f):
             }
 
             # Log access request
-            log.debug(f"{introspection['name']} requesting {introspection['scope']}")
+            log.info(f"{introspection['name']} requesting {introspection['scope']}")
 
             # Make sure the token is not expired
             expires_in = introspection["exp"] - time.time()
@@ -137,6 +137,8 @@ class Polaris(APIView):
     def post(self, request, framework, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
         
+        print("request", request)
+        print("framework", framework)
         # Make sure the requested framework is supported
         if not framework:
             return Response({"Error": "framework not provided."}, status=400)
@@ -156,6 +158,7 @@ class Polaris(APIView):
             data["model_params"]["model"]
         ]))
         log.info("endpoint_slug", endpoint_slug)
+        print("endpoint_slug", endpoint_slug)
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
@@ -175,6 +178,7 @@ class Polaris(APIView):
         #TODO: Add database for function and endpoint UUIDs
 
         log.info("data", data)
+        print("data", data)
         task_uuid = gcc.run(
             data,
             endpoint_id=endpoint_uuid,

@@ -15,7 +15,7 @@ engine:
   queue: 'debug'
   walltime: 00:60:00
   scheduler_options: "#PBS -l filesystems=home:eagle"
-  worker_init: 'module use /soft/modulefiles; module load conda; conda activate /home/openinference_svc/envs/llama-cpp-cuda-env/; /home/openinference_svc/frameworks/llama.cpp/build/bin/server -m /eagle/argonne_tpc/model_weights/gguf_files/Meta-Llama-3-70B-Instruct-Q5_K_M.gguf -c 2048 -a meta-llama3-70b-instruct -ngl 4 -np 2 -fa & sleep 20' #change -m to your model path
+  worker_init: 'module use /soft/modulefiles; module load conda; conda activate /home/openinference_svc/envs/llama-env/; python3 -m llama_cpp.server --model /home/openinference_svc/tests/Meta-Llama-3-8B-Instruct-Q8_0.gguf --batch-size 2048 --ubatch-size 512 --ctx-size 2048 --predict -1 --flash-attn --cont-batching --numa distribute --n-gpu-layers 4 --main-gpu 0 --split-mode layer --parallel 4 --log-format json --metrics --threads 32 --threads-batch 16 & sleep 20' #change -m to your model path
  max_workers_per_node: 1
  job_status_kwargs:
   max_idletime: 3000
@@ -23,3 +23,6 @@ engine:
   type: address_by_interface
   ifname: bond0
  type: GlobusComputeEngine
+ # Limit the functions UUID that can be execute
+allowed_functions:
+  - 3e3d62cd-5acb-4dd9-a049-667f558e0946
