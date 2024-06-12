@@ -8,24 +8,24 @@ class Endpoint(models.Model):
     # In the form of <cluster>-<framework>-<model> (all lower case)
     # An example is polaris-llama-cpp_meta-llama3-8b-instruct
     endpoint_slug = models.SlugField(
-        max_length=250,
+        max_length=100,
         unique=True,
     )
 
     # HPC machine the endpoint is running on (e.g. polaris)
-    cluster = models.CharField(max_length=250)
+    cluster = models.CharField(max_length=100)
 
     # Framework (e.g. vllm, llama_cpp, deepspeed)
-    framework = models.CharField(max_length=250)
+    framework = models.CharField(max_length=100)
 
     # Model name (e.g. cpp_meta-Llama3-8b-instruct)
-    model = models.CharField(max_length=250)
+    model = models.CharField(max_length=100)
 
     # Globus Compute endpoint UUID
-    endpoint_uuid = models.CharField(max_length=250)
+    endpoint_uuid = models.CharField(max_length=100)
 
     # Globus Compute function UUID
-    function_uuid = models.CharField(max_length=250)
+    function_uuid = models.CharField(max_length=100)
 
     # String function
     def __str__(self):
@@ -37,9 +37,27 @@ class Endpoint(models.Model):
             self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
         super(Endpoint, self).save(*args, **kwargs)
 
-
-# ... under development ... 
+ 
 # Log of Globus Compute requests sent to Globus
-#class Log(models.Model):
+class Log(models.Model):
 
-    # Slug for the endpoint
+    # User who triggered a Globus task
+    name = models.CharField(max_length=100)
+    username = models.CharField(max_length=100)
+
+    # Requested resource and model
+    cluster = models.CharField(max_length=100)
+    framework = models.CharField(max_length=100)
+    model = models.CharField(max_length=100)
+
+    # Prompt requested by the user
+    # TODO: Should we add all the other parameters?
+    prompt = models.TextField()
+
+    # Globus Compute task UUID
+    task_uuid = models.CharField(max_length=100)
+
+    # String function
+    def __str__(self):
+        return f"<Task UUID {self.task_uuid} ({self.username})>"
+    
