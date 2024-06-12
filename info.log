@@ -1,0 +1,27 @@
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 265
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 265
+/Users/adityatanikanti/Codes/inference-gateway/resource_server/views.py changed, reloading.
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 265
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 265
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 326
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 326
+Watching for file changes with StatReloader
+Internal Server Error: /resource_server/polaris/llama-cpp/completions/
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 500 270
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 200 5129
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 200 6162
+"POST /resource_server/polaris/llama-cpp/completions/ HTTP/1.1" 200 5833
