@@ -14,15 +14,40 @@ paths:
         schema:
           type: string
         required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model:
+                  type: string
+                temperature:
+                  type: number
+                  format: float
+                max_tokens:
+                  type: integer
+                prompt:
+                  type: string
+                n_probs:
+                  type: integer
       tags:
       - resource_server
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - bearerAuth: []
       responses:
         '200':
-          description: No response body
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
 components:
   securitySchemes:
     basicAuth:
@@ -32,3 +57,7 @@ components:
       type: apiKey
       in: cookie
       name: sessionid
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
