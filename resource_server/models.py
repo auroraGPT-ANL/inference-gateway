@@ -55,9 +55,19 @@ class Log(models.Model):
     prompt = models.TextField()
 
     # Globus Compute task UUID
-    task_uuid = models.CharField(max_length=100)
+    task_uuid = models.CharField(max_length=100, unique=True)
+
+    # Whether the request is synchronous
+    # If True, the view waited for the compute results
+    # If False, the view returns the compute task UUID
+    sync = models.BooleanField()
+
+    # Whether the request was completed
+    # In sync mode, True means the Globus task is not pending anymore
+    # In async mode, True means the Globus compute task uuid was collected
+    completed = models.BooleanField(default=False)
 
     # String function
     def __str__(self):
-        return f"<Task UUID {self.task_uuid} ({self.username})>"
+        return f"<Task UUID {self.model} - {self.username} - ({self.completed})>"
     
