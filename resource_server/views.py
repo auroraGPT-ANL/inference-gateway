@@ -176,7 +176,7 @@ class Polaris(APIView):
             if not endpoint_status["status"] == "online":
                 return Response({"server_response": f"Endpoint {endpoint_slug} is not online."})
         except globus_sdk.GlobusAPIError as e:
-            return Response({"server_response": f"Cannot accessing the status of endpoint {endpoint_slug}."})
+            return Response({"server_response": f"Cannot access the status of endpoint {endpoint_slug}."})
 
         # Start a Globus Compute task
         try:
