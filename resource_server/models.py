@@ -69,5 +69,5 @@ class Log(models.Model):
 
     # String function
     def __str__(self):
-        return f"<Task UUID {self.model} - {self.username} - ({self.completed})>"
+        return f"<{self.model} - {self.username} - ({self.completed})>"
     
