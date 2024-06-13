@@ -146,8 +146,9 @@ class Polaris(APIView):
         data = self.__validate_request_body(request)
         if len(data) == 0:
             return Response({"Error": "Request data invalid."}, status=400)
+        log.info("data", data)
 
-        # Create the endpoint slug
+        # Build the requested endpoint slug
         endpoint_slug = slugify(" ".join([
             self.cluster,
             framework, 
@@ -178,15 +179,14 @@ class Polaris(APIView):
             return Response({"server_response": f"Cannot accessing the status of endpoint {endpoint_slug}."})
 
         # Start a Globus Compute task
-        #TODO: Try/Except
-        #TODO: Add more parameters in the function
-        #TODO: Add database for function and endpoint UUIDs
-        log.info("data", data)
-        task_uuid = gcc.run(
-            data,
-            endpoint_id=endpoint_uuid,
-            function_id=function_uuid,
-        )
+        try:
+            task_uuid = gcc.run(
+                data,
+                endpoint_id=endpoint_uuid,
+                function_id=function_uuid,
+            )
+        except Exception as e:
+            return Response({"server_response": f"Error: {e}"})
 
         # Log request in the Django database
         try:
