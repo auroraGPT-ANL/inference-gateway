@@ -183,15 +183,18 @@ class Polaris(APIView):
 
         # Log request in the Django database
         try:
-            Log(
+            db_log = Log(
                 name=kwargs["user"]["name"],
                 username=kwargs["user"]["username"],
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
                 model=data["model_params"]["model"].lower(),
                 prompt=data["model_params"]["prompt"],
-                task_uuid=task_uuid
-            ).save()
+                task_uuid=task_uuid,
+                completed=False,
+                sync=True
+            )
+            db_log.save()
         except Exception as e:
             return Response({"server_response": f"Error: {e}"})
 
@@ -207,6 +210,10 @@ class Polaris(APIView):
 
         # TODO: Check status to see if it succeeded
         result = gcc.get_result(task_uuid)
+
+        # Update the database log
+        db_log.completed = True
+        db_log.save()
 
         #return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
         return Response({"server_response": result})
