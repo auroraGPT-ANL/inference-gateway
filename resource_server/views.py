@@ -144,11 +144,11 @@ class Polaris(APIView):
         
         # Validate and build the inference request data
         data = self.__validate_request_body(request)
-
         if len(data) == 0:
             return Response({"Error": "Request data invalid."}, status=400)
+        log.info("data", data)
 
-        # Create the endpoint slug
+        # Build the requested endpoint slug
         endpoint_slug = slugify(" ".join([
             self.cluster,
             framework, 
@@ -169,29 +169,38 @@ class Polaris(APIView):
         # Get Globus Compute client (using the endpoint identity)
         gcc = get_compute_client_from_globus_app()
 
-        # Start a Globus Compute task
-        #TODO: Try/Except
-        #TODO: Add more parameters in the function
-        #TODO: Add database for function and endpoint UUIDs
+        # Check if the endpoint is running
+        try:
+            endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
+            if not endpoint_status["status"] == "online":
+                return Response({"server_response": f"Endpoint {endpoint_slug} is not online."})
+        except globus_sdk.GlobusAPIError as e:
+            return Response({"server_response": f"Cannot access the status of endpoint {endpoint_slug}."})
 
-        log.info("data", data)
-        task_uuid = gcc.run(
-            data,
-            endpoint_id=endpoint_uuid,
-            function_id=function_uuid,
-        )
+        # Start a Globus Compute task
+        try:
+            task_uuid = gcc.run(
+                data,
+                endpoint_id=endpoint_uuid,
+                function_id=function_uuid,
+            )
+        except Exception as e:
+            return Response({"server_response": f"Error: {e}"})
 
         # Log request in the Django database
         try:
-            Log(
+            db_log = Log(
                 name=kwargs["user"]["name"],
                 username=kwargs["user"]["username"],
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
                 model=data["model_params"]["model"].lower(),
                 prompt=data["model_params"]["prompt"],
-                task_uuid=task_uuid
-            ).save()
+                task_uuid=task_uuid,
+                completed=False,
+                sync=True
+            )
+            db_log.save()
         except Exception as e:
             return Response({"server_response": f"Error: {e}"})
 
@@ -207,6 +216,10 @@ class Polaris(APIView):
 
         # TODO: Check status to see if it succeeded
         result = gcc.get_result(task_uuid)
+
+        # Update the database log
+        db_log.completed = True
+        db_log.save()
 
         #return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
         return Response({"server_response": result})
