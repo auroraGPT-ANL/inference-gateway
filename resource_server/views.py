@@ -144,11 +144,11 @@ class Polaris(APIView):
         
         # Validate and build the inference request data
         data = self.__validate_request_body(request)
-
         if len(data) == 0:
             return Response({"Error": "Request data invalid."}, status=400)
+        log.info("data", data)
 
-        # Create the endpoint slug
+        # Build the requested endpoint slug
         endpoint_slug = slugify(" ".join([
             self.cluster,
             framework, 
@@ -156,6 +156,7 @@ class Polaris(APIView):
         ]))
         log.info("endpoint_slug", endpoint_slug)
         print("endpoint_slug", endpoint_slug)
+
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
@@ -169,17 +170,23 @@ class Polaris(APIView):
         # Get Globus Compute client (using the endpoint identity)
         gcc = get_compute_client_from_globus_app()
 
-        # Start a Globus Compute task
-        #TODO: Try/Except
-        #TODO: Add more parameters in the function
-        #TODO: Add database for function and endpoint UUIDs
+        # Check if the endpoint is running
+        try:
+            endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
+            if not endpoint_status["status"] == "online":
+                return Response({"server_response": f"Endpoint {endpoint_slug} is not online."})
+        except globus_sdk.GlobusAPIError as e:
+            return Response({"server_response": f"Cannot access the status of endpoint {endpoint_slug}."})
 
-        log.info("data", data)
-        task_uuid = gcc.run(
-            data,
-            endpoint_id=endpoint_uuid,
-            function_id=function_uuid,
-        )
+        # Start a Globus Compute task
+        try:
+            task_uuid = gcc.run(
+                data,
+                endpoint_id=endpoint_uuid,
+                function_id=function_uuid,
+            )
+        except Exception as e:
+            return Response({"server_response": f"Error: {e}"})
 
         # Log request in the Django database
         try:
