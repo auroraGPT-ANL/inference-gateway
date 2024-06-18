@@ -63,7 +63,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'resource_server',
-    'drf_spectacular'
+    'drf_spectacular',
+    'bulk_inference'
 ]
 
 MIDDLEWARE = [
