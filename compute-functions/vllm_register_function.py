@@ -2,7 +2,7 @@
 import globus_compute_sdk
 
 # Define Globus Compute function
-def vllm_inference_function(parameters, **kwargs):
+def vllm_inference_function(parameters):
     import socket
     import os
     import time
@@ -38,15 +38,16 @@ def vllm_inference_function(parameters, **kwargs):
     response_time = end_time - start_time        
     response_data = json.dumps(completion, cls=CustomEncoder, indent=4)
     print(response_data)
-    response_size = sys.getsizeof(response_data)
+    if completion.usage:
+        total_num_tokens = completion.usage.total_tokens
+    else:
+        total_num_tokens = 0  # Fallback if usage data is not available
+
+    throughput = total_num_tokens / response_time if response_time > 0 else 0
+
     metrics = {
         'response_time': response_time,
-        'response_size_bytes': response_size,
-        'api_usage': {
-            'completion_tokens': getattr(completion, 'usage', {}).get('completion_tokens', 0),
-            'prompt_tokens': getattr(completion, 'usage', {}).get('prompt_tokens', 0),
-            'total_tokens': getattr(completion, 'usage', {}).get('total_tokens', 0)
-        }
+        'throughput_tokens_per_second': throughput
     }
     # Combine the API response and metrics
     output = {**json.loads(response_data), **metrics}

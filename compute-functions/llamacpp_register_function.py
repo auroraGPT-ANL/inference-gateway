@@ -2,7 +2,7 @@
 import globus_compute_sdk
 
 # Define Globus Compute function
-def llamacpp_inference (parameters, **kwargs):
+def llamacpp_inference (parameters):
     import socket
     import json
     import os

@@ -173,7 +173,7 @@ class Polaris(APIView):
         endpoint_slug = slugify(" ".join([
             self.cluster,
             framework, 
-            data["model_params"]["model"]
+            data["model_params"]["model"].lower()
         ]))
         log.info("endpoint_slug", endpoint_slug)
         print("endpoint_slug", endpoint_slug)
@@ -215,7 +215,7 @@ class Polaris(APIView):
                 username=kwargs["user"]["username"],
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
-                model=data["model_params"]["model"].lower(),
+                model=data["model_params"]["model"],
                 prompt=data["model_params"]["prompt"],
                 task_uuid=task_uuid,
                 completed=False,
@@ -252,13 +252,12 @@ class Polaris(APIView):
 
         # Define the expected keys and their types
         mandatory_keys = {
-            "model": str,
-            "prompt": (str, list),
+            "model": str
         }
 
         # Define optional keys that can be sent with requests
         optional_keys = {
-           "temperature": (float, int),
+            "temperature": (float, int),
             "dynatemp_range": (float, int),
             "dynatemp_exponent": (float, int),
             "top_k": int,
@@ -290,7 +289,14 @@ class Polaris(APIView):
             "id_slot": int,
             "cache_prompt": bool,
             "system_prompt": str,
-            "samplers": list
+            "samplers": list,
+            "prompt": str,  # New parameter for user input prompt
+            "messages": list,  # New parameter for maintaining dialogue context
+            "max_tokens": int,  # New parameter for specifying maximum tokens to generate
+            "best_of": int,  # New parameter for selecting the best response out of several generated
+            "session_id": str,  # New parameter for session tracking
+            "include_debug": bool,  # New parameter to include debug information in response
+            "audio_config": dict  # New parameter for specifying audio output configuration
         } # TODO: Add more parameters
         
         # Decode request body into a dictionary
@@ -299,12 +305,12 @@ class Polaris(APIView):
         # Check mandatory keys
         for key, expected_type in mandatory_keys.items():
             if not isinstance(model_params.get(key), expected_type):
-                return ""
+                return "Mandatory parameter missing or invalid: " + key
         
         # Check optional keys
         for key, expected_type in optional_keys.items():
             if key in model_params and not isinstance(model_params.get(key), expected_type):
-                return ""
+                return "Optional parameter invalid for key: " + key
 
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}

@@ -7,8 +7,8 @@
             "cluster": "polaris",
             "framework": "vllm",
             "model": "meta-llama-3-8b-instruct",
-            "endpoint_uuid": "a5f36bcc-5e8c-4333-92d7-117c31ff4c59",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "endpoint_uuid": "d70267d0-f77e-4879-9bb5-8e078f2b1e42",
+            "function_uuid": "681bb7d2-7f26-4633-b672-e8296ccb7a2d"
         }
     },
     {
