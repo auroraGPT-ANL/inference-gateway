@@ -50,3 +50,6 @@ file.close()
 print("Function registered with UUID -", COMPUTE_FUNCTION_ID)
 print("The UUID is stored in " + uuid_file_name + ".")
 print("")
+
+#Test function
+#llamacpp_inference({'model_params': {'model': 'meta-llama3-70b-instruct', 'temperature': 0.2, 'max_tokens': 150, 'prompt': 'List all proteins that interact with RAD51'}})

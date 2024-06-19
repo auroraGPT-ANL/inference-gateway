@@ -121,6 +121,27 @@ def globus_authenticated(f):
 
     return check_bearer_token
 
+class ListEndpoints(APIView):
+    """API view to list the available frameworks."""
+
+    @globus_authenticated
+    def get(self,request):
+        # Fetch all relevant data
+        endpoints = Endpoint.objects.all()
+        # Prepare the list of endpoint URLs and model names
+        result = []
+        for endpoint in endpoints:
+            url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/completions/"
+            result.append({
+                "endpoint_url": url,
+                "model_name": endpoint.model
+            })
+
+        if not result:
+            return Response({"Error": "No endpoints found."}, status=404)
+
+        return Response(result)
+
 # Polaris view
 class Polaris(APIView):
     """API view to reach Polaris Globus Compute endpoints."""
