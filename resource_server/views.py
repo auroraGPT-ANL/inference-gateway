@@ -300,7 +300,8 @@ class Polaris(APIView):
             "best_of": int,  # New parameter for selecting the best response out of several generated
             "session_id": str,  # New parameter for session tracking
             "include_debug": bool,  # New parameter to include debug information in response
-            "audio_config": dict  # New parameter for specifying audio output configuration
+            "audio_config": dict,  # New parameter for specifying audio output configuration
+            "logprobs": bool
         } # TODO: Add more parameters
         
         # Decode request body into a dictionary
