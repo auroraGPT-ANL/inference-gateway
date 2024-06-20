@@ -6,11 +6,10 @@ from .models import Batch
 
 from utils.auth_utils import globus_authenticated
 
-# Create your views here.
 class Batches(APIView):
 
     # @globus_authenticated
-    def post(self, request, framework, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         input_serializer = BatchInputSerializer(data=request.data)
         if not input_serializer.is_valid():
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -18,13 +17,17 @@ class Batches(APIView):
         # Create and save a Batch object
         batch_request = input_serializer.validated_data
         batch = Batch.objects.create(**batch_request)
-        batch.save()
         
         # Return batch as JSON
         output_serializer = BatchSerializer(batch)
-        return Response(output_serializer.validated_data, status=status.HTTP_201_CREATED)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     # @globus_authenticated
-    def get(self, request, framework, *args, **kwargs):
-        pass
+    def get(self, request, id=None, *args, **kwargs):
+        try:
+            batch = Batch.objects.get(id=id)
+            output_serializer = BatchSerializer(batch)
+            return Response(output_serializer.data, status=status.HTTP_200_OK)
+        except Batch.DoesNotExist:
+            return Response({'error': 'Batch not found'}, status=status.HTTP_404_NOT_FOUND)
 

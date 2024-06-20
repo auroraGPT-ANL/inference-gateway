@@ -1,7 +1,10 @@
 from django.db import models
+import uuid
+from django.utils.timezone import now
+
 
 class Batch(models.Model):
-    id = models.CharField(max_length=250, primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     # Who submitted the batch?
     name = models.CharField(max_length=100)
@@ -11,23 +14,23 @@ class Batch(models.Model):
     endpoint = models.CharField(max_length=250)
     input_file_path = models.CharField(max_length=250)
     machine = models.CharField(max_length=250)
-    metadata = models.JSONField()
+    metadata = models.JSONField(default=dict)
 
     # What is the status of the batch?
-    errors = models.JSONField()
-    status = models.CharField(max_length=250)
-    output_file_path = models.CharField(max_length=250)
-    error_file_path = models.CharField(max_length=250)
-    created_at = models.DateTimeField()
-    in_progress_at = models.DateTimeField()
-    expires_at = models.DateTimeField()
-    finalizing_at = models.DateTimeField()
-    completed_at = models.DateTimeField()
-    failed_at = models.DateTimeField()
-    expired_at = models.DateTimeField()
-    cancelling_at = models.DateTimeField()
-    cancelled_at = models.DateTimeField()
-    request_counts = models.JSONField()
+    errors = models.JSONField(default=dict)
+    status = models.CharField(max_length=250, default='pending')
+    output_file_path = models.CharField(max_length=250, blank=True)
+    error_file_path = models.CharField(max_length=250, blank=True)
+    created_at = models.DateTimeField(default=now)
+    in_progress_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    finalizing_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
+    cancelling_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    request_counts = models.JSONField(default=dict)
 
     def __str__(self):
         return self.id

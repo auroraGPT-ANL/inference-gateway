@@ -17,7 +17,7 @@ class BatchInputSerializer(serializers.Serializer):
     input_file_path = serializers.CharField(max_length=250)
     endpoint = serializers.ChoiceField(choices=ENDPOINT_CHOICES)
     machine = serializers.ChoiceField(choices=MACHINE_CHOICES)
-    metadata = serializers.JSONField()
+    metadata = serializers.JSONField(required=False)
 
 
 class BatchSerializer(serializers.ModelSerializer):
@@ -25,5 +25,4 @@ class BatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Batch
-        fields = '__all__'
-        fields.append('object')
+        exclude = ['name', 'username']
