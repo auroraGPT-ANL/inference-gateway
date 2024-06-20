@@ -164,9 +164,9 @@ class Polaris(APIView):
             return Response({"Error": f"The requested {framework} is not supported."}, status=400)
         
         # Validate and build the inference request data
-        data = self.__validate_request_body(request)
-        if len(data) == 0:
-            return Response({"Error": "Request data invalid."}, status=400)
+        data = self.__validate_request_body(request, framework)
+        if "error" in data.keys():
+            return Response({"Error": data["error"]}, status=400)
         log.info("data", data)
 
         # Build the requested endpoint slug
@@ -247,13 +247,19 @@ class Polaris(APIView):
 
 
     # Validate request body
-    def __validate_request_body(self, request):
+    def __validate_request_body(self, request, framework):
         """Build data dictionary for inference request if user inputs are valid."""
 
         # Define the expected keys and their types
         mandatory_keys = {
             "model": str
         }
+        if framework == "vllm":
+            mandatory_keys["messages"] = list # New parameter for maintaining dialogue context]
+        elif framework == "llama-cpp":
+            mandatory_keys["prompt"] = str # New parameter for user input prompt
+        else:
+            return {"error": f"Framework input validation not supported: {framework}"}
 
         # Define optional keys that can be sent with requests
         optional_keys = {
@@ -290,8 +296,6 @@ class Polaris(APIView):
             "cache_prompt": bool,
             "system_prompt": str,
             "samplers": list,
-            "prompt": str,  # New parameter for user input prompt
-            "messages": list,  # New parameter for maintaining dialogue context
             "max_tokens": int,  # New parameter for specifying maximum tokens to generate
             "best_of": int,  # New parameter for selecting the best response out of several generated
             "session_id": str,  # New parameter for session tracking
@@ -300,17 +304,27 @@ class Polaris(APIView):
         } # TODO: Add more parameters
         
         # Decode request body into a dictionary
-        model_params = json.loads(request.body.decode("utf-8"))
+        try:
+            model_params = json.loads(request.body.decode("utf-8"))
+        except:
+            return {"error": f"Request body cannot be decoded"}
 
         # Check mandatory keys
         for key, expected_type in mandatory_keys.items():
+            if key not in model_params:
+                return {"error": f"Mandatory parameter missing: {key}"}
             if not isinstance(model_params.get(key), expected_type):
-                return "Mandatory parameter missing or invalid: " + key
+                return {"error": f"Mandatory parameter invalid: {key} --> should be {expected_type}"}
         
         # Check optional keys
         for key, expected_type in optional_keys.items():
             if key in model_params and not isinstance(model_params.get(key), expected_type):
-                return "Optional parameter invalid for key: " + key
+                return {"error": f"Optional parameter invalid: {key} --> should be {expected_type}"}
+            
+        # Check un-recognized keys
+        for key in model_params:
+            if key not in mandatory_keys and key not in optional_keys:
+                return {"error": f"Input parameter not supported: {key}"}
 
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}
