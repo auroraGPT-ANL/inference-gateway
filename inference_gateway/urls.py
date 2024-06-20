@@ -19,7 +19,7 @@ from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 # Batch processing feature flag
-ENABLE_BATCHES = ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
+ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 
 
 urlpatterns = [
