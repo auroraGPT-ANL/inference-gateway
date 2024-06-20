@@ -1,0 +1,42 @@
+amqp_port: 443
+display_name: polaris-vllm-meta-llama-3-8b-instruct
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 2
+  job_status_kwargs:
+    max_idletime: 600
+  address:
+    type: address_by_interface
+    ifname: bond0
+  provider:
+    type: PBSProProvider
+    launcher:
+      type: SimpleLauncher
+    account: DataServicePrototype
+    cpus_per_node: 64
+    select_options: ngpus=4
+    scheduler_options: '#PBS -l filesystems=home:eagle'
+    queue: 'debug'
+    init_blocks: 0
+    max_blocks: 2
+    min_blocks: 0
+    nodes_per_block: 1
+    walltime: 00:60:00
+    worker_init: |
+      module use /soft/modulefiles
+      module load conda
+      conda activate /home/openinference_svc/envs/vllm_v050_env
+      module use /soft/spack/base/0.7.1/install/modulefiles/Core
+      module load gcc/11.4.0
+      module load cudatoolkit-standalone
+      export HF_DATASETS_CACHE="/eagle/argonne_tpc/model_weights/"
+      export HF_HOME="/eagle/argonne_tpc/model_weights/"
+      export RAY_TMPDIR="/tmp"
+      export RAYON_NUM_THREADS=4
+      export RUST_BACKTRACE=1
+      export VLLM_WORKER_MULTIPROC_METHOD=fork
+      (nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &) && sleep 60
+# Limit the functions UUID that can be execute
+allowed_functions:
+   - 681bb7d2-7f26-4633-b672-e8296ccb7a2d

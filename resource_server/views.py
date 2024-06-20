@@ -17,6 +17,28 @@ log = logging.getLogger(__name__)
 from resource_server.utils import get_compute_client_from_globus_app
 log.info("Utils functions loaded.")
 
+
+class ListEndpoints(APIView):
+    """API view to list the available frameworks."""
+
+    @globus_authenticated
+    def get(self,request, *args, **kwargs):
+        # Fetch all relevant data
+        endpoints = Endpoint.objects.all()
+        # Prepare the list of endpoint URLs and model names
+        result = []
+        for endpoint in endpoints:
+            url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/completions/"
+            result.append({
+                "endpoint_url": url,
+                "model_name": endpoint.model
+            })
+
+        if not result:
+            return Response({"Error": "No endpoints found."}, status=404)
+
+        return Response(result)
+
 # Polaris view
 class Polaris(APIView):
     """API view to reach Polaris Globus Compute endpoints."""
@@ -39,20 +61,19 @@ class Polaris(APIView):
             return Response({"Error": f"The requested {framework} is not supported."}, status=400)
         
         # Validate and build the inference request data
-        data = self.__validate_request_body(request)
-        if len(data) == 0:
-            return Response({"Error": "Request data invalid."}, status=400)
+        data = self.__validate_request_body(request, framework)
+        if "error" in data.keys():
+            return Response({"Error": data["error"]}, status=400)
         log.info("data", data)
 
         # Build the requested endpoint slug
         endpoint_slug = slugify(" ".join([
             self.cluster,
             framework, 
-            data["model_params"]["model"]
+            data["model_params"]["model"].lower()
         ]))
         log.info("endpoint_slug", endpoint_slug)
         print("endpoint_slug", endpoint_slug)
-
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
@@ -91,8 +112,8 @@ class Polaris(APIView):
                 username=kwargs["user"]["username"],
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
-                model=data["model_params"]["model"].lower(),
-                prompt=data["model_params"]["prompt"],
+                model=data["model_params"]["model"],
+                prompt=data["model_params"]["prompt"] if "prompt" in data["model_params"] else data["model_params"]["messages"],
                 task_uuid=task_uuid,
                 completed=False,
                 sync=True
@@ -123,18 +144,23 @@ class Polaris(APIView):
 
 
     # Validate request body
-    def __validate_request_body(self, request):
+    def __validate_request_body(self, request, framework):
         """Build data dictionary for inference request if user inputs are valid."""
 
         # Define the expected keys and their types
         mandatory_keys = {
-            "model": str,
-            "prompt": (str, list),
+            "model": str
         }
+        if framework == "vllm":
+            mandatory_keys["messages"] = list # New parameter for maintaining dialogue context]
+        elif framework == "llama-cpp":
+            mandatory_keys["prompt"] = str # New parameter for user input prompt
+        else:
+            return {"error": f"Framework input validation not supported: {framework}"}
 
         # Define optional keys that can be sent with requests
         optional_keys = {
-           "temperature": (float, int),
+            "temperature": (float, int),
             "dynatemp_range": (float, int),
             "dynatemp_exponent": (float, int),
             "top_k": int,
@@ -166,21 +192,36 @@ class Polaris(APIView):
             "id_slot": int,
             "cache_prompt": bool,
             "system_prompt": str,
-            "samplers": list
+            "samplers": list,
+            "max_tokens": int,  # New parameter for specifying maximum tokens to generate
+            "best_of": int,  # New parameter for selecting the best response out of several generated
+            "session_id": str,  # New parameter for session tracking
+            "include_debug": bool,  # New parameter to include debug information in response
+            "audio_config": dict  # New parameter for specifying audio output configuration
         } # TODO: Add more parameters
         
         # Decode request body into a dictionary
-        model_params = json.loads(request.body.decode("utf-8"))
+        try:
+            model_params = json.loads(request.body.decode("utf-8"))
+        except:
+            return {"error": f"Request body cannot be decoded"}
 
         # Check mandatory keys
         for key, expected_type in mandatory_keys.items():
+            if key not in model_params:
+                return {"error": f"Mandatory parameter missing: {key}"}
             if not isinstance(model_params.get(key), expected_type):
-                return ""
+                return {"error": f"Mandatory parameter invalid: {key} --> should be {expected_type}"}
         
         # Check optional keys
         for key, expected_type in optional_keys.items():
             if key in model_params and not isinstance(model_params.get(key), expected_type):
-                return ""
+                return {"error": f"Optional parameter invalid: {key} --> should be {expected_type}"}
+            
+        # Check un-recognized keys
+        for key in model_params:
+            if key not in mandatory_keys and key not in optional_keys:
+                return {"error": f"Input parameter not supported: {key}"}
 
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}
