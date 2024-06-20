@@ -3,6 +3,42 @@
         "model": "resource_server.endpoint",
         "pk": 1,
         "fields": {
+            "endpoint_slug": "polaris-vllm-meta-llamameta-llama-3-8b-instruct",
+            "cluster": "polaris",
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "endpoint_uuid": "d70267d0-f77e-4879-9bb5-8e078f2b1e42",
+            "function_uuid": "681bb7d2-7f26-4633-b672-e8296ccb7a2d"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 2,
+        "fields": {
+            "endpoint_slug": "polaris-vllm-meta-llamameta-llama-3-70b-instruct",
+            "cluster": "polaris",
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3-70B-Instruct",
+            "endpoint_uuid": "4f50f1bd-3d97-4528-b63f-0c1e439b63e3",
+            "function_uuid": "681bb7d2-7f26-4633-b672-e8296ccb7a2d"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 3,
+        "fields": {
+            "endpoint_slug": "polaris-vllm-mistralaimistral-7b-instruct-v03",
+            "cluster": "polaris",
+            "framework": "vllm",
+            "model": "mistralai/Mistral-7B-Instruct-v0.3",
+            "endpoint_uuid": "8ed07893-9ccb-485f-b7bc-cf99117c1d85",
+            "function_uuid": "681bb7d2-7f26-4633-b672-e8296ccb7a2d"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 4,
+        "fields": {
             "endpoint_slug": "polaris-llama-cpp-meta-llama-3-8b-instruct",
             "cluster": "polaris",
             "framework": "llama-cpp",
@@ -13,7 +49,7 @@
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 2,
+        "pk": 5,
         "fields": {
             "endpoint_slug": "polaris-llama-cpp-mistral-7b-instruct-v03",
             "cluster": "polaris",
@@ -25,7 +61,7 @@
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 3,
+        "pk": 6,
         "fields": {
             "endpoint_slug": "polaris-llama-cpp-meta-llama-3-70b-instruct",
             "cluster": "polaris",
