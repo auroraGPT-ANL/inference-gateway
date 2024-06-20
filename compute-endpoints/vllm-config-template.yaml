@@ -14,7 +14,7 @@ engine:
     launcher:
       type: SimpleLauncher
     account: DataServicePrototype
-    cpus_per_node: 128
+    cpus_per_node: 64
     select_options: ngpus=4
     scheduler_options: '#PBS -l filesystems=home:eagle'
     queue: 'debug'
@@ -35,8 +35,8 @@ engine:
       export RAY_TMPDIR="/tmp"
       export RAYON_NUM_THREADS=4
       export RUST_BACKTRACE=1
-      nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &
-      sleep 20
+      export VLLM_WORKER_MULTIPROC_METHOD=fork
+      (nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &) && sleep 60
 # Limit the functions UUID that can be execute
 allowed_functions:
-   - f5129f81-ab07-4910-8391-52d1316296a9
+   - 681bb7d2-7f26-4633-b672-e8296ccb7a2d

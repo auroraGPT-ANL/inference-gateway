@@ -125,7 +125,7 @@ class ListEndpoints(APIView):
     """API view to list the available frameworks."""
 
     @globus_authenticated
-    def get(self,request):
+    def get(self,request, *args, **kwargs):
         # Fetch all relevant data
         endpoints = Endpoint.objects.all()
         # Prepare the list of endpoint URLs and model names
@@ -216,7 +216,7 @@ class Polaris(APIView):
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
                 model=data["model_params"]["model"],
-                prompt=data["model_params"]["prompt"],
+                prompt=data["model_params"]["prompt"] if "prompt" in data["model_params"] else data["model_params"]["messages"],
                 task_uuid=task_uuid,
                 completed=False,
                 sync=True
