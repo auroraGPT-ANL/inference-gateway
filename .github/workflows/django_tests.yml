@@ -6,7 +6,7 @@ on:
   push:
     branches:
       - main
-      - github-actions  # For development in github-actions branch
+      - github_actions  # For development in github_actions branch
   pull_request:
     branches:
       - main
