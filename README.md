@@ -1,3 +1,6 @@
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+![Build](https://github.com/auroraGPT-ANL/inference-gateway/workflows/Django/badge.svg)
+
 # Inference Gateway
 Prototype to create a checkpoint to authorize inference requests coming from outside Argonne.
 
