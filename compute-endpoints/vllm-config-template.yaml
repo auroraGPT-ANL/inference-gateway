@@ -3,7 +3,7 @@ display_name: polaris-vllm-meta-llama-3-70b-instruct
 engine:
   type: GlobusComputeEngine
   max_retries_on_system_failure: 2
-  max_workers_per_node: 2
+  max_workers_per_node: 4
   job_status_kwargs:
     max_idletime: 600
   address:
@@ -19,7 +19,7 @@ engine:
     scheduler_options: '#PBS -l filesystems=home:eagle'
     queue: 'debug'
     init_blocks: 0
-    max_blocks: 2
+    max_blocks: 1
     min_blocks: 0
     nodes_per_block: 1
     walltime: 00:60:00
