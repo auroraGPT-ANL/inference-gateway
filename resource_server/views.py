@@ -256,6 +256,7 @@ class Polaris(APIView):
         }
         if framework == "vllm":
             mandatory_keys["messages"] = list # New parameter for maintaining dialogue context]
+            
         elif framework == "llama-cpp":
             mandatory_keys["prompt"] = str # New parameter for user input prompt
         else:
@@ -301,7 +302,16 @@ class Polaris(APIView):
             "session_id": str,  # New parameter for session tracking
             "include_debug": bool,  # New parameter to include debug information in response
             "audio_config": dict,  # New parameter for specifying audio output configuration
-            "logprobs": bool
+            "logprobs": bool,
+            "top_logprobs": (int, type(None)),  # Integer or null
+            "n": (int, type(None)),  # Integer or null
+            "response_format": dict,  # Object specifying format
+            "service_tier": (str, type(None)),  # String or null
+            "stream_options": (dict, type(None)),  # Object or null
+            "tools": list,  # Array of tools
+            "tool_choice": (str, dict),  # String or object
+            "parallel_tool_calls": bool,  # Boolean
+            "user": str  # String
         } # TODO: Add more parameters
         
         # Decode request body into a dictionary
