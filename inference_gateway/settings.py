@@ -33,6 +33,9 @@ GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
 POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
 POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
 
+# Batch processing feature flag
+ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
+
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
@@ -63,8 +66,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'resource_server',
-    'drf_spectacular'
+    'drf_spectacular',
 ]
+
+if ENABLE_BATCHES:
+    INSTALLED_APPS.append('bulk_inference')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
