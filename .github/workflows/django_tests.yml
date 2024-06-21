@@ -34,7 +34,7 @@ jobs:
 
     # Re-usable workflow environment variables
     env:
-      WORKING_DIRECTORY: './inference-gateway'
+      WORKING_DIRECTORY: './'
 
     # Steps to be executed sequentially
     steps:
