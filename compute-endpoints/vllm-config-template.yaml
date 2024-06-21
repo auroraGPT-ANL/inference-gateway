@@ -1,5 +1,5 @@
 amqp_port: 443
-display_name: polaris-vllm-meta-llama-3-8b-instruct
+display_name: polaris-vllm-meta-llama-3-70b-instruct
 engine:
   type: GlobusComputeEngine
   max_retries_on_system_failure: 2
@@ -36,7 +36,7 @@ engine:
       export RAYON_NUM_THREADS=4
       export RUST_BACKTRACE=1
       export VLLM_WORKER_MULTIPROC_METHOD=fork
-      (nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &) && sleep 60
+      (nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &) && while ! grep -q "INFO:     Application startup complete." /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log; do sleep 1; done;
 # Limit the functions UUID that can be execute
 allowed_functions:
    - 681bb7d2-7f26-4633-b672-e8296ccb7a2d
