@@ -12,15 +12,15 @@ class Batch(models.Model):
 
     # What did the user request?
     endpoint = models.CharField(max_length=250)
-    input_file_path = models.CharField(max_length=250)
+    input_file_id = models.CharField(max_length=250) # actually a file path
     machine = models.CharField(max_length=250)
     metadata = models.JSONField(default=dict)
 
     # What is the status of the batch?
     errors = models.JSONField(default=dict)
     status = models.CharField(max_length=250, default='pending')
-    output_file_path = models.CharField(max_length=250, blank=True)
-    error_file_path = models.CharField(max_length=250, blank=True)
+    output_file_id = models.CharField(max_length=250, blank=True)
+    error_file_id = models.CharField(max_length=250, blank=True)
     created_at = models.DateTimeField(default=now)
     in_progress_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
