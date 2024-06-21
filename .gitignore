@@ -8,6 +8,7 @@ __pycache__/
 
 #  Django 
 db.sqlite3
+poetry.lock
 media/
 
 # Visual Studio Code
