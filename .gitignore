@@ -10,6 +10,7 @@ __pycache__/
 db.sqlite3
 poetry.lock
 media/
+.coverage
 
 # Visual Studio Code
 .vscode/*
