@@ -13,7 +13,7 @@ max_requests = 100
 # Process only one request at a time to avoid stealing Globus App SDK client session
 # This is temporary, once we use user's credentials and share compute endpoints, we can scale up
 worker_class = "sync"
-workers = 1
+workers = 4
 threads = 1
 
 # Access and error logs

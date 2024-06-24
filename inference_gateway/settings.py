@@ -32,6 +32,11 @@ GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
 GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
 POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
 POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
+GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
+GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
+
+# Batch processing feature flag
+ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
@@ -47,7 +52,6 @@ GLOBUS_POLICIES = ",".join(GLOBUS_POLICIES)
 # Extract allowed Globus groups that will determine which individuals get access
 GLOBUS_GROUPS = textfield_to_strlist(os.getenv("GLOBUS_GROUPS", ""))
 NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
-GLOBUS_GROUPS = ",".join(GLOBUS_GROUPS)
 
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]
@@ -63,8 +67,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'resource_server',
-    'drf_spectacular'
+    'drf_spectacular',
 ]
+
+if ENABLE_BATCHES:
+    INSTALLED_APPS.append('bulk_inference')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

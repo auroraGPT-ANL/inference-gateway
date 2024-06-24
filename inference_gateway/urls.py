@@ -13,11 +13,14 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+import os
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
-# schema_view = get_swagger_view(title="Inference Gateway")
+# Batch processing feature flag
+ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
+
 
 urlpatterns = [
     #path('admin/', admin.site.urls),
@@ -28,3 +31,6 @@ urlpatterns = [
     path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
+
+if ENABLE_BATCHES:
+    urlpatterns.append(path("bulk_inference/", include("bulk_inference.urls")))
