@@ -24,14 +24,16 @@ GLOBUS_APPLICATION_ID="<Globus-vLLM-API-CLIENT-ID>"
 GLOBUS_APPLICATION_SECRET="<Globus-vLLM-API-CLIENT-SECRET>"
 POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
 POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
+GLOBUS_GROUP_MANAGER_ID="<Globus-group-manager-identity>"
+GLOBUS_GROUP_MANAGER_SECRET="<Globus-group-manager-secret>"
 DEBUG=False
-GLOBUS_GROUPS="
-1e56984c-d5ae-11ee-8844-b93550bcf92a
-"
+GLOBUS_GROUPS=""
 GLOBUS_POLICIES="
 41689588-6a11-4ce9-aa24-f196ca7bf774
 "
 ```
+
+To enable Globus Group check, the `GLOBUS_GROUP_MANAGER` client must be a member in all allowed Globus Groups. This can be done with the Globus CLI with the following command `globus group member add <group-uuid> <GLOBUS_GROUP_MANAGER_ID>@clients.auth.globus.org`. The current Inference Group UUID that should be added in `GLOBUS_GROUPS` is 1e56984c-d5ae-11ee-8844-b93550bcf92a.
 
 ### Local Database
 
