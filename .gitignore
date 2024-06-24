@@ -7,6 +7,7 @@ __pycache__/
 .editorconfig
 
 #  Django 
+info.log
 db.sqlite3
 poetry.lock
 media/
