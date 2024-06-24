@@ -40,48 +40,36 @@ def check_globus_policies(client, bearer_token):
 
 
 # User In Allowed Groups
-def check_globus_groups(username):
+def check_globus_groups(client, bearer_token):
     """
         Define whether an authenticated user has the proper Globus memberships.
         User should be member of at least in one of the allowed Globus groups.
     """
 
-    # Error if no Globus Group manager was provided
-    if settings.GLOBUS_GROUP_MANAGER_ID == "" or settings.GLOBUS_GROUP_MANAGER_SECRET == "":
-        False, "No GLOBUS_GROUP_MANAGER credentials available to validate Globus Group memberships."
+    # Get dependent access token to view group membership
+    try:
+        dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
+        access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
+    except:
+        return False, "Could not recover dependent access token for groups.api.globus.org."
 
-    # Create the Globus client with the Group manager credentials
-    confidential_client = globus_sdk.ConfidentialAppAuthClient(
-        settings.GLOBUS_GROUP_MANAGER_ID, settings.GLOBUS_GROUP_MANAGER_SECRET
-    )
+    # Create a Globus Group Client using the access token sent by the user
+    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
 
-    # Get access token to manage groups
-    token_response = confidential_client.oauth2_client_credentials_tokens(
-        requested_scopes=[
-            globus_sdk.scopes.GroupsScopes.all
-        ]
-    )
-    access_token = token_response.by_resource_server["groups.api.globus.org"]['access_token']
-
-    # Group client using access token from confidential client 
-    groups_client = globus_sdk.GroupsClient(authorizer=globus_sdk.AccessTokenAuthorizer(access_token))
-
-    # For each Globus Group ...
-    for group_uuid in settings.GLOBUS_GROUPS:
-
-        # Extract list of active member usernames
-        active_usernames = []
-        response = groups_client.get_group(group_uuid, include="memberships")
-        for member in response.data["memberships"]:
-            if member["status"] == "active":
-                active_usernames.append(member["username"])
-
-        # Grant access if authenticated user is in one of the allowed Globus Group
-        if username in active_usernames:
-            return True, ""
-
+    # Collect the list of Globus Groups that the user is a member of
+    try:
+        user_groups = [group["id"] for group in groups_client.get_my_groups()]
+    except:
+        return False, "Could not recover group memberships."
+    
+    # Grant access if the user is a member of at least one of the allowed Globus Groups
+    if len(set(user_groups).intersection(settings.GLOBUS_GROUPS)) > 0:
+        return True, ""
+    
     # Deny access if authenticated user is not part of any of the allowed Globus Groups
-    return False, f"{username} is not a member of an allowed Globus Group."
+    else:
+        return False, f"User is not a member of an allowed Globus Group."
 
 
 # Globus Authenticated
@@ -144,7 +132,7 @@ def globus_authenticated(f):
                 
             # Make sure the authenticated user is at least in one of the allowed Globus Groups
             if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
-                successful, error_message = check_globus_groups(introspection["username"])
+                successful, error_message = check_globus_groups(client, bearer_token)
                 if not successful:
                     return Response({"Error": error_message}, status=401)
 
