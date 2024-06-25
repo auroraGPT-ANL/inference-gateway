@@ -31,8 +31,8 @@ class ResourceServerViewTestCase(APITestCase):
         self.factory = APIRequestFactory()
 
 
-    # Test ListEndpoints (get) 
-    def test_ListEndpoints_get_view(self):
+    # Test ListEndpoints (GET) 
+    def test_ListEndpoints_view(self):
 
         # Define the targeted Django URL
         url = "/resource_server/list-endpoints/"
@@ -40,15 +40,20 @@ class ResourceServerViewTestCase(APITestCase):
         # Select the targeted Django view
         view = views.ListEndpoints.as_view()
 
-        # Make sure requests fail if something is wrong with the authentication
-        self.__verify_headers_failures(url, view)
+        # Make sure GET requests fail if something is wrong with the authentication
+        self.__verify_headers_failures(url=url, view=view, method=self.factory.get)
 
-        # Make sure requests succeed when providing a valid access token
+        # Make sure non-GET requests are not allowed
+        for method in [self.factory.post, self.factory.put, self.factory.delete]:
+            response = view(method(url))
+            self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)    
+
+        # Make sure GET requests succeed when providing a valid access token
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=True)
         response = view(self.factory.get(url, headers=headers))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Make sure requests return the correct number of endpoints
+        # Make sure GET requests return the correct number of endpoints
         db_endpoints = Endpoint.objects.all()
         self.assertEqual(len(db_endpoints), len(response.data))
 
@@ -66,25 +71,25 @@ class ResourceServerViewTestCase(APITestCase):
 
 
     # Verify headers failures
-    def __verify_headers_failures(self, url, view):
+    def __verify_headers_failures(self, url=None, view=None, method=None):
 
         # Should fail (not authenticated)
         headers = mock_utils.get_mock_headers(access_token="")
-        response = view(self.factory.get(url, headers=headers))
+        response = view(method(url, headers=headers))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Should fail (not a bearer token)
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=False)
-        response = view(self.factory.get(url, headers=headers))
+        response = view(method(url, headers=headers))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Should fail (not a valid token)
         headers = mock_utils.get_mock_headers(access_token=self.invalid_token, bearer=True)
-        response = view(self.factory.get(url, headers=headers))
+        response = view(method(url, headers=headers))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # Should fail (expired token)
         headers = mock_utils.get_mock_headers(access_token=self.expired_token, bearer=True)
-        response = view(self.factory.get(url, headers=headers))
+        response = view(method(url, headers=headers))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         
