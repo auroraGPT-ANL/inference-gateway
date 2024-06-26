@@ -55,10 +55,7 @@ class ResourceServerViewTestCase(APITestCase):
         # Make sure GET requests succeed when providing a valid access token
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=True)
         response = view(self.factory.get(url, headers=headers))
-        print("before")
-        print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        print("after")
 
         # Make sure GET requests return the correct number of endpoints
         self.assertEqual(self.len_db_endpoints, len(response.data))
