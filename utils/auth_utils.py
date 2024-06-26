@@ -8,6 +8,16 @@ import time
 import logging
 log = logging.getLogger(__name__)
 
+
+# Get Globus SDK confidential client
+def get_globus_client():
+    return globus_sdk.ConfidentialAppAuthClient(
+        settings.GLOBUS_APPLICATION_ID, 
+        settings.GLOBUS_APPLICATION_SECRET
+    )
+
+
+# Check Globus Policies
 def check_globus_policies(client, bearer_token):
     """
         Define whether an authenticated user respect the Globus policies.
@@ -82,11 +92,8 @@ def globus_authenticated(f):
     @functools.wraps(f)
     def check_bearer_token(self, request, *args, **kwargs):
         try:
-            # Create vLLM service client
-            client =  globus_sdk.ConfidentialAppAuthClient(
-                settings.GLOBUS_APPLICATION_ID, 
-                settings.GLOBUS_APPLICATION_SECRET
-            )
+            # Create Globus SDK confidential client
+            client = get_globus_client()
 
             # Make sure the request is authenticated
             auth_header = request.headers.get("Authorization")

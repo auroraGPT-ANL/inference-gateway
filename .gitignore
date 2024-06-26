@@ -7,8 +7,10 @@ __pycache__/
 .editorconfig
 
 #  Django 
+info.log
 db.sqlite3
 media/
+.coverage
 
 # Visual Studio Code
 .vscode/*
