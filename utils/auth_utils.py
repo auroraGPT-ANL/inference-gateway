@@ -68,7 +68,7 @@ def globus_authenticated(f):
     @functools.wraps(f)
     def check_bearer_token(self, request, *args, **kwargs):
         try:
-            # Create the Globus action provider SDK client
+            # Create Globus SDK confidential client
             client = get_globus_client()
 
             # Make sure the request is authenticated
