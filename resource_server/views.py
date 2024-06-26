@@ -2,7 +2,6 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from utils.auth_utils import globus_authenticated
 
-from django.conf import settings
 import time
 import json
 import globus_sdk
@@ -74,6 +73,7 @@ class Polaris(APIView):
         ]))
         log.info("endpoint_slug", endpoint_slug)
         print("endpoint_slug", endpoint_slug)
+
         # Pull the targetted endpoint UUID and function UUID from the database
         try:
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
