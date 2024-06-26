@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
                 ("username", models.CharField(max_length=100)),
                 ("cluster", models.CharField(max_length=100)),
                 ("framework", models.CharField(max_length=100)),
+                ("openai_endpoint", models.CharField(max_length=100, null=True, blank=True)),
                 ("model", models.CharField(max_length=100)),
                 ("prompt", models.TextField()),
                 ("task_uuid", models.CharField(max_length=100, unique=True)),

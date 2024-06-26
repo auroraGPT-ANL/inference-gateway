@@ -1,12 +1,12 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from utils.auth_utils import globus_authenticated
-
 import time
 import json
 import globus_sdk
 from django.utils.text import slugify
 from resource_server.models import Endpoint, Log
+from django.urls import resolve
 
 # Tool to log access requests
 import logging
@@ -23,20 +23,20 @@ class ListEndpoints(APIView):
     @globus_authenticated
     def get(self,request, *args, **kwargs):
         # Fetch all relevant data
-        endpoints = Endpoint.objects.all()
-        # Prepare the list of endpoint URLs and model names
-        result = []
-        for endpoint in endpoints:
-            url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/completions/"
-            result.append({
-                "endpoint_url": url,
-                "model_name": endpoint.model
-            })
-
-        if not result:
-            return Response({"Error": "No endpoints found."}, status=404)
-
-        return Response(result)
+        all_endpoints = []
+        try:
+            endpoints = Endpoint.objects.all()
+            for endpoint in endpoints:
+                all_endpoints.append({
+                    "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
+                    "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
+                    "model_name": endpoint.model
+                })
+            if not all_endpoints:
+                return Response({"Error": "No endpoints found."}, status=400)
+        except Exception as e:
+            return Response({"Error": f"Exception while fetching endpoints.{e}"}, status=400)
+        return Response(all_endpoints)
 
 # Polaris view
 class Polaris(APIView):
@@ -45,22 +45,30 @@ class Polaris(APIView):
     # Define the targetted cluster
     cluster = "polaris"
     allowed_frameworks = ["llama-cpp", "vllm"]
+    allowed_openai_endpoints = ["chat/completions", "completions"]
     
     # Post request call
     # TODO: We might want to pull this out of the Polaris view if 
     #       we want to reuse the post definition for other cluster.
     @globus_authenticated
-    def post(self, request, framework, *args, **kwargs):
+    def post(self, request, framework, openai_endpoint, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
-        
         # Make sure the requested framework is supported
         if not framework:
             return Response({"Error": "framework not provided."}, status=400)
         if not framework in self.allowed_frameworks:
             return Response({"Error": f"The requested {framework} is not supported."}, status=400)
+
+        # Make sure the requested endpoint is supported
+        if not openai_endpoint:
+            return Response({"Error": f"openai endpoint of type {self.allowed_openai_endpoints} not provided."}, status=400)
+        if not openai_endpoint in self.allowed_openai_endpoints:
+            return Response({"Error": f"The requested {openai_endpoint} is not supported."}, status=400)
         
+        # Make sure the request body is valid
         # Validate and build the inference request data
-        data = self.__validate_request_body(request, framework)
+        data = self.__validate_request_body(request, framework, openai_endpoint)
+
         if "error" in data.keys():
             return Response({"Error": data["error"]}, status=400)
         log.info("data", data)
@@ -113,6 +121,7 @@ class Polaris(APIView):
                 cluster=self.cluster.lower(),
                 framework=framework.lower(),
                 model=data["model_params"]["model"],
+                openai_endpoint=data["model_params"]["openai_endpoint"],
                 prompt=data["model_params"]["prompt"] if "prompt" in data["model_params"] else data["model_params"]["messages"],
                 task_uuid=task_uuid,
                 completed=False,
@@ -144,16 +153,22 @@ class Polaris(APIView):
 
 
     # Validate request body
-    def __validate_request_body(self, request, framework):
+    def __validate_request_body(self, request, framework, openai_endpoint):
         """Build data dictionary for inference request if user inputs are valid."""
 
         # Define the expected keys and their types
         mandatory_keys = {
-            "model": str
+            "model": str,
         }
+
         if framework == "vllm":
-            mandatory_keys["messages"] = list # New parameter for maintaining dialogue context]
-            
+             # Determine the URL type based on the request path
+            if "chat/completions" in openai_endpoint:
+                mandatory_keys["messages"] = list
+            elif "completions" in openai_endpoint:
+                mandatory_keys["prompt"] = str
+            else:
+                return {"Error": "Invalid URL path"}          
         elif framework == "llama-cpp":
             mandatory_keys["prompt"] = str # New parameter for user input prompt
         else:
@@ -233,6 +248,9 @@ class Polaris(APIView):
         for key in model_params:
             if key not in mandatory_keys and key not in optional_keys:
                 return {"error": f"Input parameter not supported: {key}"}
+
+        # Add the 'url' parameter to model_params
+        model_params['openai_endpoint'] = openai_endpoint
 
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}
