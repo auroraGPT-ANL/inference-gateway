@@ -50,6 +50,9 @@ class Log(models.Model):
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=100)
 
+    # Requested openai_endpoint
+    openai_endpoint = models.CharField(max_length=100, default="Empty")
+
     # Prompt requested by the user
     # TODO: Should we add all the other parameters?
     prompt = models.TextField()
