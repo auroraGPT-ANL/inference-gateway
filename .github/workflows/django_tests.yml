@@ -14,22 +14,9 @@ on:
 # List of tests
 jobs:
 
-  # 1) Check python syntax
-#  syntax:
-#    name: Syntax
-#    runs-on: ubuntu-latest
-
-    # Steps to be executed sequentially
-#    steps:
-#      - name: Clone current GitHub repository
-#        uses: actions/checkout@v2
-#      - name: Check Python syntax
-#        uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
-
-  # 2) Execute built-in Django tests following the syntax check
+  # Execute built-in Django tests along with a python syntax check
   django:
     name: Django
-    #needs: [syntax]
     runs-on: ubuntu-latest
 
     # Re-usable workflow environment variables
