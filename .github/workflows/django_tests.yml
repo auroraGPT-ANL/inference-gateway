@@ -15,21 +15,21 @@ on:
 jobs:
 
   # 1) Check python syntax
-  syntax:
-    name: Syntax
-    runs-on: ubuntu-latest
+#  syntax:
+#    name: Syntax
+#    runs-on: ubuntu-latest
 
     # Steps to be executed sequentially
-    steps:
-      - name: Clone current GitHub repository
-        uses: actions/checkout@v2
-      - name: Check Python syntax
-        uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
+#    steps:
+#      - name: Clone current GitHub repository
+#        uses: actions/checkout@v2
+#      - name: Check Python syntax
+#        uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
   # 2) Execute built-in Django tests following the syntax check
   django:
     name: Django
-    needs: [syntax]
+    #needs: [syntax]
     runs-on: ubuntu-latest
 
     # Re-usable workflow environment variables
@@ -42,6 +42,10 @@ jobs:
       # Upload codes to the environment
       - name: Clone current GitHub repository
         uses: actions/checkout@v2
+
+      # Scan codes to look for syntax errors
+      - name: Check Python syntax
+        uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
       # Install the python version that emerged from pyproject.toml
       - name: Install Python 3.10.7
