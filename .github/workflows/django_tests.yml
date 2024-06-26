@@ -40,8 +40,8 @@ jobs:
     steps:
     
       # Upload codes to the environment
-      - name: Clone current GitHub repository
-        uses: actions/checkout@v2
+      #- name: Clone current GitHub repository
+      #  uses: actions/checkout@v2
 
       # Install the python version that emerged from pyproject.toml
       - name: Install Python 3.10.7
