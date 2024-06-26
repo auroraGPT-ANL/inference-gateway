@@ -65,7 +65,8 @@ class ResourceServerViewTestCase(APITestCase):
 
             # Build dictionary entry to compare with the request response
             entry = {
-                "endpoint_url": self.__get_endpoint_url(endpoint),
+                "completion_endpoint_url": self.__get_endpoint_url(endpoint)[0],
+                "chat_endpoint_url": self.__get_endpoint_url(endpoint)[1],
                 "model_name": endpoint.model
             }
 
@@ -83,15 +84,16 @@ class ResourceServerViewTestCase(APITestCase):
         for endpoint in self.db_endpoints:
             
             # Build the targeted Django URL
-            url = self.__get_endpoint_url(endpoint)
+            urllist = self.__get_endpoint_url(endpoint)
 
-            # Make sure GET requests fail if something is wrong with the authentication
-            self.__verify_headers_failures(url=url, view=view, method=self.factory.post)
+            for url in urllist:
+                # Make sure GET requests fail if something is wrong with the authentication
+                self.__verify_headers_failures(url=url, view=view, method=self.factory.post)
 
-            # Make sure non-POST requests are not allowed
-            for method in [self.factory.get, self.factory.put, self.factory.delete]:
-                response = view(method(url))
-                self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+                # Make sure non-POST requests are not allowed
+                for method in [self.factory.get, self.factory.put, self.factory.delete]:
+                    response = view(method(url))
+                    self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
             #TODO: Make more tests here
 
@@ -122,4 +124,4 @@ class ResourceServerViewTestCase(APITestCase):
 
     # Get endpoint URL
     def __get_endpoint_url(self, endpoint):
-        return f"/resource_server/{endpoint.cluster}/{endpoint.framework}/completions/"
+        return [f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"]
