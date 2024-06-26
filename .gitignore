@@ -9,7 +9,6 @@ __pycache__/
 #  Django 
 info.log
 db.sqlite3
-poetry.lock
 media/
 .coverage
 
