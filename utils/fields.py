@@ -38,15 +38,34 @@ class OpenAIPromptField(BaseCustomField):
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIPromptField, self).__init__(*args, **kwargs)
-        self.custom_error_message = "'prompt' must be a string or a list of strings."
+        self.custom_error_message = "'prompt' must be a string, a list of strings, a list of tokens (int), or a list of token lists."
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
+
+        # Single string
         if isinstance(data, str):
             return True
+        
+        # List
         if isinstance(data, list):
+
+            # List of strings
             if all(isinstance(x, str) for x in data):
                 return True
+            
+            # List of integers (tokens)
+            if all(isinstance(x, int) for x in data):
+                return True
+            
+            # List of integer lists (list of tokens)
+            if all(isinstance(x, list) for x in data):
+                for data_list in data:
+                    if not all(isinstance(x, int) for x in data_list):
+                        return False # wrong format
+                return True
+        
+        # Wrong format
         return False
 
 
@@ -82,8 +101,8 @@ class OpenAIStopField(BaseCustomField):
         if isinstance(data, str):
             return True
         if isinstance(data, list):
-            if all(isinstance(x, str) for x in data) and len(data) < 4:
-                    True
+            if all(isinstance(x, str) for x in data) and len(data) <= 4:
+                return True
         return False
     
 
@@ -172,6 +191,19 @@ class OpenAIFunctionNameField(BaseCustomField):
                 if test_data.isalnum():
                     return True
         return False
+
+
+# OpenAI tool function serializer (needed for OpenAIParamSerializer)
+class OpenAIToolFunctionSerializer(serializers.Serializer):
+    description = TrueCharField(required=False)
+    name = OpenAIFunctionNameField(required=True)
+    parameters = serializers.DictField(required=False) # TODO: Should do checks for what goes inside
+
+
+# OpenAI tool serializer (needed for OpenAIParamSerializer)
+class OpenAIToolSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["function"], required=True)
+    function = OpenAIToolFunctionSerializer(required=True)
 
 
 # OpenAI tool choice object function serializer (needed for OpenAIToolChoiceField)
