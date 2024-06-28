@@ -65,3 +65,4 @@ class OpenAIParamSerializer(serializers.Serializer):
     tool_choice = fields.OpenAIToolChoiceField(**OPT)
     parallel_tool_calls = serializers.BooleanField(**OPT)
     user = fields.TrueCharField(**OPT)
+
