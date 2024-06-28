@@ -31,7 +31,7 @@ class UtilsSerializersTestCase(APITestCase):
         # For each valid set of parameters ...
         for valid_params in self.valid_legacy_openai_params:
 
-            # Send the data to the serializer
+            # Send the data to the serializer and make sure the data is valid
             serializer = OpenAILegacyParamSerializer(data=valid_params)
             self.assertTrue(serializer.is_valid(raise_exception=True))
 
@@ -40,19 +40,9 @@ class UtilsSerializersTestCase(APITestCase):
 
             # Send the data to the serializer
             serializer = OpenAILegacyParamSerializer(data=invalid_params)
+
+            # Make sure the data is not valid
             if serializer.is_valid(raise_exception=False):
-                print(invalid_params)
+                print(invalid_params) # TODO: Is there a better way to print out info with self.assertFalse?
             self.assertFalse(serializer.is_valid(raise_exception=False))
-
-        data = {
-        "model": "model",
-        "prompt": "prompt",
-        
-        }
-        serializer = OpenAILegacyParamSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
-
     
-              
-            
-        #self.assertEqual("a", "b")
