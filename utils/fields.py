@@ -1,0 +1,281 @@
+from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+
+
+# True string field that rejects non-string inputs
+class TrueCharField(serializers.CharField):
+
+    # Overwrite to_representation function with no edits to the value
+    def to_representation(self, value):
+        return value
+    
+    # Overwrite to_internal_value to raise errors if the data has the wrong types
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            return True
+        else:
+            raise ValidationError("Value not a string.") # TODO: Should make sure to give more details to users
+
+
+# Reusable custom serializer field with multiple allowed types
+class BaseCustomField(serializers.Field):
+
+    # Overwrite to_representation function with no edits to the value
+    def to_representation(self, value):
+        return value
+    
+    # Overwrite to_internal_value to raise errors if the data has the wrong types
+    def to_internal_value(self, data):
+        if self.has_valid_types(data):
+            return data
+        else:
+            raise ValidationError(self.custom_error_message)
+
+
+# OpenAI Legacy prompt field
+class OpenAIPromptField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIPromptField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'prompt' must be a string or a list of strings."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            return True
+        if isinstance(data, list):
+            if all(isinstance(x, str) for x in data):
+                return True
+        return False
+
+
+# OpenAI logit_bias field
+class OpenAILogitBiasField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAILogitBiasField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'logit_bias' must a dictionary in the form of {'50256': -100}, with values between -100 and 100."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, dict):
+            if all(isinstance(x, str) for x in data.keys()):
+                values = data.values()
+                if all(isinstance(x, (float,int)) for x in values):
+                    if (-100) <= min(values) and max(values) <= 100:
+                        return True
+        return False
+    
+
+# OpenAI stop field
+class OpenAIStopField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIStopField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'stop' must a string or a list of strings with no more than 4 sequences."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            return True
+        if isinstance(data, list):
+            if all(isinstance(x, str) for x in data) and len(data) < 4:
+                    True
+        return False
+    
+
+# OpenAI stream_options field
+class OpenAIStreamOptionsField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIStreamOptionsField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'stream_options' must be a dictionary with {'include_usage': True or False}"
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if data == {"include_usage": True} or data == {"include_usage": False}:
+            return True
+        return False
+    
+
+# OpenAI response_format field
+class OpenAIResponseFormatField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIResponseFormatField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'response_format' must either be {'type': 'text'} or {'type': 'json_object'}"
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if data == {"type": "text"} or data == {"type": "json_object"}:
+            return True
+        return False
+
+
+# OpenAI image URL serializer (needed for OpenAIUserContentField)
+class OpenAIImageURLSerializer(serializers.Serializer):
+    url = TrueCharField(required=True)
+    detail = TrueCharField(required=False)
+
+
+# OpenAI image serializer (needed for OpenAIUserContentField)
+class OpenAIImageSerializer(serializers.Serializer):
+    type = TrueCharField(required=True)
+    image_url = OpenAIImageURLSerializer(required=True)
+
+
+# OpenAI text serializer (needed for OpenAIUserContentField)
+class OpenAITextSerializer(serializers.Serializer):
+    type = TrueCharField(required=True)
+    text = TrueCharField(required=True)
+
+
+# OpenAI user content field
+class OpenAIUserContentField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIUserContentField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'content' with user role must be a Text or an Array content."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            return True
+        if isinstance(data, list):
+            for content in data:
+                text_serializer = OpenAITextSerializer(data=content)
+                image_url_serializer = OpenAIImageSerializer(data=content)
+                if text_serializer.is_valid(raise_exception=False) or image_url_serializer.is_valid(raise_exception=False):
+                    return True
+        return False
+
+
+# OpenAI function name field
+class OpenAIFunctionNameField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIFunctionNameField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'name' must be a string (max length of 64) and can only include a-z, A-Z, 0-9, underscores, and dashes."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            if len(data) <= 64:
+                test_data = data.replace("-","").replace("_","")
+                if test_data.isalnum():
+                    return True
+        return False
+
+
+# OpenAI tool choice object function serializer (needed for OpenAIToolChoiceField)
+class OpenAIToolChoiceObjectFunctionSerializer(serializers.Serializer):
+    name = TrueCharField(required=True)
+
+
+# OpenAI tool choice object serializer (needed for OpenAIToolChoiceField)
+class OpenAIToolChoiceObjectSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices="function", required=True)
+    function = OpenAIToolChoiceObjectFunctionSerializer(required=True)
+
+
+# OpenAI tool choicefield
+class OpenAIToolChoiceField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIToolChoiceField, self).__init__(*args, **kwargs)
+        form = "{ 'type': 'function', 'function': {'name': 'my_function'} }"
+        self.choices = ["none", "auto", "required"]
+        self.custom_error_message = f"'tool_choice' must be a string ({self.choices}) or a dictionary in the form of {form}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            if data in self.choices:
+                return True
+        if isinstance(data, dict):
+            serializer = OpenAIToolChoiceObjectSerializer(data=data)
+            if serializer.is_valid(raise_exception=False):
+                return True
+        return False
+
+
+# OpenAI tool call function serializer (needed for OpenAIToolCallSerializer)
+class OpenAIToolCallFunctionSerializer(serializers.Serializer):
+    name = TrueCharField(required=True)
+    arguments = TrueCharField(required=True)
+
+
+# OpenAI tool call serializer (needed for OpenAIAssistantMessageSerializer)
+class OpenAIToolCallSerializer(serializers.Serializer):
+    id = TrueCharField(required=True)
+    type = serializers.ChoiceField(choices=["function"], required=True)
+    function = OpenAIToolCallFunctionSerializer(required=True)
+
+
+# OpenAI system-role message serializer (needed for OpenAIMessageField)
+class OpenAISystemMessageSerializer(serializers.Serializer):
+    content = TrueCharField(required=True)
+    role = serializers.ChoiceField(choices=["system"], required=True)
+    name = TrueCharField(required=False)
+
+
+# OpenAI user-role message serializer (needed for OpenAIMessageField)
+class OpenAIUserMessageSerializer(serializers.Serializer):
+    content = OpenAIUserContentField(required=True)
+    role = serializers.ChoiceField(choices=["user"], required=True)
+    name = TrueCharField(required=False)
+
+
+# OpenAI assistant-role message serializer (needed for OpenAIMessageField)
+class OpenAIAssistantMessageSerializer(serializers.Serializer):
+    content = TrueCharField(allow_null=True, required=True) # TODO: not required if tool_calls is specified
+    role = serializers.ChoiceField(choices=["assistant"], required=True)
+    name = TrueCharField(required=False)
+    tool_calls = serializers.ListField(child=OpenAIToolCallSerializer, required=False)
+
+
+# OpenAI tool-role message serializer (needed for OpenAIMessageField)
+class OpenAIToolMessageSerializer(serializers.Serializer):
+    content = TrueCharField(required=True)
+    role = serializers.ChoiceField(choices=["tool"], required=True)
+    tool_call_id = TrueCharField(required=True)
+
+
+# OpenAI function-role message serializer (needed for OpenAIMessageField)
+class OpenAIFunctionMessageSerializer(serializers.Serializer):
+    content = TrueCharField(allow_null=True, required=True)
+    role = serializers.ChoiceField(choices=["function"], required=True)
+    name = TrueCharField(required=True)
+
+
+# OpenAI message field
+class OpenAIMessageField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIToolChoiceField, self).__init__(*args, **kwargs)
+        self.serializer_choices = {
+            "system": OpenAISystemMessageSerializer,
+            "user": OpenAIUserMessageSerializer,
+            "assistant": OpenAIAssistantMessageSerializer,
+            "tool": OpenAIToolMessageSerializer,
+            "function": OpenAIFunctionMessageSerializer
+        }
+        self.custom_error_message = f"Message object must have one of the following 'roles': {self.serializer_choices.keys()}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if "role" in data:
+            if data["role"] in self.serializer_choices:
+                serializer = self.serializer_choices[data["role"]](data=data)
+                if serializer.is_valie(raise_exception=False):
+                    return True
+        return False
