@@ -239,7 +239,7 @@ class OpenAIAssistantMessageSerializer(serializers.Serializer):
     content = TrueCharField(allow_null=True, required=True) # TODO: not required if tool_calls is specified
     role = serializers.ChoiceField(choices=["assistant"], required=True)
     name = TrueCharField(required=False)
-    tool_calls = serializers.ListField(child=OpenAIToolCallSerializer, required=False)
+    tool_calls = serializers.ListField(child=OpenAIToolCallSerializer(), required=False)
 
 
 # OpenAI tool-role message serializer (needed for OpenAIMessageField)
@@ -261,7 +261,7 @@ class OpenAIMessageField(BaseCustomField):
 
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
-        super(OpenAIToolChoiceField, self).__init__(*args, **kwargs)
+        super(OpenAIMessageField, self).__init__(*args, **kwargs)
         self.serializer_choices = {
             "system": OpenAISystemMessageSerializer,
             "user": OpenAIUserMessageSerializer,

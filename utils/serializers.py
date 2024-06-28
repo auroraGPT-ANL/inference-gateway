@@ -59,7 +59,7 @@ class OpenAIParamSerializer(serializers.Serializer):
 
     # Mandatory model parameters
     kwargs = {"required": True}
-    messages = serializers.ListField(child=fields.OpenAIMessageField, allow_empty=False, **kwargs)
+    messages = serializers.ListField(child=fields.OpenAIMessageField(), allow_empty=False, **kwargs)
     model = fields.TrueCharField(max_length="256", allow_blank=False, **kwargs)
 
     # Optional model parameters
@@ -80,7 +80,7 @@ class OpenAIParamSerializer(serializers.Serializer):
     stream_options = fields.OpenAIStreamOptionsField(**kwargs_null) # TODO: 1) Only if stream==True, 2) Did I get this one right?
     temperature = serializers.FloatField(min_value=0, max_value=2, **kwargs_null)
     top_p = serializers.FloatField(min_value=0, max_value=1, **kwargs_null) # TODO: Is the min/max range ok?
-    tools = serializers.ListField(child=OpenAIToolSerializer, max_length=128, **kwargs)
+    tools = serializers.ListField(child=OpenAIToolSerializer(), max_length=128, **kwargs)
     tool_choice = fields.OpenAIToolChoiceField(**kwargs)
     parallel_tool_calls = serializers.BooleanField(**kwargs)
     user = fields.TrueCharField(max_length=256, **kwargs)
