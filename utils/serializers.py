@@ -25,7 +25,7 @@ class OpenAILegacyParamSerializer(serializers.Serializer):
     logit_bias = fields.OpenAILogitBiasField(**OPT)
     logprobs = serializers.IntegerField(min_value=0, max_value=5, **OPT_NULL)
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL) # TODO: is min_value = 1 ok?
-    n = serializers.IntegerField(min_value=0, **OPT_NULL) # TODO: is min_value = 0 ok?
+    n = serializers.IntegerField(min_value=1, **OPT_NULL) # TODO: is min_value = 1 ok?
     presence_penalty = serializers.FloatField(min_value=-2, max_value=2, **OPT_NULL)
     seed = serializers.IntegerField(**OPT_NULL) # TODO: Any constraints on this value?
     stop = fields.OpenAIStopField(**OPT_NULL) # TODO: Did I get this one right?
@@ -51,7 +51,7 @@ class OpenAIParamSerializer(serializers.Serializer):
     logprobs = serializers.BooleanField(**OPT_NULL)
     top_logprobs = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: logsprobs must be True to use it
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL) #TODO: check min/max restrictions
-    n = serializers.IntegerField(min_value=0, **OPT_NULL) # TODO: is min_value = 0 ok?    
+    n = serializers.IntegerField(min_value=1, **OPT_NULL) # TODO: is min_value = 1 ok?    
     presence_penalty = serializers.FloatField(min_value=-2, max_value=2, **OPT_NULL)
     response_format = fields.OpenAIResponseFormatField(**OPT)
     seed = serializers.IntegerField(**OPT_NULL) # TODO: min/max?
