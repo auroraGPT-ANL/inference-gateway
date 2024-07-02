@@ -56,7 +56,8 @@ NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]
 
-APPEND_SLASH = True
+APPEND_SLASH = False
+
 
 # Application definition
 
