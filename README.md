@@ -65,3 +65,11 @@ python manage.py loaddata fixtures/endpoints.json
 ```bash
 python manage.py runserver
 ```
+
+## Run Bulk Inference API
+
+Install with poetry and run from within `poetry shell`:
+
+```
+poetry run agpt-bulk-cli
+```
