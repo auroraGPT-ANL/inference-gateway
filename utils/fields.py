@@ -144,13 +144,13 @@ class OpenAIImageURLSerializer(serializers.Serializer):
 
 # OpenAI image serializer (needed for OpenAIUserContentField)
 class OpenAIImageSerializer(serializers.Serializer):
-    type = TrueCharField(required=True)
+    type = serializers.ChoiceField(choices=["image_url"], required=True)
     image_url = OpenAIImageURLSerializer(required=True)
 
 
 # OpenAI text serializer (needed for OpenAIUserContentField)
 class OpenAITextSerializer(serializers.Serializer):
-    type = TrueCharField(required=True)
+    type = serializers.ChoiceField(choices=["text"], required=True)
     text = TrueCharField(required=True)
 
 
@@ -160,18 +160,40 @@ class OpenAIUserContentField(BaseCustomField):
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIUserContentField, self).__init__(*args, **kwargs)
-        self.custom_error_message = "'content' with user role must be a Text or an Array content."
+        self.custom_error_message = "'content' with user role must be a string or an Array content."
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
+
+        # Simple string
         if isinstance(data, str):
             return True
+        
+        # List of content parts
         if isinstance(data, list):
             for content in data:
-                text_serializer = OpenAITextSerializer(data=content)
-                image_url_serializer = OpenAIImageSerializer(data=content)
-                if text_serializer.is_valid(raise_exception=False) or image_url_serializer.is_valid(raise_exception=False):
-                    return True
+                if "type" not in content:
+                    raise ValidationError("'type' must be present for each Array content part of a user message content.")
+                else:
+
+                    # Text content (raises exception if something is wrong)
+                    if content["type"] == "text":
+                        text_serializer = OpenAITextSerializer(data=content)
+                        text_serializer.is_valid(raise_exception=True)
+                    
+                    # Image URL content (raises exception if something is wrong)
+                    elif content["type"] == "image_url":
+                        image_url_serializer = OpenAIImageSerializer(data=content)
+                        image_url_serializer.is_valid(raise_exception=True)
+                        
+                    # Wrong type
+                    else:
+                        raise ValidationError("'type' can either be equal to 'text' or 'image_url'.")
+            
+            # Return True if nothing wrong was spotted in the list of content
+            return True
+                
+        # Wrong format
         return False
 
 
@@ -213,7 +235,7 @@ class OpenAIToolChoiceObjectFunctionSerializer(serializers.Serializer):
 
 # OpenAI tool choice object serializer (needed for OpenAIToolChoiceField)
 class OpenAIToolChoiceObjectSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices="function", required=True)
+    type = serializers.ChoiceField(choices=["function"], required=True)
     function = OpenAIToolChoiceObjectFunctionSerializer(required=True)
 
 
@@ -234,7 +256,7 @@ class OpenAIToolChoiceField(BaseCustomField):
                 return True
         if isinstance(data, dict):
             serializer = OpenAIToolChoiceObjectSerializer(data=data)
-            if serializer.is_valid(raise_exception=False):
+            if serializer.is_valid(raise_exception=True):
                 return True
         return False
 
@@ -308,6 +330,6 @@ class OpenAIMessageField(BaseCustomField):
         if "role" in data:
             if data["role"] in self.serializer_choices:
                 serializer = self.serializer_choices[data["role"]](data=data)
-                if serializer.is_valie(raise_exception=False):
+                if serializer.is_valid(raise_exception=True):
                     return True
         return False
