@@ -64,9 +64,10 @@ class ResourceServerViewTestCase(APITestCase):
         for endpoint in self.db_endpoints:
 
             # Build dictionary entry to compare with the request response
+            urls = self.__get_endpoint_url(endpoint)
             entry = {
-                "completion_endpoint_url": self.__get_endpoint_url(endpoint)[0],
-                "chat_endpoint_url": self.__get_endpoint_url(endpoint)[1],
+                "completion_endpoint_url": urls["completions/"],
+                "chat_endpoint_url": urls["chat/completions/"],
                 "model_name": endpoint.model
             }
 
@@ -83,10 +84,12 @@ class ResourceServerViewTestCase(APITestCase):
         # For each endpoint ...
         for endpoint in self.db_endpoints:
             
-            # Build the targeted Django URL
-            urllist = self.__get_endpoint_url(endpoint)
+            # Build the targeted Django URLs
+            url_dict = self.__get_endpoint_url(endpoint)
 
-            for url in urllist:
+            # For each URL ...
+            for url in url_dict.values():
+
                 # Make sure GET requests fail if something is wrong with the authentication
                 self.__verify_headers_failures(url=url, view=view, method=self.factory.post)
 
@@ -124,4 +127,7 @@ class ResourceServerViewTestCase(APITestCase):
 
     # Get endpoint URL
     def __get_endpoint_url(self, endpoint):
-        return [f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"]
+        return {
+            "completions/": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
+            "chat/completions/": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
+        }
