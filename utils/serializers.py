@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 from utils import fields
 
 # TODO: overwrite is_valid or validate function to raise errors when passing extra parameters
@@ -12,7 +13,7 @@ OPT_NULL = {"required": False, "allow_null": True}
 
 # OpenAI Legacy parameter serializer
 # https://platform.openai.com/docs/api-reference/completions/create
-class OpenAILegacyParamSerializer(serializers.Serializer):
+class OpenAILegacyParamSerializer(fields.BaseSerializers):
 
     # Mandatory model parameters
     model = fields.TrueCharField(allow_blank=False, **MAND) #TODO: Provide validation on choices (ChoiceField)
@@ -39,7 +40,7 @@ class OpenAILegacyParamSerializer(serializers.Serializer):
 
 # OpenAI chat parameter serializer
 # https://platform.openai.com/docs/api-reference/chat/create
-class OpenAIParamSerializer(serializers.Serializer):
+class OpenAIParamSerializer(fields.BaseSerializers):
 
     # Mandatory model parameters
     messages = serializers.ListField(child=fields.OpenAIMessageField(), allow_empty=False, **MAND)
