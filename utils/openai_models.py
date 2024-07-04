@@ -506,6 +506,7 @@ class CreateChatCompletionRequest(BaseModelForbid):
     )
     tools: Optional[List[ChatCompletionTool]] = Field(
         None,
+        max_length=128,
         description='A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of functions the model may generate JSON inputs for. A max of 128 functions are supported.\n',
     )
     tool_choice: Optional[ChatCompletionToolChoiceOption] = None
