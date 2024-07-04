@@ -41,18 +41,30 @@
 
     {
         "best_of": 1,
-        "prompt": "the prompt"
+        "prompt": "missing model"
     },
 
     {
         "best_of": 1,
-        "model": "target model"
+        "model": "missing prompt"
     },
 
     {
         "model": "model",
         "prompt": "prompt",
         "best_of": "not a number"
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": 30
     },
 
     {
