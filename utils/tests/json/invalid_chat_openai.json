@@ -508,18 +508,6 @@
             {
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": "url-without-basewebsite"}}
-                ]
-            }
-        ]
-    },
-
-    {
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "messages": [
-            {
-                "role": "user",
-                "content": [
                     {"type": "image_url", "image_url": {"url": "https://not-a-website/image", "detail": "invalid-option"}}
                 ]
             }

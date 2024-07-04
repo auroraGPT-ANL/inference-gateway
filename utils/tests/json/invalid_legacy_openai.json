@@ -124,6 +124,12 @@
     {
         "model": "model",
         "prompt": "prompt",
+        "max_tokens": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
         "max_tokens": "not a number"
     },
 
@@ -137,6 +143,18 @@
         "model": "model",
         "prompt": "prompt",
         "n": 1.123
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "n": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "n": 1000
     },
 
     {
