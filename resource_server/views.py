@@ -185,7 +185,7 @@ class Polaris(APIView):
             return {"error": f"Data validation error: {e}"}
 
         # Add the 'url' parameter to model_params
-        model_params['openai_endpoint'] = serializer.data
+        model_params['openai_endpoint'] = openai_endpoint
 
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}
