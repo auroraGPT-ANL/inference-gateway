@@ -1,11 +1,12 @@
 # Mock utils.py to overwrite functions to prevent contacting Globus services
 
 import time
+import uuid
 
 # Constants flags within mock access tokens
 ACTIVE = "-ACTIVE"
 EXPIRED = "-EXPIRED"
-
+MOCK_RESPONSE = "mock response"
 
 # Get mock access token
 def get_mock_access_token(active=True, expired=False):
@@ -61,8 +62,27 @@ class MockClient():
         
         # Return the mock token  introspection
         return introspection
-
+    
+    # Mock endpoint status
+    def get_endpoint_status(self, endpoint_uuid):
+        return {"status": "online"}
+    
+    # Mock run (needs to be random distinct uuids to avoid UNIQUE database errors)
+    def run(self, data, endpoint_id=None, function_id=None):
+     return uuid.uuid4()
+    
+    # Mock task status
+    def get_task(self, task_uuid):
+        return {"pending": False}
+    
+    # Mock task result
+    def get_result(self, task_uuid):
+        return MOCK_RESPONSE
 
 # Mock get_globus_client function
 def get_globus_client():
+    return MockClient()
+
+# Mock get_compute_client_from_globus_app function
+def get_compute_client_from_globus_app():
     return MockClient()

@@ -3,11 +3,19 @@ from rest_framework.test import APITestCase, APIRequestFactory
 from rest_framework import status
 from resource_server import views
 from resource_server.models import Endpoint
+import json
 
 # Overwrite utils functions to prevent contacting Globus services
 import utils.auth_utils as auth_utils
+import resource_server.utils as resource_utils
 import resource_server.tests.mock_utils as mock_utils
 auth_utils.get_globus_client = mock_utils.get_globus_client
+resource_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_from_globus_app
+
+# Constants
+COMPLETIONS = "completions/"
+CHAT_COMPLETIONS = "chat/completions/"
+from resource_server.views import SERVER_RESPONSE
 
 # Test views.py
 class ResourceServerViewTestCase(APITestCase):
@@ -31,8 +39,22 @@ class ResourceServerViewTestCase(APITestCase):
         self.expired_token = mock_utils.get_mock_access_token(active=True, expired=True)
         self.invalid_token = mock_utils.get_mock_access_token(active=False, expired=False)
 
-        # Create non-Globus test user who started runs
+        # Create request factory instance
+        self.kwargs = {"content_type": "application/json"}
         self.factory = APIRequestFactory()
+
+        # Load test input data (OpenAI format)
+        base_path = "utils/tests/json"
+        self.valid_params = {}
+        with open(f"{base_path}/valid_legacy_openai.json") as json_file:
+            self.valid_params[COMPLETIONS] = json.load(json_file)
+        with open(f"{base_path}/valid_chat_openai.json") as json_file:
+            self.valid_params[CHAT_COMPLETIONS] = json.load(json_file)
+        self.invalid_params = {}
+        with open(f"{base_path}/invalid_legacy_openai.json") as json_file:
+            self.invalid_params[COMPLETIONS] = json.load(json_file)
+        with open(f"{base_path}/invalid_chat_openai.json") as json_file:
+            self.invalid_params[CHAT_COMPLETIONS] = json.load(json_file)
 
 
     # Test ListEndpoints (GET) 
@@ -66,8 +88,8 @@ class ResourceServerViewTestCase(APITestCase):
             # Build dictionary entry to compare with the request response
             urls = self.__get_endpoint_url(endpoint)
             entry = {
-                "completion_endpoint_url": urls["completions/"],
-                "chat_endpoint_url": urls["chat/completions/"],
+                "completion_endpoint_url": urls[COMPLETIONS],
+                "chat_endpoint_url": urls[CHAT_COMPLETIONS],
                 "model_name": endpoint.model
             }
 
@@ -81,16 +103,19 @@ class ResourceServerViewTestCase(APITestCase):
         # Select the targeted Django view
         view = views.Polaris.as_view()
 
+        # Create headers with a valid access token
+        headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=True)
+
         # For each endpoint ...
         for endpoint in self.db_endpoints:
             
             # Build the targeted Django URLs
             url_dict = self.__get_endpoint_url(endpoint)
+            
+            # For each URL (openai endpoint) ...
+            for openai_endpoint, url in url_dict.items():
 
-            # For each URL ...
-            for url in url_dict.values():
-
-                # Make sure GET requests fail if something is wrong with the authentication
+                # Make sure POST requests fail if something is wrong with the authentication
                 self.__verify_headers_failures(url=url, view=view, method=self.factory.post)
 
                 # Make sure non-POST requests are not allowed
@@ -98,7 +123,28 @@ class ResourceServerViewTestCase(APITestCase):
                     response = view(method(url))
                     self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-            #TODO: Make more tests here
+                # Make sure POST requests succeed when providing valid inputs
+                for valid_params in self.valid_params[openai_endpoint]:
+                    valid_params["model"] = endpoint.model
+                    request = self.factory.post(url, json.dumps(valid_params), headers=headers, **self.kwargs)
+                    response = view(request, endpoint.framework, openai_endpoint[:-1])
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+                    self.assertEqual(response.data[SERVER_RESPONSE], mock_utils.MOCK_RESPONSE)
+
+                # Make sure POST requests fail when providing invalid inputs
+                for invalid_params in self.invalid_params[openai_endpoint]:
+                    request = self.factory.post(url, json.dumps(invalid_params), headers=headers, **self.kwargs)
+                    response = view(request, endpoint.framework, openai_endpoint[:-1])
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Make sure POST requests fail with unknown frameworks
+        request = self.factory.post(url, headers=headers, **self.kwargs)
+        response = view(request, "not-a-framework", openai_endpoint[:-1])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Make sure POST requests fail with unknown openAI endpoints
+        response = view(request, endpoint.framework, "not-an-openai-endpoint")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
     # Verify headers failures
@@ -128,6 +174,6 @@ class ResourceServerViewTestCase(APITestCase):
     # Get endpoint URL
     def __get_endpoint_url(self, endpoint):
         return {
-            "completions/": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
-            "chat/completions/": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
+            COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{COMPLETIONS}",
+            CHAT_COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{CHAT_COMPLETIONS}"
         }
