@@ -12,7 +12,7 @@ class BaseSerializers(serializers.Serializer):
             extra_fields = set(payload_fields) - set(serializer_fields)
             if len(extra_fields) > 0:
                 if raise_exception:
-                    raise ValidationError(f"Unexpected input field(s) ({extra_fields})")
+                    raise ValidationError(f"Unexpected input field(s) ({str(extra_fields)})")
                 else:
                     return False
         return super(BaseSerializers, self).is_valid(raise_exception=raise_exception)
