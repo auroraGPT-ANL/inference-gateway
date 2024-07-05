@@ -163,7 +163,7 @@ class Polaris(APIView):
     def __validate_request_body(self, request, framework, openai_endpoint):
         """Build data dictionary for inference request if user inputs are valid."""
 
-        # Select the appropriate data validation serializer based on the
+        # Select the appropriate data validation serializer based on the openai endpoint
         if "chat/completions" in openai_endpoint:
             serializer_class = OpenAIParamSerializer
         elif "completion" in openai_endpoint:
