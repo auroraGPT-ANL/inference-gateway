@@ -2,6 +2,22 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 
+# Reusable serializer base class
+# Raises error if extra/unexpected parameters are passed in the payload
+class BaseSerializers(serializers.Serializer):
+    def is_valid(self, raise_exception=False):
+        if hasattr(self, 'initial_data'):
+            payload_fields = self.initial_data.keys()
+            serializer_fields = self.fields.keys()
+            extra_fields = set(payload_fields) - set(serializer_fields)
+            if len(extra_fields) > 0:
+                if raise_exception:
+                    raise ValidationError(f"Unexpected input field(s) ({str(extra_fields)})")
+                else:
+                    return False
+        return super(BaseSerializers, self).is_valid(raise_exception=raise_exception)
+
+
 # True string field that rejects non-string inputs
 class TrueCharField(serializers.CharField):
 
@@ -137,19 +153,19 @@ class OpenAIResponseFormatField(BaseCustomField):
 
 
 # OpenAI image URL serializer (needed for OpenAIUserContentField)
-class OpenAIImageURLSerializer(serializers.Serializer):
+class OpenAIImageURLSerializer(BaseSerializers):
     url = TrueCharField(required=True)
-    detail = TrueCharField(required=False)
+    detail = serializers.ChoiceField(choices=["auto", "high", "low"], required=False)
 
 
 # OpenAI image serializer (needed for OpenAIUserContentField)
-class OpenAIImageSerializer(serializers.Serializer):
+class OpenAIImageSerializer(BaseSerializers):
     type = serializers.ChoiceField(choices=["image_url"], required=True)
     image_url = OpenAIImageURLSerializer(required=True)
 
 
 # OpenAI text serializer (needed for OpenAIUserContentField)
-class OpenAITextSerializer(serializers.Serializer):
+class OpenAITextSerializer(BaseSerializers):
     type = serializers.ChoiceField(choices=["text"], required=True)
     text = TrueCharField(required=True)
 
@@ -216,25 +232,25 @@ class OpenAIFunctionNameField(BaseCustomField):
 
 
 # OpenAI tool function serializer (needed for OpenAIParamSerializer)
-class OpenAIToolFunctionSerializer(serializers.Serializer):
+class OpenAIToolFunctionSerializer(BaseSerializers):
     description = TrueCharField(required=False)
     name = OpenAIFunctionNameField(required=True)
     parameters = serializers.DictField(required=False) # TODO: Should do checks for what goes inside
 
 
 # OpenAI tool serializer (needed for OpenAIParamSerializer)
-class OpenAIToolSerializer(serializers.Serializer):
+class OpenAIToolSerializer(BaseSerializers):
     type = serializers.ChoiceField(choices=["function"], required=True)
     function = OpenAIToolFunctionSerializer(required=True)
 
 
 # OpenAI tool choice object function serializer (needed for OpenAIToolChoiceField)
-class OpenAIToolChoiceObjectFunctionSerializer(serializers.Serializer):
+class OpenAIToolChoiceObjectFunctionSerializer(BaseSerializers):
     name = TrueCharField(required=True)
 
 
 # OpenAI tool choice object serializer (needed for OpenAIToolChoiceField)
-class OpenAIToolChoiceObjectSerializer(serializers.Serializer):
+class OpenAIToolChoiceObjectSerializer(BaseSerializers):
     type = serializers.ChoiceField(choices=["function"], required=True)
     function = OpenAIToolChoiceObjectFunctionSerializer(required=True)
 
@@ -262,34 +278,34 @@ class OpenAIToolChoiceField(BaseCustomField):
 
 
 # OpenAI tool call function serializer (needed for OpenAIToolCallSerializer)
-class OpenAIToolCallFunctionSerializer(serializers.Serializer):
+class OpenAIToolCallFunctionSerializer(BaseSerializers):
     name = TrueCharField(required=True)
     arguments = TrueCharField(required=True)
 
 
 # OpenAI tool call serializer (needed for OpenAIAssistantMessageSerializer)
-class OpenAIToolCallSerializer(serializers.Serializer):
+class OpenAIToolCallSerializer(BaseSerializers):
     id = TrueCharField(required=True)
     type = serializers.ChoiceField(choices=["function"], required=True)
     function = OpenAIToolCallFunctionSerializer(required=True)
 
 
 # OpenAI system-role message serializer (needed for OpenAIMessageField)
-class OpenAISystemMessageSerializer(serializers.Serializer):
+class OpenAISystemMessageSerializer(BaseSerializers):
     content = TrueCharField(required=True)
     role = serializers.ChoiceField(choices=["system"], required=True)
     name = TrueCharField(required=False)
 
 
 # OpenAI user-role message serializer (needed for OpenAIMessageField)
-class OpenAIUserMessageSerializer(serializers.Serializer):
+class OpenAIUserMessageSerializer(BaseSerializers):
     content = OpenAIUserContentField(required=True)
     role = serializers.ChoiceField(choices=["user"], required=True)
     name = TrueCharField(required=False)
 
 
 # OpenAI assistant-role message serializer (needed for OpenAIMessageField)
-class OpenAIAssistantMessageSerializer(serializers.Serializer):
+class OpenAIAssistantMessageSerializer(BaseSerializers):
     content = TrueCharField(allow_null=True, required=True) # TODO: not required if tool_calls is specified
     role = serializers.ChoiceField(choices=["assistant"], required=True)
     name = TrueCharField(required=False)
@@ -297,14 +313,14 @@ class OpenAIAssistantMessageSerializer(serializers.Serializer):
 
 
 # OpenAI tool-role message serializer (needed for OpenAIMessageField)
-class OpenAIToolMessageSerializer(serializers.Serializer):
+class OpenAIToolMessageSerializer(BaseSerializers):
     content = TrueCharField(required=True)
     role = serializers.ChoiceField(choices=["tool"], required=True)
     tool_call_id = TrueCharField(required=True)
 
 
 # OpenAI function-role message serializer (needed for OpenAIMessageField)
-class OpenAIFunctionMessageSerializer(serializers.Serializer):
+class OpenAIFunctionMessageSerializer(BaseSerializers):
     content = TrueCharField(allow_null=True, required=True)
     role = serializers.ChoiceField(choices=["function"], required=True)
     name = TrueCharField(required=True)

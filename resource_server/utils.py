@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 ComputeScopes = ComputeScopeBuilder()
 
 
-
 # Exception to raise in case of errors
 class ResourceServerError(Exception):
     pass

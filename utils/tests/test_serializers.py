@@ -71,3 +71,4 @@ class UtilsSerializersTestCase(APITestCase):
             if serializer.is_valid(raise_exception=False):
                 print(invalid_params) # TODO: Is there a better way to print out info with self.assertFalse?
             self.assertFalse(serializer.is_valid(raise_exception=False))
+

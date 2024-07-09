@@ -24,6 +24,16 @@
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [
             {
+                "role": "system",
+                "content": "this is my question?"
+            }
+        ]
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
                 "role": "user",
                 "content": "this is my question?"
             },
@@ -40,9 +50,34 @@
             {
                 "role": "user",
                 "content": [
+                    {"type": "text", "text": "text content"}
+                ]
+            }
+        ]
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "https://not-a-website/image", "detail": "low"}},
+                    {"type": "image_url", "image_url": {"url": "https://not-a-website/image", "detail": "high"}}
+                ]
+            }
+        ]
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
                     {"type": "text", "text": "text content"},
-                    {"type": "image_url", "image_url": {"url": "the url", "detail": "optional"}},
-                    {"type": "image_url", "image_url": {"url": "the url"}}
+                    {"type": "image_url", "image_url": {"url": "https://not-a-website/image", "detail": "auto"}},
+                    {"type": "image_url", "image_url": {"url": "https://not-a-website/image"}}
                 ]
             },
             {
@@ -102,7 +137,7 @@
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
         "frequency_penalty": 1,
-        "logit_bias": {"50256": -100, "23574": 45.2},
+        "logit_bias": {"50256": -100, "23574": 42},
         "top_logprobs": 10,
         "max_tokens": 10,
         "n": 10,
@@ -208,7 +243,7 @@
               {
                 "type": "image_url",
                 "image_url": {
-                  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+                    "url": "https://upload.wikimedia.org/wikipedia/somepage/image.jpg"
                 }
               }
             ]

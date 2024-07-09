@@ -8,20 +8,26 @@ from django.utils.text import slugify
 from resource_server.models import Endpoint, Log
 from django.urls import resolve
 
+# Data validation
+from rest_framework.exceptions import ValidationError
+from utils.serializers import OpenAILegacyParamSerializer, OpenAIParamSerializer
+
 # Tool to log access requests
 import logging
 log = logging.getLogger(__name__)
 
 # Utils functions
-from resource_server.utils import get_compute_client_from_globus_app
+import resource_server.utils as utils
 log.info("Utils functions loaded.")
 
+# Constants
+SERVER_RESPONSE = "server_response"
 
 class ListEndpoints(APIView):
     """API view to list the available frameworks."""
 
     @globus_authenticated
-    def get(self,request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         # Fetch all relevant data
         all_endpoints = []
         try:
@@ -53,6 +59,7 @@ class Polaris(APIView):
     @globus_authenticated
     def post(self, request, framework, openai_endpoint, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
+
         # Make sure the requested framework is supported
         if not framework:
             return Response({"Error": "framework not provided."}, status=400)
@@ -65,10 +72,8 @@ class Polaris(APIView):
         if not openai_endpoint in self.allowed_openai_endpoints:
             return Response({"Error": f"The requested {openai_endpoint} is not supported."}, status=400)
         
-        # Make sure the request body is valid
         # Validate and build the inference request data
         data = self.__validate_request_body(request, framework, openai_endpoint)
-
         if "error" in data.keys():
             return Response({"Error": data["error"]}, status=400)
         log.info("data", data)
@@ -88,20 +93,20 @@ class Polaris(APIView):
             endpoint_uuid = endpoint.endpoint_uuid
             function_uuid = endpoint.function_uuid
         except Endpoint.DoesNotExist:
-            return Response({"server_response": "The requested endpoint does not exist."})
+            return Response({SERVER_RESPONSE: "The requested endpoint does not exist."})
         except Exception as e:
-            return Response({"server_response": f"Error: {e}"})
+            return Response({SERVER_RESPONSE: f"Error: {e}"})
         
         # Get Globus Compute client (using the endpoint identity)
-        gcc = get_compute_client_from_globus_app()
+        gcc = utils.get_compute_client_from_globus_app()
 
         # Check if the endpoint is running
         try:
             endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
             if not endpoint_status["status"] == "online":
-                return Response({"server_response": f"Endpoint {endpoint_slug} is not online."})
+                return Response({SERVER_RESPONSE: f"Endpoint {endpoint_slug} is not online."})
         except globus_sdk.GlobusAPIError as e:
-            return Response({"server_response": f"Cannot access the status of endpoint {endpoint_slug}."})
+            return Response({SERVER_RESPONSE: f"Cannot access the status of endpoint {endpoint_slug}."})
 
         # Start a Globus Compute task
         try:
@@ -111,7 +116,7 @@ class Polaris(APIView):
                 function_id=function_uuid,
             )
         except Exception as e:
-            return Response({"server_response": f"Error: {e}"})
+            return Response({SERVER_RESPONSE: f"Error: {e}"})
 
         # Log request in the Django database
         try:
@@ -129,13 +134,15 @@ class Polaris(APIView):
             )
             db_log.save()
         except Exception as e:
-            return Response({"server_response": f"Error: {e}"})
+            return Response({SERVER_RESPONSE: f"Error: {e}"})
 
         # Wait until results are done
         # TODO: We need to be careful here if we are thinking of using Executor and future().
         #       With Executor you can deactivate a client if a parallel request creates an 
         #       other executor with the same Globus App credentials.
-        pending = True
+        task = gcc.get_task(task_uuid)
+        pending = task["pending"]
+        # NOTE: DO NOT set pending = True since it will slow down the automated test suite
         while pending:
             task = gcc.get_task(task_uuid)
             pending = task["pending"]
@@ -148,106 +155,34 @@ class Polaris(APIView):
         db_log.completed = True
         db_log.save()
 
-        #return Response({"server_response": f"{name} ({username}) should have access. {response_json}"})
-        return Response({"server_response": result})
+        # Return Globus Compute results
+        return Response({SERVER_RESPONSE: result})
 
 
     # Validate request body
     def __validate_request_body(self, request, framework, openai_endpoint):
         """Build data dictionary for inference request if user inputs are valid."""
 
-        # Define the expected keys and their types
-        mandatory_keys = {
-            "model": str,
-        }
-
-        if framework == "vllm":
-             # Determine the URL type based on the request path
-            if "chat/completions" in openai_endpoint:
-                mandatory_keys["messages"] = list
-            elif "completions" in openai_endpoint:
-                mandatory_keys["prompt"] = str
-            else:
-                return {"Error": "Invalid URL path"}          
-        elif framework == "llama-cpp":
-            mandatory_keys["prompt"] = str # New parameter for user input prompt
+        # Select the appropriate data validation serializer based on the openai endpoint
+        if "chat/completions" in openai_endpoint:
+            serializer_class = OpenAIParamSerializer
+        elif "completion" in openai_endpoint:
+            serializer_class = OpenAILegacyParamSerializer
         else:
-            return {"error": f"Framework input validation not supported: {framework}"}
-
-        # Define optional keys that can be sent with requests
-        optional_keys = {
-            "temperature": (float, int),
-            "dynatemp_range": (float, int),
-            "dynatemp_exponent": (float, int),
-            "top_k": int,
-            "top_p": (float, int),
-            "min_p": (float, int),
-            "n_predict": int,
-            "n_keep": int,
-            "stream": bool,
-            "stop": list,
-            "tfs_z": (float, int),
-            "typical_p": (float, int),
-            "repeat_penalty": (float, int),
-            "repeat_last_n": int,
-            "penalize_nl": bool,
-            "presence_penalty": (float, int),
-            "frequency_penalty": (float, int),
-            "penalty_prompt": (str, list, type(None)),
-            "mirostat": int,
-            "mirostat_tau": (float, int),
-            "mirostat_eta": (float, int),
-            "grammar": str,
-            "json_schema": dict,
-            "seed": int,
-            "ignore_eos": bool,
-            "logit_bias": list,
-            "n_probs": int,
-            "min_keep": int,
-            "image_data": list,
-            "id_slot": int,
-            "cache_prompt": bool,
-            "system_prompt": str,
-            "samplers": list,
-            "max_tokens": int,  # New parameter for specifying maximum tokens to generate
-            "best_of": int,  # New parameter for selecting the best response out of several generated
-            "session_id": str,  # New parameter for session tracking
-            "include_debug": bool,  # New parameter to include debug information in response
-            "audio_config": dict,  # New parameter for specifying audio output configuration
-            "logprobs": bool,
-            "top_logprobs": (int, type(None)),  # Integer or null
-            "n": (int, type(None)),  # Integer or null
-            "response_format": dict,  # Object specifying format
-            "service_tier": (str, type(None)),  # String or null
-            "stream_options": (dict, type(None)),  # Object or null
-            "tools": list,  # Array of tools
-            "tool_choice": (str, dict),  # String or object
-            "parallel_tool_calls": bool,  # Boolean
-            "user": str  # String
-        } # TODO: Add more parameters
+            return {"error": f"The requested {openai_endpoint} is not supported."}
         
         # Decode request body into a dictionary
         try:
             model_params = json.loads(request.body.decode("utf-8"))
         except:
             return {"error": f"Request body cannot be decoded"}
-
-        # Check mandatory keys
-        for key, expected_type in mandatory_keys.items():
-            if key not in model_params:
-                return {"error": f"Mandatory parameter missing: {key}"}
-            if not isinstance(model_params.get(key), expected_type):
-                return {"error": f"Mandatory parameter invalid: {key} --> should be {expected_type}"}
         
-        # Check optional keys
-        for key, expected_type in optional_keys.items():
-            if key in model_params and not isinstance(model_params.get(key), expected_type):
-                return {"error": f"Optional parameter invalid: {key} --> should be {expected_type}"}
-            
-        # Check un-recognized keys
-        for key in model_params:
-            if key not in mandatory_keys and key not in optional_keys:
-                return {"error": f"Input parameter not supported: {key}"}
+        # Send an error if the input data is not valid
+        try:
+            serializer = serializer_class(data=model_params)
+            is_valid = serializer.is_valid(raise_exception=True)
+        except ValidationError as e:
+            return {"error": f"Data validation error: {e}"}
 
         # Add the 'url' parameter to model_params
         model_params['openai_endpoint'] = openai_endpoint

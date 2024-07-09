@@ -41,18 +41,30 @@
 
     {
         "best_of": 1,
-        "prompt": "the prompt"
+        "prompt": "missing model"
     },
 
     {
         "best_of": 1,
-        "model": "target model"
+        "model": "missing prompt"
     },
 
     {
         "model": "model",
         "prompt": "prompt",
         "best_of": "not a number"
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": 30
     },
 
     {
@@ -112,6 +124,12 @@
     {
         "model": "model",
         "prompt": "prompt",
+        "max_tokens": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
         "max_tokens": "not a number"
     },
 
@@ -125,6 +143,18 @@
         "model": "model",
         "prompt": "prompt",
         "n": 1.123
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "n": -1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "n": 1000
     },
 
     {

@@ -10,6 +10,26 @@
     },
 
     {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "system",
+                "content": "this is my question?",
+                "name": "optional string"
+            }
+        ],
+        "random-extra-key": 1
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [{"role": "user", "content": "good simple content"}],
+        "tools": [{"type": "function", "function": {"name": "name"}}],
+        "tool_choice": { "type": "function", "function": {"name": "my_function"}, "extra-random-key": true },
+        "parallel_tool_calls": true
+    },
+
+    {
         "model": "meta-llama/Meta-Llama-3-8B-Instruct"
     },
 
@@ -296,7 +316,7 @@
     {
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
-        "response_format": {"not_the_right_key": "json_object"}
+        "response_format": {"extra-key": "should not be there"}
     },
 
     {
@@ -345,7 +365,7 @@
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
         "stream": true,
-        "stream_options": {"not_a_valid_key": true}
+        "stream_options": {"extra_key": true}
     },
 
     {
@@ -480,5 +500,17 @@
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
         "user": {}
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "https://not-a-website/image", "detail": "invalid-option"}}
+                ]
+            }
+        ]
     }
 ]
