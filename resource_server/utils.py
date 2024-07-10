@@ -84,7 +84,7 @@ def get_compute_client_from_globus_app():
         compute_login_manager.ensure_logged_in()
 
     except Exception as e:
-        log.error("Exception in fetching client. Error",e)
+        raise ResourceServerError("Exception in fetching client. Error",e)
 
     # Create Compute client
     return Client(login_manager=compute_login_manager)
@@ -104,7 +104,7 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     try:
         gce = Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port)
     except Exception as e:
-        log.error("Exception in creating executor. Error",e)
+        raise ResourceServerError("Exception in creating executor. Error",e)
 
     # Create Compute Executor
     return gce
