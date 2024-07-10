@@ -10,7 +10,10 @@ import utils.auth_utils as auth_utils
 import resource_server.utils as resource_utils
 import resource_server.tests.mock_utils as mock_utils
 auth_utils.get_globus_client = mock_utils.get_globus_client
+auth_utils.check_globus_policies = mock_utils.check_globus_policies
+auth_utils.check_globus_groups = mock_utils.check_globus_groups
 resource_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_from_globus_app
+resource_utils.get_compute_executor = mock_utils.get_compute_executor
 
 # Constants
 COMPLETIONS = "completions/"

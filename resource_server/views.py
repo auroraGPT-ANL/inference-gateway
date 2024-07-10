@@ -3,7 +3,6 @@ from rest_framework.response import Response
 from utils.auth_utils import globus_authenticated
 import json
 import globus_sdk
-from globus_compute_sdk import Executor
 from django.utils.text import slugify
 from resource_server.models import Endpoint, Log
 from django.urls import resolve
@@ -99,7 +98,7 @@ class Polaris(APIView):
         
         # Create Globus Compute Executor (using the endpoint identity)
         gcc = utils.get_compute_client_from_globus_app()
-        gce = Executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+        gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc)
 
         # Check if the endpoint is running
         try:
