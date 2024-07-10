@@ -18,30 +18,18 @@ def get_globus_client():
 
 
 # Check Globus Policies
-def check_globus_policies(client, bearer_token):
+def check_globus_policies(introspection):
     """
         Define whether an authenticated user respect the Globus policies.
         User should meet all Globus policies requirements.
     """
 
-    # Build the body that will be sent to the introspect Globus API
-    introspect_body = {
-        "token": bearer_token,
-        "authentication_policies": settings.GLOBUS_POLICIES
-    }
-
-    # Post call to the introspect API
-    try: 
-        response = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
-    except:
-        return False, "Something went wrong in the Globus introspect API call."
-
     # Return False if policies cannot be evaluated went wrong
-    if not len(response["policy_evaluations"]) == settings.NUMBER_OF_GLOBUS_POLICIES:
+    if not len(introspection["policy_evaluations"]) == settings.NUMBER_OF_GLOBUS_POLICIES:
         return False, "Some Globus policies could not be passed to the introspect API call."
 
     # Return False if the user failed to meet one of the policies 
-    for policies in response["policy_evaluations"].values():
+    for policies in introspection["policy_evaluations"].values():
         if policies.get("evaluation",False) == False:
             return False, "One of the Globus policies blocked the access to the service."
 
@@ -111,7 +99,14 @@ def globus_authenticated(f):
                 return Response({"Error": "Auth only allows header type Authorization: Bearer <token>"}, status=400)
             
             # Introspect the access token
-            introspection = client.oauth2_token_introspect(bearer_token)
+            introspect_body = {
+                "token": bearer_token,
+                "authentication_policies": settings.GLOBUS_POLICIES
+            }
+            try: 
+                introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
+            except:
+                return False, "Something went wrong in the Globus introspect API call."
 
             # Make sure the access token is active and filled with user information
             if introspection["active"] is False:
@@ -133,7 +128,7 @@ def globus_authenticated(f):
             
             # Make sure the authenticated user comes from an allowed domain
             if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
-                successful, error_message = check_globus_policies(client, bearer_token)
+                successful, error_message = check_globus_policies(introspection)
                 if not successful:
                     return Response({"Error": error_message}, status=401)
                 

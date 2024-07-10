@@ -1,7 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from utils.auth_utils import globus_authenticated
-import time
 import json
 import globus_sdk
 from django.utils.text import slugify
@@ -97,8 +96,9 @@ class Polaris(APIView):
         except Exception as e:
             return Response({SERVER_RESPONSE: f"Error: {e}"})
         
-        # Get Globus Compute client (using the endpoint identity)
+        # Create Globus Compute Executor (using the endpoint identity)
         gcc = utils.get_compute_client_from_globus_app()
+        gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc)
 
         # Check if the endpoint is running
         try:
@@ -110,13 +110,15 @@ class Polaris(APIView):
 
         # Start a Globus Compute task
         try:
-            task_uuid = gcc.run(
-                data,
-                endpoint_id=endpoint_uuid,
-                function_id=function_uuid,
-            )
+            future = gce.submit_to_registered_function(function_uuid, args=[data])
         except Exception as e:
             return Response({SERVER_RESPONSE: f"Error: {e}"})
+
+        # Wait until results are done
+        try:
+            result = future.result()
+        except Exception as e:
+            return Response({SERVER_RESPONSE: f"Error (task UUID {future.task_id}): {e}"})
 
         # Log request in the Django database
         try:
@@ -128,32 +130,13 @@ class Polaris(APIView):
                 model=data["model_params"]["model"],
                 openai_endpoint=data["model_params"]["openai_endpoint"],
                 prompt=data["model_params"]["prompt"] if "prompt" in data["model_params"] else data["model_params"]["messages"],
-                task_uuid=task_uuid,
-                completed=False,
+                task_uuid=future.task_id,
+                completed=True,
                 sync=True
             )
             db_log.save()
         except Exception as e:
             return Response({SERVER_RESPONSE: f"Error: {e}"})
-
-        # Wait until results are done
-        # TODO: We need to be careful here if we are thinking of using Executor and future().
-        #       With Executor you can deactivate a client if a parallel request creates an 
-        #       other executor with the same Globus App credentials.
-        task = gcc.get_task(task_uuid)
-        pending = task["pending"]
-        # NOTE: DO NOT set pending = True since it will slow down the automated test suite
-        while pending:
-            task = gcc.get_task(task_uuid)
-            pending = task["pending"]
-            time.sleep(2)
-
-        # TODO: Check status to see if it succeeded
-        result = gcc.get_result(task_uuid)
-
-        # Update the database log
-        db_log.completed = True
-        db_log.save()
 
         # Return Globus Compute results
         return Response({SERVER_RESPONSE: result})

@@ -4,7 +4,7 @@ from django.conf import settings
 # Globus imports
 import globus_sdk
 from globus_sdk.scopes import AuthScopes
-from globus_compute_sdk import Client
+from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.sdk.login_manager import AuthorizerLoginManager
 from globus_compute_sdk.sdk.login_manager.manager import ComputeScopeBuilder
 
@@ -88,3 +88,24 @@ def get_compute_client_from_globus_app():
 
     # Create Compute client
     return Client(login_manager=compute_login_manager)
+
+
+# Get authenticated Compute Executor using existing client
+def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
+    """
+    Create and return an authenticated Compute Executor using using existing client.
+
+    Returns
+    -------
+        globus_compute_sdk.Executor: Compute Executor to operate Globus Compute
+    """
+
+    # Try to create the Executor
+    try:
+        gce = Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port)
+    except Exception as e:
+        log.error("Exception in creating executor. Error",e)
+
+    # Create Compute Executor
+    return gce
+
