@@ -67,6 +67,18 @@ class MockClient():
     def get_endpoint_status(self, endpoint_uuid):
         return {"status": "online"}
     
+        # Mock run (needs to be random distinct uuids to avoid UNIQUE database errors)
+    def run(self, data, endpoint_id=None, function_id=None):
+     return uuid.uuid4()
+    
+    # Mock task status
+    def get_task(self, task_uuid):
+        return {"pending": False}
+    
+    # Mock task result
+    def get_result(self, task_uuid):
+        return MOCK_RESPONSE
+    
 
 # Mock Globus SDK Executor
 class MockExecutor():
