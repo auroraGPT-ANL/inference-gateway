@@ -8,6 +8,9 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.sdk.login_manager import AuthorizerLoginManager
 from globus_compute_sdk.sdk.login_manager.manager import ComputeScopeBuilder
 
+# Cache tools to limits how many calls are made to Globus servers
+from cachetools import TTLCache, cached
+
 import logging
 log = logging.getLogger(__name__)
 
@@ -57,7 +60,8 @@ def get_tokens_from_globus_app():
 
 
 # Get authenticated Compute Client using tokens
-def get_compute_client_from_globus_app():
+@cached(cache=TTLCache(maxsize=1024, ttl=5 * 60))
+def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     """
     Create and return an authenticated Compute client using using existing tokens.
 
