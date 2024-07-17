@@ -51,7 +51,7 @@ class Polaris(APIView):
     # Define the targetted cluster
     cluster = "polaris"
     allowed_frameworks = ["llama-cpp", "vllm"]
-    allowed_openai_endpoints = ["chat/completions", "completions"]
+    allowed_openai_endpoints = ["chat/completions", "completions", "embeddings"]
     
     # Post request call
     # TODO: We might want to pull this out of the Polaris view if 
@@ -190,14 +190,12 @@ class Polaris(APIView):
         # Build request data if nothing wrong was caught
         return {"model_params": model_params}
 
-# Polaris view
+# Sophia view
 class Sophia(APIView):
     """API view to reach Sophia Globus Compute endpoints."""
 
     # Define the targetted cluster
     cluster = "sophia"
-    allowed_frameworks = ["llama-cpp", "vllm"]
-    allowed_openai_endpoints = ["chat/completions", "completions"]
     
     # Post request call
     # TODO: We might want to pull this out of the Polaris view if 
@@ -206,18 +204,6 @@ class Sophia(APIView):
     def post(self, request, framework, openai_endpoint, *args, **kwargs):
         """Public point of entry to call Globus Compute endpoints on Polaris."""
 
-        # Make sure the requested framework is supported
-        if not framework:
-            return Response({"Error": "framework not provided."}, status=400)
-        if not framework in self.allowed_frameworks:
-            return Response({"Error": f"The requested {framework} is not supported."}, status=400)
-
-        # Make sure the requested endpoint is supported
-        if not openai_endpoint:
-            return Response({"Error": f"openai endpoint of type {self.allowed_openai_endpoints} not provided."}, status=400)
-        if not openai_endpoint in self.allowed_openai_endpoints:
-            return Response({"Error": f"The requested {openai_endpoint} is not supported."}, status=400)
-        
         # Validate and build the inference request data
         data = self.__validate_request_body(request, framework, openai_endpoint)
         if "error" in data.keys():
@@ -238,6 +224,8 @@ class Sophia(APIView):
             endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
             endpoint_uuid = endpoint.endpoint_uuid
             function_uuid = endpoint.function_uuid
+            api_port = endpoint.api_port
+            data["model_params"]["api_port"] = api_port
         except Endpoint.DoesNotExist:
             return Response({SERVER_RESPONSE: "The requested endpoint does not exist."})
         except Exception as e:
@@ -252,6 +240,7 @@ class Sophia(APIView):
             if not endpoint_status["status"] == "online":
                 return Response({SERVER_RESPONSE: f"Endpoint {endpoint_slug} is not online."})
         except globus_sdk.GlobusAPIError as e:
+            log.error(e)
             return Response({SERVER_RESPONSE: f"Cannot access the status of endpoint {endpoint_slug}."})
 
         # Start a Globus Compute task
@@ -309,6 +298,11 @@ class Sophia(APIView):
     def __validate_request_body(self, request, framework, openai_endpoint):
         """Build data dictionary for inference request if user inputs are valid."""
 
+        allowed_frameworks = ["llama-cpp", "vllm"]
+        # Make sure the requested framework is supported
+        if not framework or not framework in allowed_frameworks:
+            return {"error": f"The requested {framework} is not supported."}
+        
         # Select the appropriate data validation serializer based on the openai endpoint
         if "chat/completions" in openai_endpoint:
             serializer_class = OpenAIParamSerializer

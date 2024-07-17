@@ -1,0 +1,45 @@
+amqp_port: 443
+display_name: sophia-vllm-llama-mistral
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 100
+  job_status_kwargs:
+    max_idletime: 7200
+  #address:
+    #type: address_by_interface
+    #ifname: bond0
+  address: "10.230.2.48"
+  provider:
+    type: PBSProProvider
+    launcher:
+      type: SimpleLauncher
+    account: argonne_tpc
+    select_options: ngpus=8
+    scheduler_options: '#PBS -l filesystems=home:eagle'
+    queue: 'single-node'
+    init_blocks: 0
+    max_blocks: 1
+    min_blocks: 0
+    nodes_per_block: 1
+    walltime: 12:00:00
+    worker_init: |
+      export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+      export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+      export http_proxy="http://proxy.alcf.anl.gov:3128"
+      export https_proxy="http://proxy.alcf.anl.gov:3128"
+      export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+      source ~/miniconda3/etc/profile.d/conda.sh
+      conda activate ~/envs/vllm052-sophia-env/
+      export HF_DATASETS_CACHE="/eagle/argonne_tpc/model_weights/"
+      export HF_HOME="/eagle/argonne_tpc/model_weights/"
+      export RAY_TMPDIR="/tmp"
+      # Run first model
+      (CUDA_VISIBLE_DEVICES=0,1,2,3 nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 1.0 --enforce-eager > ~/logfile_sophia-vllm-meta-llama-3-70b-instruct.log 2>&1 &) &&  while ! grep -q "INFO:     Application startup complete." ~/logfile_sophia-vllm-meta-llama-3-70b-instruct.log; do sleep 1; done;
+      # Run second model
+      (CUDA_VISIBLE_DEVICES=4,5 nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-8B-Instruct --host 0.0.0.0 --port 8001 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --enforce-eager > ~/logfile_sophia-vllm-meta-llama-3-8b-instruct.log 2>&1 &) &&  while ! grep -q "INFO:     Application startup complete." ~/logfile_sophia-vllm-meta-llama-3-8b-instruct.log; do sleep 1; done;
+      # Run third model
+      (CUDA_VISIBLE_DEVICES=6,7 nohup python3 -m vllm.entrypoints.openai.api_server --model mistralai/Mistral-7B-Instruct-v0.3 --host 0.0.0.0 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --enforce-eager > ~/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log 2>&1 &) &&  while ! grep -q "INFO:     Application startup complete." ~/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log; do sleep 1; done;
+# Limit the functions UUID that can be execute
+allowed_functions:
+   - c15ba28c-bae9-497d-a7bb-375340f79be9
