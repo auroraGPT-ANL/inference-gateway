@@ -27,6 +27,9 @@ class Endpoint(models.Model):
     # Globus Compute function UUID
     function_uuid = models.CharField(max_length=100)
 
+    # API port (for distinct models running on the same node)
+    api_port = models.IntegerField(default=8000)
+
     # String function
     def __str__(self):
         return f"<Endpoint {self.endpoint_slug}>"
