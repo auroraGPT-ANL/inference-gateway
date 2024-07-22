@@ -5,7 +5,7 @@ import os
 #import socket
 #hostname = socket.gethostname()
 #os.environ['no_proxy'] = hostname
-auth_token = "AgoblrnM85957XVoQEaprbDJgN6O1o2K3DQvGvzJYzrm9jJ650TgC26vex5ElD7Y50g0PgeqPm8oMOI9OeylNIm18Mk"
+auth_token = ""
 class VLLMUser(HttpUser):
     wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
 
