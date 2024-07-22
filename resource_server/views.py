@@ -10,7 +10,7 @@ from django.urls import resolve
 
 # Data validation
 from rest_framework.exceptions import ValidationError
-from utils.serializers import OpenAILegacyParamSerializer, OpenAIParamSerializer
+from utils.serializers import OpenAILegacyParamSerializer, OpenAIParamSerializer, OpenAIEmbeddingsParamSerializer
 
 # Tool to log access requests
 import logging
@@ -308,8 +308,11 @@ class Sophia(APIView):
             serializer_class = OpenAIParamSerializer
         elif "completion" in openai_endpoint:
             serializer_class = OpenAILegacyParamSerializer
+        elif "embeddings" in openai_endpoint:
+            serializer_class = OpenAIEmbeddingsParamSerializer
         else:
-            return {"error": f"The requested {openai_endpoint} is not supported."}
+            supported_list = ["chat/completions", "completion", "embeddings"]
+            return {"error": f"The requested {openai_endpoint} is not supported. Currently supporting {supported_list}."}
         
         # Decode request body into a dictionary
         try:
