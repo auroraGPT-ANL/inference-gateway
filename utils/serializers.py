@@ -66,3 +66,17 @@ class OpenAIParamSerializer(serializer_utils.BaseSerializers):
     tool_choice = serializer_utils.OpenAIToolChoiceField(**OPT)
     parallel_tool_calls = serializers.BooleanField(**OPT)
     user = serializer_utils.TrueCharField(**OPT)
+
+
+# OpenAI embeddings parameter serializer
+# https://platform.openai.com/docs/api-reference/embeddings/create
+class OpenAIEmbeddingsParamSerializer(serializer_utils.BaseSerializers):
+
+    # Mandatory model parameters
+    input = serializer_utils.OpenAIEmbeddingsInputField(**MAND)
+    model = serializers.ChoiceField(choices=["text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"], **MAND)
+
+    # Optional model parameters
+    encoding_format = serializers.ChoiceField(choices=["float", "base64"], **OPT)
+    dimensions = serializers.IntegerField(min_value=1, **OPT)
+    user = serializer_utils.TrueCharField(**OPT)
