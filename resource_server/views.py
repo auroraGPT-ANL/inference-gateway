@@ -6,11 +6,13 @@ import time
 import globus_sdk
 from django.utils.text import slugify
 from resource_server.models import Endpoint, Log
-from django.urls import resolve
 
 # Data validation
 from rest_framework.exceptions import ValidationError
 from utils.serializers import OpenAICompletionsParamSerializer, OpenAIChatCompletionsParamSerializer, OpenAIEmbeddingsParamSerializer
+
+# Embeddings OpenAI models
+from utils.serializers import EMBEDDINGS_MODELS
 
 # Tool to log access requests
 import logging
@@ -31,14 +33,28 @@ class ListEndpoints(APIView):
         # Fetch all relevant data
         all_endpoints = []
         try:
+
+            # Extract all compute endpoints from the database
             endpoints = Endpoint.objects.all()
+
+            # For each endpoint ...
             for endpoint in endpoints:
-                all_endpoints.append({
-                    "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
-                    "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
-                    "embedding_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/embeddings/",
-                    "model_name": endpoint.model
-                })
+
+                # Embeddings models
+                if endpoint.model in EMBEDDINGS_MODELS:
+                    all_endpoints.append({
+                        "embedding_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/embeddings/",
+                        "model_name": endpoint.model
+                    })
+
+                # Completions and Chat/completions models
+                else:
+                    all_endpoints.append({
+                        "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
+                        "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
+                        "model_name": endpoint.model
+                    })
+
             if not all_endpoints:
                 return Response({"Error": "No endpoints found."}, status=400)
         except Exception as e:
