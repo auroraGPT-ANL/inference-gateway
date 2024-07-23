@@ -33,6 +33,8 @@ def get_app_client():
 
 
 # Get tokens from Globus confidential client credentials
+# TODO: Make sure the cache time does not exceed the expiration timescale
+@cached(cache=TTLCache(maxsize=1024, ttl=5 * 60))
 def get_tokens_from_globus_app():
 
     # Get access tokens using the service client credentials
@@ -60,7 +62,8 @@ def get_tokens_from_globus_app():
 
 
 # Get authenticated Compute Client using tokens
-@cached(cache=TTLCache(maxsize=1024, ttl=5 * 60))
+# TODO: Make tests with multiple requests to see if caching client crashes with multi-thread
+#@cached(cache=TTLCache(maxsize=1024, ttl=5 * 60))
 def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     """
     Create and return an authenticated Compute client using using existing tokens.
