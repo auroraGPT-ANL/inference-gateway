@@ -100,12 +100,13 @@ class ResourceServerViewTestCase(APITestCase):
 
             # Build dictionary entry to compare with the request response
             urls = self.__get_endpoint_url(endpoint)
-            entry = {
-                "completion_endpoint_url": urls[COMPLETIONS],
-                "chat_endpoint_url": urls[CHAT_COMPLETIONS],
-                "embedding_endpoint_url": urls[EMBEDDINGS],
-                "model_name": endpoint.model
-            }
+            entry = {"model_name": endpoint.model}
+            if COMPLETIONS in urls:
+                entry["completion_endpoint_url"] = urls[COMPLETIONS]
+            if CHAT_COMPLETIONS in urls:
+                entry["chat_endpoint_url"] = urls[CHAT_COMPLETIONS]
+            if EMBEDDINGS in urls:
+                entry["embedding_endpoint_url"] = urls[EMBEDDINGS]
 
             # Make sure the entry is in the the request response
             self.assertIn(entry, response.data)
@@ -204,11 +205,15 @@ class ResourceServerViewTestCase(APITestCase):
 
     # Get endpoint URL
     def __get_endpoint_url(self, endpoint):
-        return {
-            COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{COMPLETIONS}",
-            CHAT_COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{CHAT_COMPLETIONS}",
-            EMBEDDINGS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{EMBEDDINGS}"
-        }
+        if endpoint.model in EMBEDDINGS_MODELS:
+            return {
+                EMBEDDINGS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{EMBEDDINGS}"
+            }
+        else:
+            return {
+                COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{COMPLETIONS}",
+                CHAT_COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{CHAT_COMPLETIONS}"
+            }
     
 
     # Verify if a model is valid for a particular openai endpoint
