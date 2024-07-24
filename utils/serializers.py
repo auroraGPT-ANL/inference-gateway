@@ -9,16 +9,13 @@ MAND = {"required":True}
 OPT = {"required": False}
 OPT_NULL = {"required": False, "allow_null": True}
 
-# List of valid models
-EMBEDDINGS_MODELS = ["text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"]
-
 # OpenAI completions parameter serializer
 # https://platform.openai.com/docs/api-reference/completions/create
 class OpenAICompletionsParamSerializer(serializer_utils.BaseSerializers):
 
     # Mandatory model parameters
-    model = serializer_utils.TrueCharField(allow_blank=False, **MAND) #TODO: Provide validation on choices (ChoiceField)
     prompt = serializer_utils.OpenAIPromptField(**MAND)
+    model = serializer_utils.TrueCharField(allow_blank=False, **MAND) #TODO: Provide validation on choices (ChoiceField)
 
     # Optional model parameters
     best_of = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: 1) dependent on n
@@ -75,7 +72,7 @@ class OpenAIEmbeddingsParamSerializer(serializer_utils.BaseSerializers):
 
     # Mandatory model parameters
     input = serializer_utils.OpenAIEmbeddingsInputField(**MAND)
-    model = serializers.ChoiceField(choices=EMBEDDINGS_MODELS, **MAND)
+    model = serializer_utils.TrueCharField(allow_blank=False, **MAND)
 
     # Optional model parameters
     encoding_format = serializers.ChoiceField(choices=["float", "base64"], **OPT)

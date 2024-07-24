@@ -21,9 +21,6 @@ CHAT_COMPLETIONS = "chat/completions/"
 EMBEDDINGS = "embeddings/"
 from resource_server.views import SERVER_RESPONSE
 
-# Valid models for openai endpoints
-from utils.serializers import EMBEDDINGS_MODELS
-
 # Test views.py
 class ResourceServerViewTestCase(APITestCase):
 
@@ -100,13 +97,12 @@ class ResourceServerViewTestCase(APITestCase):
 
             # Build dictionary entry to compare with the request response
             urls = self.__get_endpoint_url(endpoint)
-            entry = {"model_name": endpoint.model}
-            if COMPLETIONS in urls:
-                entry["completion_endpoint_url"] = urls[COMPLETIONS]
-            if CHAT_COMPLETIONS in urls:
-                entry["chat_endpoint_url"] = urls[CHAT_COMPLETIONS]
-            if EMBEDDINGS in urls:
-                entry["embedding_endpoint_url"] = urls[EMBEDDINGS]
+            entry = {
+                "completion_endpoint_url": urls[COMPLETIONS],
+                "chat_endpoint_url": urls[CHAT_COMPLETIONS],
+                "embedding_endpoint_url": urls[EMBEDDINGS],
+                "model_name": endpoint.model
+            }
 
             # Make sure the entry is in the the request response
             self.assertIn(entry, response.data)
@@ -151,17 +147,14 @@ class ResourceServerViewTestCase(APITestCase):
                 # For each valid set of input parameters ...
                 for valid_params in self.valid_params[openai_endpoint]:
 
-                    # Make sure the endpoint can accomodate the type of openai request
-                    if self.__model_is_valid(openai_endpoint=openai_endpoint, model=endpoint.model):
+                    # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
+                    valid_params["model"] = endpoint.model
 
-                        # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
-                        valid_params["model"] = endpoint.model
-
-                        # Make sure POST requests succeed
-                        request = self.factory.post(url, json.dumps(valid_params), headers=self.headers, **self.kwargs)
-                        response = view(request, endpoint.framework, openai_endpoint[:-1])
-                        self.assertEqual(response.status_code, status.HTTP_200_OK)
-                        self.assertEqual(response.data[SERVER_RESPONSE], mock_utils.MOCK_RESPONSE)
+                    # Make sure POST requests succeed
+                    request = self.factory.post(url, json.dumps(valid_params), headers=self.headers, **self.kwargs)
+                    response = view(request, endpoint.framework, openai_endpoint[:-1])
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+                    self.assertEqual(response.data[SERVER_RESPONSE], mock_utils.MOCK_RESPONSE)
 
                 # Make sure POST requests fail when providing invalid inputs
                 for invalid_params in self.invalid_params[openai_endpoint]:
@@ -205,34 +198,8 @@ class ResourceServerViewTestCase(APITestCase):
 
     # Get endpoint URL
     def __get_endpoint_url(self, endpoint):
-        if endpoint.model in EMBEDDINGS_MODELS:
-            return {
-                EMBEDDINGS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{EMBEDDINGS}"
-            }
-        else:
-            return {
-                COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{COMPLETIONS}",
-                CHAT_COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{CHAT_COMPLETIONS}"
-            }
-    
-
-    # Verify if a model is valid for a particular openai endpoint
-    def __model_is_valid(self, model=None, openai_endpoint=None):
-        
-        # Embeddings requests
-        if openai_endpoint == EMBEDDINGS:
-            if model in EMBEDDINGS_MODELS:
-                return True
-            else:
-                return False
-            
-        # Completions requests (no constraint currently)
-        if openai_endpoint == COMPLETIONS:
-            return True
-        
-        # Chat completions requests (no constraint currently)
-        if openai_endpoint == CHAT_COMPLETIONS:
-            return True
-        
-        # Default
-        return False
+        return {
+            COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{COMPLETIONS}",
+            CHAT_COMPLETIONS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{CHAT_COMPLETIONS}",
+            EMBEDDINGS: f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{EMBEDDINGS}"
+        }

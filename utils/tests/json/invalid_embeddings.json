@@ -1,6 +1,11 @@
 [
     {
-        "model": "not-a-valid-model",
+        "model": ["not-a-string"],
+        "input": "this is my question?"
+    },
+
+    {
+        "model": 1.2553,
         "input": "this is my question?"
     },
 

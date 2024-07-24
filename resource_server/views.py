@@ -11,9 +11,6 @@ from resource_server.models import Endpoint, Log
 from rest_framework.exceptions import ValidationError
 from utils.serializers import OpenAICompletionsParamSerializer, OpenAIChatCompletionsParamSerializer, OpenAIEmbeddingsParamSerializer
 
-# Embeddings OpenAI models
-from utils.serializers import EMBEDDINGS_MODELS
-
 # Tool to log access requests
 import logging
 log = logging.getLogger(__name__)
@@ -33,28 +30,13 @@ class ListEndpoints(APIView):
         # Fetch all relevant data
         all_endpoints = []
         try:
-
-            # Extract all compute endpoints from the database
-            endpoints = Endpoint.objects.all()
-
-            # For each endpoint ...
-            for endpoint in endpoints:
-
-                # Embeddings models
-                if endpoint.model in EMBEDDINGS_MODELS:
-                    all_endpoints.append({
-                        "embedding_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/embeddings/",
-                        "model_name": endpoint.model
-                    })
-
-                # Completions and Chat/completions models
-                else:
-                    all_endpoints.append({
-                        "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
-                        "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
-                        "model_name": endpoint.model
-                    })
-
+            for endpoint in Endpoint.objects.all():
+                all_endpoints.append({
+                    "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
+                    "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
+                    "embedding_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/embeddings/",
+                    "model_name": endpoint.model
+                })
             if not all_endpoints:
                 return Response({"Error": "No endpoints found."}, status=400)
         except Exception as e:
@@ -132,6 +114,17 @@ class ClusterBase(APIView):
 
         # Log request in the Django database
         try:
+
+            # Collect the user input "prompt"
+            prompt = "default"
+            if "prompt" in data["model_params"]:
+                prompt = data["model_params"]["prompt"]
+            elif "messages" in data["model_params"]:
+                prompt = data["model_params"]["messages"]
+            elif "input" in data["model_params"]:
+                prompt = data["model_params"]["input"]
+
+            # Create and save database entry
             db_log = Log(
                 name=kwargs["user"]["name"],
                 username=kwargs["user"]["username"],
@@ -139,7 +132,7 @@ class ClusterBase(APIView):
                 framework=framework.lower(),
                 model=data["model_params"]["model"],
                 openai_endpoint=data["model_params"]["openai_endpoint"],
-                prompt=data["model_params"]["prompt"] if "prompt" in data["model_params"] else data["model_params"]["messages"],
+                prompt=json.dumps(prompt),
                 task_uuid=task_uuid,
                 completed=False,
                 sync=True
