@@ -3,7 +3,7 @@ from resource_server import views
 
 # URLs to access different Django views
 urlpatterns = [
-    re_path(r"^polaris/(?P<framework>\w+)/v1/(?P<openai_endpoint>chat/completions|completions)/?$", views.Polaris.as_view(), name="polaris"),
-    re_path(r"^sophia/(?P<framework>\w+)/v1/(?P<openai_endpoint>chat/completions|completions)/?$", views.Sophia.as_view(), name="sophia"),
+    re_path(r"^polaris/(?P<framework>\w+)/v1/(?P<openai_endpoint>chat/completions|completions|embeddings)/?$", views.Polaris.as_view(), name="polaris"),
+    re_path(r"^sophia/(?P<framework>\w+)/v1/(?P<openai_endpoint>chat/completions|completions|embeddings)/?$", views.Sophia.as_view(), name="sophia"),
     path("list-endpoints", views.ListEndpoints.as_view(), name="list-endpoints"),
 ]

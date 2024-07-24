@@ -349,3 +349,46 @@ class OpenAIMessageField(BaseCustomField):
                 if serializer.is_valid(raise_exception=True):
                     return True
         return False
+    
+
+# OpenAI embeddings input field
+class OpenAIEmbeddingsInputField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIEmbeddingsInputField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'input' must be string, array of strings, array of tokens, or array of token arrays."
+        self.min_items = 1
+        self.max_items = 2048
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+
+        # Single string
+        if isinstance(data, str):
+            return True
+        
+        # List
+        if isinstance(data, list):
+
+            # Check length
+            if len(data) < self.min_items or len(data) > self.max_items:
+                raise ValidationError(f"Length of 'input' lists must be between {self.min_items} and {self.max_items}, inclusively.")
+
+            # List of strings
+            if all(isinstance(x, str) for x in data):
+                return True
+            
+            # List of integers (tokens)
+            if all(isinstance(x, int) for x in data):
+                return True
+            
+            # List of integer lists (list of tokens)
+            if all(isinstance(x, list) for x in data):
+                for data_list in data:
+                    if not all(isinstance(x, int) for x in data_list):
+                        return False # wrong format
+                return True
+        
+        # Wrong format
+        return False

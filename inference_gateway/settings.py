@@ -21,8 +21,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
-# Load .env variables
-load_dotenv()
+# Load .env variables (override=True forces to prioritize values from .env file)
+load_dotenv(override=True)
 
 # Django secret key
 SECRET_KEY = os.getenv("SECRET_KEY")
