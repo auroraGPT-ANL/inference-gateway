@@ -151,7 +151,7 @@ class ClusterBase(APIView):
         while pending:
             task = gcc.get_task(task_uuid)
             pending = task["pending"]
-            time.sleep(1)
+            time.sleep(0.5)
 
         # TODO: Check status to see if it succeeded
         result = gcc.get_result(task_uuid)
