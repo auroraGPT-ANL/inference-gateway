@@ -1,13 +1,29 @@
 from locust import HttpUser, task, between
 import json
 import random
-import os
+#import os
 #import socket
 #hostname = socket.gethostname()
 #os.environ['no_proxy'] = hostname
-auth_token = ""
+f = open("access_token.txt", "r")
+auth_token = f.read().strip()
 class VLLMUser(HttpUser):
     wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
+    # @task
+    # def list_endpoints(self):
+    #     headers = {
+    #         "Content-Type": "application/json",
+    #         "Authorization": f"Bearer {auth_token}"  # Replace with actual API key if required
+    #     }
+        
+    #     # List of sample prompts
+    #     response = self.client.get("/list-endpoints", headers=headers)
+    #     print(response)
+    #     if response.status_code == 200:
+    #         # You can add additional checks here
+    #         pass
+    #     else:
+    #         response.failure(f"Got unexpected response code: {response.status_code}, {response.text}")
 
     @task
     def chat_completion(self):
