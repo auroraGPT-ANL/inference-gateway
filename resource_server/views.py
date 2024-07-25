@@ -128,13 +128,13 @@ class ClusterBase(APIView):
 
         # Start a Globus Compute task
         try:
+            db_data["timestamp_submit"] = timezone.now()
             task_uuid = gcc.run(
                 data,
                 endpoint_id=endpoint_uuid,
                 function_id=function_uuid,
             )
             db_data["task_uuid"] = task_uuid
-            db_data["timestamp_submit"] = timezone.now()
         except Exception as e:
             return self.__get_response(db_data, f"Error: {e}.", 400)
 
