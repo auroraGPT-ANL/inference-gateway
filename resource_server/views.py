@@ -116,13 +116,14 @@ class ClusterBase(APIView):
         try:
 
             # Collect the user input "prompt"
-            prompt = "default"
             if "prompt" in data["model_params"]:
                 prompt = data["model_params"]["prompt"]
             elif "messages" in data["model_params"]:
                 prompt = data["model_params"]["messages"]
             elif "input" in data["model_params"]:
                 prompt = data["model_params"]["input"]
+            else:
+                prompt = "default"
 
             # Create and save database entry
             db_log = Log(
