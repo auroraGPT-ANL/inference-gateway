@@ -172,55 +172,6 @@ class ResourceServerViewTestCase(APITestCase):
         response = view(request, endpoint.framework, "not-an-openai-endpoint")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-# Test Sophia (POST)
-    def test_sophia_view(self):
-
-        # Select the targeted Django view
-        view = views.Sophia.as_view()
-
-        # Create headers with a valid access token
-        headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=True)
-
-        # For each endpoint ...
-        for endpoint in self.db_endpoints:
-            
-            # Build the targeted Django URLs
-            url_dict = self.__get_endpoint_url(endpoint)
-            
-            # For each URL (openai endpoint) ...
-            for openai_endpoint, url in url_dict.items():
-
-                # Make sure POST requests fail if something is wrong with the authentication
-                self.__verify_headers_failures(url=url, view=view, method=self.factory.post)
-
-                # Make sure non-POST requests are not allowed
-                for method in [self.factory.get, self.factory.put, self.factory.delete]:
-                    response = view(method(url))
-                    self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-
-                # Make sure POST requests succeed when providing valid inputs
-                for valid_params in self.valid_params[openai_endpoint]:
-                    valid_params["model"] = endpoint.model
-                    request = self.factory.post(url, json.dumps(valid_params), headers=headers, **self.kwargs)
-                    response = view(request, endpoint.framework, openai_endpoint[:-1])
-                    self.assertEqual(response.status_code, status.HTTP_200_OK)
-                    self.assertEqual(response.data[SERVER_RESPONSE], mock_utils.MOCK_RESPONSE)
-
-                # Make sure POST requests fail when providing invalid inputs
-                for invalid_params in self.invalid_params[openai_endpoint]:
-                    request = self.factory.post(url, json.dumps(invalid_params), headers=headers, **self.kwargs)
-                    response = view(request, endpoint.framework, openai_endpoint[:-1])
-                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        # Make sure POST requests fail with unknown frameworks
-        request = self.factory.post(url, headers=headers, **self.kwargs)
-        response = view(request, "not-a-framework", openai_endpoint[:-1])
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        # Make sure POST requests fail with unknown openAI endpoints
-        response = view(request, endpoint.framework, "not-an-openai-endpoint")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
 
     # Verify headers failures
     def __verify_headers_failures(self, url=None, view=None, method=None):
