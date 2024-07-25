@@ -49,16 +49,14 @@ class Log(models.Model):
     username = models.CharField(max_length=100)
 
     # Requested resource and model
-    cluster = models.CharField(max_length=100)
-    framework = models.CharField(max_length=100)
-    model = models.CharField(max_length=100)
+    endpoint_slug = models.SlugField(max_length=100)
 
     # Requested openai_endpoint
     openai_endpoint = models.CharField(max_length=100, default="Empty")
 
     # Prompt requested by the user
     # TODO: Should we add all the other parameters?
-    prompt = models.TextField()
+    prompt = models.TextField(null=True)
 
     # Globus Compute task UUID
     task_uuid = models.CharField(max_length=100, unique=True)
@@ -68,12 +66,24 @@ class Log(models.Model):
     # If False, the view returns the compute task UUID
     sync = models.BooleanField()
 
-    # Whether the request was completed
-    # In sync mode, True means the Globus task is not pending anymore
-    # In async mode, True means the Globus compute task uuid was collected
-    completed = models.BooleanField(default=False)
+    # Time when the HTTP request was received (before the auth checks)
+    timestamp_receive = models.DateTimeField(null=False, blank=False)
+
+    # Time when the Globus compute request was submitted (after the auth checks)
+    timestamp_submit = models.DateTimeField(null=False, blank=False)
+
+    # Time when the response was sent back to the user
+    # If null/None, the job failed or is still pending
+    timestamp_response = models.DateTimeField(null=True, blank=True)
+
+    # Response status code sent back to the user
+    # If null/None, the job is still pending or the server were unable to send a response
+    response_status = models.IntegerField(null=True)
+
+    # Inference raw result
+    result = models.TextField(null=True)
 
     # String function
     def __str__(self):
-        return f"<{self.model} - {self.username} - ({self.completed})>"
+        return f"<{self.username} - {self.timestamp_receive} - {self.endpoint_slug}>"
     
