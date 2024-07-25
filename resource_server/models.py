@@ -73,11 +73,9 @@ class Log(models.Model):
     timestamp_submit = models.DateTimeField(null=True, blank=False)
 
     # Time when the response was sent back to the user
-    # If null/None, the job failed or is still pending
     timestamp_response = models.DateTimeField(null=True, blank=True)
 
     # Response status code sent back to the user
-    # If null/None, the job is still pending or the server were unable to send a response
     response_status = models.IntegerField(null=True)
 
     # Inference raw result or error messages if response status code is not 200
