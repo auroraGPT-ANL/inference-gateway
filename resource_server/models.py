@@ -49,17 +49,17 @@ class Log(models.Model):
     username = models.CharField(max_length=100)
 
     # Requested resource and model
-    endpoint_slug = models.SlugField(max_length=100)
+    endpoint_slug = models.SlugField(null=True, max_length=100)
 
     # Requested openai_endpoint
-    openai_endpoint = models.CharField(max_length=100, default="Empty")
+    openai_endpoint = models.CharField(null=True, max_length=100)
 
     # Prompt requested by the user
     # TODO: Should we add all the other parameters?
     prompt = models.TextField(null=True)
 
     # Globus Compute task UUID
-    task_uuid = models.CharField(max_length=100, unique=True)
+    task_uuid = models.CharField(null=True, max_length=100)
 
     # Whether the request is synchronous
     # If True, the view waited for the compute results
@@ -70,7 +70,7 @@ class Log(models.Model):
     timestamp_receive = models.DateTimeField(null=False, blank=False)
 
     # Time when the Globus compute request was submitted (after the auth checks)
-    timestamp_submit = models.DateTimeField(null=False, blank=False)
+    timestamp_submit = models.DateTimeField(null=True, blank=False)
 
     # Time when the response was sent back to the user
     # If null/None, the job failed or is still pending
