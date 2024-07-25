@@ -4,9 +4,16 @@ import functools
 import globus_sdk
 import time
 
+# Cache tools to limits how many calls are made to Globus servers
+from cachetools import TTLCache, cached
+
 # Tool to log access requests
 import logging
 log = logging.getLogger(__name__)
+
+# Exception to raise in case of errors
+class AuthUtilsError(Exception):
+    pass
 
 
 # Get Globus SDK confidential client
@@ -15,6 +22,50 @@ def get_globus_client():
         settings.GLOBUS_APPLICATION_ID, 
         settings.GLOBUS_APPLICATION_SECRET
     )
+
+
+# Credits to Nick Saint and Ryan Chard to help me out here on caching
+@cached(cache=TTLCache(maxsize=1024, ttl=5 * 60))
+def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
+    """Introspect a token with policies, collect group memberships, and return the response."""
+
+    # Create Globus SDK confidential client
+    client = get_globus_client()
+
+    # Include the access token and Globus policies (if needed) in the instrospection
+    introspect_body = {"token": bearer_token}
+    if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
+        introspect_body["authentication_policies"] = settings.GLOBUS_POLICIES
+
+    # Introspect the token through the Globus Auth API (including policy evaluation)
+    try: 
+        introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
+    except:
+        raise AuthUtilsError("Could not introspect the bearer token with Globus /v2/oauth2/token/introspect.")
+    
+    # If Globus Group membership needs to be checked ...
+    my_groups = []
+    if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
+
+        # Get dependent access token to view group membership
+        try:
+            dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
+            access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
+        except:
+            raise AuthUtilsError("Could not recover dependent access token for groups.api.globus.org.")
+
+        # Create a Globus Group Client using the access token sent by the user
+        authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+        groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
+
+        # Get the user's group memberships
+        try:
+            my_groups = groups_client.get_my_groups()
+        except:
+            raise AuthUtilsError("Could not recover group memberships.")
+        
+    # Return the introspection data along with the group 
+    return introspection, my_groups
 
 
 # Check Globus Policies
@@ -38,28 +89,17 @@ def check_globus_policies(introspection):
 
 
 # User In Allowed Groups
-def check_globus_groups(client, bearer_token):
+def check_globus_groups(my_groups):
     """
         Define whether an authenticated user has the proper Globus memberships.
         User should be member of at least in one of the allowed Globus groups.
     """
 
-    # Get dependent access token to view group membership
-    try:
-        dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
-        access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
-    except:
-        return False, "Could not recover dependent access token for groups.api.globus.org."
-
-    # Create a Globus Group Client using the access token sent by the user
-    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
-    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
-
     # Collect the list of Globus Groups that the user is a member of
     try:
-        user_groups = [group["id"] for group in groups_client.get_my_groups()]
+        user_groups = [group["id"] for group in my_groups]
     except:
-        return False, "Could not recover group memberships."
+        return False, "introspection object does not have the 'get_my_groups' key."
     
     # Grant access if the user is a member of at least one of the allowed Globus Groups
     if len(set(user_groups).intersection(settings.GLOBUS_GROUPS)) > 0:
@@ -80,8 +120,6 @@ def globus_authenticated(f):
     @functools.wraps(f)
     def check_bearer_token(self, request, *args, **kwargs):
         try:
-            # Create Globus SDK confidential client
-            client = get_globus_client()
 
             # Make sure the request is authenticated
             auth_header = request.headers.get("Authorization")
@@ -99,14 +137,7 @@ def globus_authenticated(f):
                 return Response({"Error": "Auth only allows header type Authorization: Bearer <token>"}, status=400)
             
             # Introspect the access token
-            introspect_body = {
-                "token": bearer_token,
-                "authentication_policies": settings.GLOBUS_POLICIES
-            }
-            try: 
-                introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
-            except:
-                return False, "Something went wrong in the Globus introspect API call."
+            introspection, my_groups = introspect_token(bearer_token)
 
             # Make sure the access token is active and filled with user information
             if introspection["active"] is False:
@@ -134,12 +165,12 @@ def globus_authenticated(f):
                 
             # Make sure the authenticated user is at least in one of the allowed Globus Groups
             if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
-                successful, error_message = check_globus_groups(client, bearer_token)
+                successful, error_message = check_globus_groups(my_groups)
                 if not successful:
                     return Response({"Error": error_message}, status=401)
 
             return f(self, request, *args, **kwargs) 
         except Exception as e:
-            return Response({"Error Here": str(e)}, status=500)
+            return Response({"check_bearer_token": str(e)}, status=500)
 
     return check_bearer_token

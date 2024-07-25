@@ -1,23 +1,21 @@
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
 from utils import serializer_utils
 
 # TODO: overwrite is_valid or validate function to raise errors when passing extra parameters
 # NOTE: All of utility fields and serializers are in utils/serializer_utils.py
 
-# Mandatory and optionsl parameter arguments
+# Mandatory and optional parameter arguments
 MAND = {"required":True}
 OPT = {"required": False}
 OPT_NULL = {"required": False, "allow_null": True}
 
-
-# OpenAI Legacy parameter serializer
+# OpenAI completions parameter serializer
 # https://platform.openai.com/docs/api-reference/completions/create
-class OpenAILegacyParamSerializer(serializer_utils.BaseSerializers):
+class OpenAICompletionsParamSerializer(serializer_utils.BaseSerializers):
 
     # Mandatory model parameters
-    model = serializer_utils.TrueCharField(allow_blank=False, **MAND) #TODO: Provide validation on choices (ChoiceField)
     prompt = serializer_utils.OpenAIPromptField(**MAND)
+    model = serializer_utils.TrueCharField(allow_blank=False, **MAND) #TODO: Provide validation on choices (ChoiceField)
 
     # Optional model parameters
     best_of = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: 1) dependent on n
@@ -38,9 +36,9 @@ class OpenAILegacyParamSerializer(serializer_utils.BaseSerializers):
     user = serializer_utils.TrueCharField(**OPT)
 
 
-# OpenAI chat parameter serializer
+# OpenAI chat completions parameter serializer
 # https://platform.openai.com/docs/api-reference/chat/create
-class OpenAIParamSerializer(serializer_utils.BaseSerializers):
+class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
 
     # Mandatory model parameters
     messages = serializers.ListField(child=serializer_utils.OpenAIMessageField(), allow_empty=False, **MAND)
@@ -65,4 +63,18 @@ class OpenAIParamSerializer(serializer_utils.BaseSerializers):
     tools = serializers.ListField(child=serializer_utils.OpenAIToolSerializer(), max_length=128, **OPT)
     tool_choice = serializer_utils.OpenAIToolChoiceField(**OPT)
     parallel_tool_calls = serializers.BooleanField(**OPT)
+    user = serializer_utils.TrueCharField(**OPT)
+
+
+# OpenAI embeddings parameter serializer
+# https://platform.openai.com/docs/api-reference/embeddings/create
+class OpenAIEmbeddingsParamSerializer(serializer_utils.BaseSerializers):
+
+    # Mandatory model parameters
+    input = serializer_utils.OpenAIEmbeddingsInputField(**MAND)
+    model = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+
+    # Optional model parameters
+    encoding_format = serializers.ChoiceField(choices=["float", "base64"], **OPT)
+    dimensions = serializers.IntegerField(min_value=1, **OPT)
     user = serializer_utils.TrueCharField(**OPT)

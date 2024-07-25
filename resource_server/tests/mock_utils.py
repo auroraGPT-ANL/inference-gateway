@@ -24,6 +24,26 @@ def get_mock_access_token(active=True, expired=False):
     return mock_token
 
 
+# Get mock token introspection
+def introspect_token(access_token):
+
+    # Base-line response for an active and valid token
+    introspection = {
+        "name": "mock_name",
+        "username": "mock_username",
+        "scope": "mock_scope",
+        "active": ACTIVE in access_token,
+        "exp": time.time() + 1000,
+    }
+
+    # Adjust the token expiration time
+    if EXPIRED in access_token:
+        introspection["exp"] -= 2000
+        
+    # Return the mock token introspection and the Globus group details (here None)
+    return introspection, None
+
+
 # Get mock headers 
 def get_mock_headers(access_token="", bearer=True):
 
@@ -46,22 +66,7 @@ class MockClient():
 
     # Mock token introspection
     def post(self, url, data=None, encoding=None):
-
-        # Base-line response for an active and valid token
-        introspection = {
-            "name": "mock_name",
-            "username": "mock_username",
-            "scope": "mock_scope",
-            "active": ACTIVE in data["token"],
-            "exp": time.time() + 1000,
-        }
-
-        # Adjust the token expiration time
-        if EXPIRED in data["token"]:
-            introspection["exp"] -= 2000
-        
-        # Return the mock token  introspection
-        return introspection
+        return introspect_token(data["token"])[0]
     
     # Mock endpoint status
     def get_endpoint_status(self, endpoint_uuid):
@@ -113,6 +118,7 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=None):
 def check_globus_policies(introspection):
     return True, ""
 
+
 # Mock check_globus_groups function
-def check_globus_groups(client, bearer_token):
+def check_globus_groups(my_groups):
     return True, ""
