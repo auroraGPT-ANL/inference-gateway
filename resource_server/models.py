@@ -80,7 +80,7 @@ class Log(models.Model):
     # If null/None, the job is still pending or the server were unable to send a response
     response_status = models.IntegerField(null=True)
 
-    # Inference raw result
+    # Inference raw result or error messages if response status code is not 200
     result = models.TextField(null=True)
 
     # String function
