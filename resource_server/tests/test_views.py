@@ -154,6 +154,9 @@ class ResourceServerViewTestCase(APITestCase):
                     # Make sure POST requests succeed
                     request = self.factory.post(url, json.dumps(valid_params), headers=self.headers, **self.kwargs)
                     response = view(request, endpoint.framework, openai_endpoint[:-1])
+                    if not response.status_code == status.HTTP_200_OK:
+                        _ = response.render()
+                        print(response.content)
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
                     self.assertEqual(response.data[SERVER_RESPONSE], mock_utils.MOCK_RESPONSE)
 

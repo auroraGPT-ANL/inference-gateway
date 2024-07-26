@@ -49,31 +49,39 @@ class Log(models.Model):
     username = models.CharField(max_length=100)
 
     # Requested resource and model
-    cluster = models.CharField(max_length=100)
-    framework = models.CharField(max_length=100)
-    model = models.CharField(max_length=100)
+    endpoint_slug = models.SlugField(null=True, max_length=100)
 
     # Requested openai_endpoint
-    openai_endpoint = models.CharField(max_length=100, default="Empty")
+    openai_endpoint = models.CharField(null=True, max_length=100)
 
     # Prompt requested by the user
     # TODO: Should we add all the other parameters?
-    prompt = models.TextField()
+    prompt = models.TextField(null=True)
 
     # Globus Compute task UUID
-    task_uuid = models.CharField(max_length=100, unique=True)
+    task_uuid = models.CharField(null=True, max_length=100)
 
     # Whether the request is synchronous
     # If True, the view waited for the compute results
     # If False, the view returns the compute task UUID
     sync = models.BooleanField()
 
-    # Whether the request was completed
-    # In sync mode, True means the Globus task is not pending anymore
-    # In async mode, True means the Globus compute task uuid was collected
-    completed = models.BooleanField(default=False)
+    # Time when the HTTP request was received (before the auth checks)
+    timestamp_receive = models.DateTimeField(null=False, blank=False)
+
+    # Time when the Globus compute request was submitted (after the auth checks)
+    timestamp_submit = models.DateTimeField(null=True, blank=False)
+
+    # Time when the response was sent back to the user
+    timestamp_response = models.DateTimeField(null=True, blank=True)
+
+    # Response status code sent back to the user
+    response_status = models.IntegerField(null=True)
+
+    # Inference raw result or error messages if response status code is not 200
+    result = models.TextField(null=True)
 
     # String function
     def __str__(self):
-        return f"<{self.model} - {self.username} - ({self.completed})>"
+        return f"<{self.username} - {self.timestamp_receive} - {self.endpoint_slug}>"
     

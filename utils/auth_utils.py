@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.utils import timezone
 from rest_framework.response import Response
 import functools
 import globus_sdk
@@ -120,6 +121,9 @@ def globus_authenticated(f):
     @functools.wraps(f)
     def check_bearer_token(self, request, *args, **kwargs):
         try:
+
+            # Record the time close to when the HTTP request was received by the server
+            kwargs["timestamp_receive"] = timezone.now()
 
             # Make sure the request is authenticated
             auth_header = request.headers.get("Authorization")
