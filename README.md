@@ -12,6 +12,7 @@ Prototype to create a checkpoint to authorize inference requests coming from out
 Install all required dependencies using poetry:
 
 ```bash
+poetry env use ..path-to-your-targetted-python-executable..
 poetry config virtualenvs.in-project true
 poetry install
 ```
@@ -22,21 +23,17 @@ Alternatively, if you want to use `pip install`, a requirements.txt file is avai
 Create a file named ``.env`` with the following content:
 
 ```bash
-SECRET_KEY="<SOME_SUPER_SECRET_KEY>"
-GLOBUS_APPLICATION_ID="<Globus-vLLM-API-CLIENT-ID>"
-GLOBUS_APPLICATION_SECRET="<Globus-vLLM-API-CLIENT-SECRET>"
+SECRET_KEY="<some-super-secret-key>"
+GLOBUS_APPLICATION_ID="<Globus-vLLM-API-client-identity>"
+GLOBUS_APPLICATION_SECRET="<Globus-vLLM-API-client-secret>"
 POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
 POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
-GLOBUS_GROUP_MANAGER_ID="<Globus-group-manager-identity>"
-GLOBUS_GROUP_MANAGER_SECRET="<Globus-group-manager-secret>"
 DEBUG=False
-GLOBUS_GROUPS=""
-GLOBUS_POLICIES="
-41689588-6a11-4ce9-aa24-f196ca7bf774
-"
+GLOBUS_GROUPS="<globus-group-uuid>"
+GLOBUS_POLICIES="<globus-policy-uuid>"
 ```
 
-To enable Globus Group check, the `GLOBUS_GROUP_MANAGER` client must be a member in all allowed Globus Groups. This can be done with the Globus CLI with the following command `globus group member add <group-uuid> <GLOBUS_GROUP_MANAGER_ID>@clients.auth.globus.org`. The current Inference Group UUID that should be added in `GLOBUS_GROUPS` is 1e56984c-d5ae-11ee-8844-b93550bcf92a.
+The official Inference Group and Policy UUIDs for `GLOBUS_GROUPS` and `GLOBUS_POLICIES` are 1e56984c-d5ae-11ee-8844-b93550bcf92a and 41689588-6a11-4ce9-aa24-f196ca7bf774, respectively.
 
 ### Local Database
 
