@@ -27,6 +27,10 @@ def get_mock_access_token(active=True, expired=False):
 # Get mock token introspection
 def introspect_token(access_token):
 
+    # Emulate an error in the introspection call
+    if (ACTIVE not in access_token) or (EXPIRED in access_token):
+        return "mock error message", None
+
     # Base-line response for an active and valid token
     introspection = {
         "name": "mock_name",

@@ -28,10 +28,18 @@ def get_globus_client():
 # Credits to Nick Saint and Ryan Chard to help me out here on caching
 @cached(cache=TTLCache(maxsize=1024, ttl=60*60))
 def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
-    """Introspect a token with policies, collect group memberships, and return the response."""
+    """
+        Introspect a token with policies, collect group memberships, and return the response.
+        Here we return error messages instead of raising exception/errors because we need
+        to cache the outcome so that we don't contact Globus all the time if a token is
+        invalid and requests keep coming in a loop.
+    """
 
     # Create Globus SDK confidential client
-    client = get_globus_client()
+    try:
+        client = get_globus_client()
+    except Exception as e:
+        return f"Could not create Globus confidential client. {e}", []
 
     # Include the access token and Globus policies (if needed) in the instrospection
     introspect_body = {"token": bearer_token}
@@ -42,8 +50,11 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     try: 
         introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
     except Exception as e:
-        log.error({"Error: Introspect the token": e})
-        raise AuthUtilsError("Could not introspect the bearer token with Globus /v2/oauth2/token/introspect.")
+        return f"Could not introspect token with Globus /v2/oauth2/token/introspect. {e}", []
+    
+    # Error if the token is invalid
+    if introspection["active"] is False:
+        return "Token is either not active or invalid", []
     
     # If Globus Group membership needs to be checked ...
     my_groups = []
@@ -54,8 +65,7 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
             dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
             access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
         except Exception as e:
-            log.error({"Error: Get dependent access token": e})
-            raise AuthUtilsError("Could not recover dependent access token for groups.api.globus.org.")
+            return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
 
         # Create a Globus Group Client using the access token sent by the user
         authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
@@ -65,8 +75,7 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         try:
             my_groups = groups_client.get_my_groups()
         except Exception as e:
-            log.error({"Error: Get the user's group memberships": e})
-            raise AuthUtilsError("Could not recover group memberships.")
+            return f"Could not recover group memberships. {e}", []
         
     # Return the introspection data along with the group 
     return introspection, my_groups
@@ -103,7 +112,7 @@ def check_globus_groups(my_groups):
     try:
         user_groups = [group["id"] for group in my_groups]
     except:
-        return False, "introspection object does not have the 'get_my_groups' key."
+        return False, "Introspection object does not have the 'get_my_groups' key."
     
     # Grant access if the user is a member of at least one of the allowed Globus Groups
     if len(set(user_groups).intersection(settings.GLOBUS_GROUPS)) > 0:
@@ -145,10 +154,11 @@ def globus_authenticated(f):
             
             # Introspect the access token
             introspection, my_groups = introspect_token(bearer_token)
-
-            # Make sure the access token is active and filled with user information
-            if introspection["active"] is False:
-                return Response({"Error": "Token is either not active or invalid"}, status=401)
+            
+            # If there an error (introspection not a globus object), return the error stored in the introspection variable
+            if isinstance(introspection, str):
+                log.error({"Error: Introspect the access token": introspection})
+                return Response({"Error": introspection}, status=401)
 
             # Prepare user details to be passed to the Django view
             kwargs["user"] = {
