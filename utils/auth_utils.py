@@ -36,7 +36,10 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     """
 
     # Create Globus SDK confidential client
-    client = get_globus_client()
+    try:
+        client = get_globus_client()
+    except Exception as e:
+        return f"Could not create Globus confidential client. {e}", []
 
     # Include the access token and Globus policies (if needed) in the instrospection
     introspect_body = {"token": bearer_token}
