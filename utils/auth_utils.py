@@ -41,7 +41,8 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     # Introspect the token through the Globus Auth API (including policy evaluation)
     try: 
         introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
-    except:
+    except Exception as e:
+        log.error({"Error: Introspect the token": e})
         raise AuthUtilsError("Could not introspect the bearer token with Globus /v2/oauth2/token/introspect.")
     
     # If Globus Group membership needs to be checked ...
@@ -52,7 +53,8 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         try:
             dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
             access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
-        except:
+        except Exception as e:
+            log.error({"Error: Get dependent access token": e})
             raise AuthUtilsError("Could not recover dependent access token for groups.api.globus.org.")
 
         # Create a Globus Group Client using the access token sent by the user
@@ -62,7 +64,8 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         # Get the user's group memberships
         try:
             my_groups = groups_client.get_my_groups()
-        except:
+        except Exception as e:
+            log.error({"Error: Get the user's group memberships": e})
             raise AuthUtilsError("Could not recover group memberships.")
         
     # Return the introspection data along with the group 
@@ -175,6 +178,7 @@ def globus_authenticated(f):
 
             return f(self, request, *args, **kwargs) 
         except Exception as e:
-            return Response({"check_bearer_token": str(e)}, status=500)
+            log.error({"Error: check_bearer_token": e})
+            return Response({"Error: check_bearer_token": e}, status=500)
 
     return check_bearer_token
