@@ -179,6 +179,6 @@ def globus_authenticated(f):
             return f(self, request, *args, **kwargs) 
         except Exception as e:
             log.error({"Error: check_bearer_token": e})
-            return Response({"Error: check_bearer_token": e}, status=500)
+            return Response({"Error: ": e}, status=500)
 
     return check_bearer_token
