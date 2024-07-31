@@ -48,7 +48,7 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "d70267d0-f77e-4879-9bb5-8e078f2b1e42",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "function_uuid": "f41a39a7-a246-491e-87e6-033b684102ce"
         }
     },
     {
@@ -61,7 +61,7 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "4f50f1bd-3d97-4528-b63f-0c1e439b63e3",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "function_uuid": "f41a39a7-a246-491e-87e6-033b684102ce"
         }
     },
     {
@@ -74,7 +74,7 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8000,
             "endpoint_uuid": "8ed07893-9ccb-485f-b7bc-cf99117c1d85",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "function_uuid": "f41a39a7-a246-491e-87e6-033b684102ce"
         }
     },
     {
