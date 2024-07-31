@@ -130,8 +130,11 @@ class ClusterBase(APIView):
             if not endpoint_status["status"] == "online":
                 return self.__get_response(db_data, f"Error: Endpoint {endpoint_slug} is not online.", 400)
         except globus_sdk.GlobusAPIError as e:
-            log.error({"Error: Check if the endpoint is running": e})
+            log.error({f"Error: Cannot access the status of endpoint {endpoint_slug}": e})
             return self.__get_response(db_data, f"Error: Cannot access the status of endpoint {endpoint_slug}.", 400)
+        except Exception as e:
+            log.error({"Error: Check if the endpoint is running": e})
+            return self.__get_response(db_data, f"Error: {e}", 400)
 
         # Start a Globus Compute task
         try:
