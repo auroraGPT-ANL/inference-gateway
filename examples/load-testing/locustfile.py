@@ -16,14 +16,9 @@ class VLLMUser(HttpUser):
     #         "Authorization": f"Bearer {auth_token}"  # Replace with actual API key if required
     #     }
         
-    #     # List of sample prompts
-    #     response = self.client.get("/list-endpoints", headers=headers)
-    #     print(response)
-    #     if response.status_code == 200:
-    #         # You can add additional checks here
-    #         pass
-    #     else:
-    #         response.failure(f"Got unexpected response code: {response.status_code}, {response.text}")
+    #     with self.client.get("/list-endpoints", headers=headers, catch_response=True) as response:
+    #         if not response.status_code == 200:
+    #             response.failure(f"Got unexpected response code: {response.status_code}, {response.text}")
 
     @task
     def chat_completion(self):
@@ -50,13 +45,10 @@ class VLLMUser(HttpUser):
             "temperature": 0.7,
             "max_tokens": 150
         }
-        response = self.client.post("/v1/chat/completions", json=payload, headers=headers)
-        
-        if response.status_code == 200:
-            # You can add additional checks here
-            pass
-        else:
-            response.failure(f"Got unexpected response code: {response.status_code}")
+
+        with self.client.post("/v1/chat/completions", json=payload, headers=headers, catch_response=True, timeout=None) as response:
+            if not response.status_code == 200:
+                response.failure(f"Got unexpected response code: {response.status_code}, {response.text}")
 
     @task
     def text_completion(self):
@@ -80,10 +72,6 @@ class VLLMUser(HttpUser):
             "max_tokens": 50
         }
         
-        response = self.client.post("/v1/completions", json=payload, headers=headers)
-        
-        if response.status_code == 200:
-            # You can add additional checks here
-            pass
-        else:
-            response.failure(f"Got unexpected response code: {response.status_code}")
+        with self.client.post("/v1/completions", json=payload, headers=headers, catch_response=True, timeout=None) as response:
+            if not response.status_code == 200:
+                response.failure(f"Got unexpected response code: {response.status_code}, {response.text}")

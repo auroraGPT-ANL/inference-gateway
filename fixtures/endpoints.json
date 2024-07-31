@@ -8,8 +8,8 @@
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
-            "endpoint_uuid": "7f53dcad-6beb-4973-9a51-963742b2f5d7",
-            "function_uuid": "c4bf10df-9f8f-4963-a1c7-57835c1cb09f"
+            "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
+            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
         }
     },
     {
@@ -21,8 +21,8 @@
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8001,
-            "endpoint_uuid": "7f53dcad-6beb-4973-9a51-963742b2f5d7",
-            "function_uuid": "c4bf10df-9f8f-4963-a1c7-57835c1cb09f"
+            "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
+            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
         }
     },
     {
@@ -34,8 +34,8 @@
             "framework": "vllm",
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8002,
-            "endpoint_uuid": "7f53dcad-6beb-4973-9a51-963742b2f5d7",
-            "function_uuid": "c4bf10df-9f8f-4963-a1c7-57835c1cb09f"
+            "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
+            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
         }
     },    
     {
@@ -47,8 +47,8 @@
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8000,
-            "endpoint_uuid": "d70267d0-f77e-4879-9bb5-8e078f2b1e42",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "endpoint_uuid": "be293b79-501f-484e-898c-a448c4e32c36",
+            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
         }
     },
     {
@@ -60,8 +60,8 @@
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
-            "endpoint_uuid": "4f50f1bd-3d97-4528-b63f-0c1e439b63e3",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "endpoint_uuid": "f8bcfd58-54c6-4731-aad1-d7a27850e642",
+            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
         }
     },
     {
@@ -73,8 +73,8 @@
             "framework": "vllm",
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8000,
-            "endpoint_uuid": "8ed07893-9ccb-485f-b7bc-cf99117c1d85",
-            "function_uuid": "e83283c0-807b-44c1-8c45-54908e4ec963"
+            "endpoint_uuid": "05257c2d-f136-4ffc-8d8c-66638f696335",
+            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
         }
     },
     {

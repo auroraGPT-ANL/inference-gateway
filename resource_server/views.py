@@ -110,12 +110,19 @@ class ClusterBase(APIView):
             data["model_params"]["api_port"] = endpoint.api_port
             db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
         except Endpoint.DoesNotExist:
-            return self.__get_response(db_data, "Error: The requested endpoint does not exist.", 400)
+            log.error(f"Error: The requested endpoint {endpoint_slug} does not exist.")
+            return self.__get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
         except Exception as e:
+            log.error({"Error: Pull the targetted endpoint UUID and function UUID": e})
             return self.__get_response(db_data, f"Error: {e}", 400)
         
         # Get Globus Compute client (using the endpoint identity)
-        gcc = utils.get_compute_client_from_globus_app()
+        try:
+            gcc = utils.get_compute_client_from_globus_app()
+            gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+        except Exception as e:
+            log.error({"Error: Get Globus Compute client": e})
+            return self.__get_response(db_data, f"Error: {e}", 400)
 
         # Check if the endpoint is running
         try:
@@ -123,37 +130,26 @@ class ClusterBase(APIView):
             if not endpoint_status["status"] == "online":
                 return self.__get_response(db_data, f"Error: Endpoint {endpoint_slug} is not online.", 400)
         except globus_sdk.GlobusAPIError as e:
-            log.error(e)
+            log.error({f"Error: Cannot access the status of endpoint {endpoint_slug}": e})
             return self.__get_response(db_data, f"Error: Cannot access the status of endpoint {endpoint_slug}.", 400)
+        except Exception as e:
+            log.error({"Error: Check if the endpoint is running": e})
+            return self.__get_response(db_data, f"Error: {e}", 400)
 
         # Start a Globus Compute task
         try:
             db_data["timestamp_submit"] = timezone.now()
-            task_uuid = gcc.run(
-                data,
-                endpoint_id=endpoint_uuid,
-                function_id=function_uuid,
-            )
-            db_data["task_uuid"] = task_uuid
+            future = gce.submit_to_registered_function(function_uuid, args=[data])
         except Exception as e:
+            log.error({"Error: Start a Globus Compute task": e})
             return self.__get_response(db_data, f"Error: {e}.", 400)
 
-        # Wait until results are done
-        # TODO: We need to be careful here if we are thinking of using Executor and future().
-        #       With Executor you can deactivate a client if a parallel request creates an 
-        #       other executor with the same Globus App credentials.
-        task = gcc.get_task(task_uuid)
-        pending = task["pending"]
-        # NOTE: DO NOT set pending = True since it will slow down the automated test suite
-        while pending:
-            task = gcc.get_task(task_uuid)
-            pending = task["pending"]
-            time.sleep(0.5)
-
-        # Get result from the Globus Compute task
+        # Wait for the result
         try:
-            result = gcc.get_result(task_uuid)
+            result = future.result()
+            db_data["task_uuid"] = future.task_id
         except Exception as e:
+            log.error({"Error: Wait until results are done": e})
             return self.__get_response(db_data, f"Error: {e}.", 400)
 
         # Return Globus Compute results
@@ -213,6 +209,7 @@ class ClusterBase(APIView):
                 db_log = Log(**db_data)
                 db_log.save()
         except IntegrityError as e:
+            log.error({"Error: Create and save database entry": e})
             return Response({SERVER_RESPONSE: f"Error: Something went wrong when saving the database entry. {e}"}, status=400)
 
         # Return the error response
