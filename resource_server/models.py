@@ -67,7 +67,7 @@ class Log(models.Model):
     sync = models.BooleanField()
 
     # Time when the HTTP request was received (before the auth checks)
-    timestamp_receive = models.DateTimeField(null=False, blank=False)
+    timestamp_receive = models.DateTimeField(null=True, blank=False)
 
     # Time when the Globus compute request was submitted (after the auth checks)
     timestamp_submit = models.DateTimeField(null=True, blank=False)
