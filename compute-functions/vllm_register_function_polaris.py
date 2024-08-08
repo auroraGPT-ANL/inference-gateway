@@ -2,20 +2,17 @@ import globus_compute_sdk
 #import random
 
 def vllm_inference_function(parameters):
-    import socket
     import os
     import time
     import requests
     import json
 
     # Determine the hostname
-    hostname = socket.gethostname()
-    os.environ['no_proxy'] = f"localhost,{hostname}"
+    os.environ['no_proxy'] = f"localhost,127.0.0.1"
 
     # Get the API key from environment variable
     api_key = os.getenv("OPENAI_API_KEY", "random_api_key")
 
-    base_url = f"http://{hostname}:8000/v1/"
     # Prepare headers
     headers = {
         "Content-Type": "application/json",
@@ -26,7 +23,11 @@ def vllm_inference_function(parameters):
     
     # Determine the endpoint based on the URL parameter
     openai_endpoint = parameters['model_params'].pop('openai_endpoint')
+
+    # Determine the port based on the URL parameter
+    api_port = parameters['model_params'].pop('api_port')
     
+    base_url = f"https://127.0.0.1:{api_port}/v1/"
     url = base_url + openai_endpoint
 
     # Prepare the payload
@@ -70,7 +71,7 @@ gcc = globus_compute_sdk.Client()
 COMPUTE_FUNCTION_ID = gcc.register_function(vllm_inference_function)
 
 # Write function UUID in a file
-uuid_file_name = "vllm_function_uuid_new.txt"
+uuid_file_name = "vllm_register_function_polaris_multiple_models.txt"
 with open(uuid_file_name, "w") as file:
     file.write(COMPUTE_FUNCTION_ID)
     file.write("\n")
