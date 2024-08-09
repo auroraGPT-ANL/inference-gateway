@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("endpoint_slug", models.SlugField(max_length=250, unique=True)),
+                ("endpoint_slug", models.SlugField(max_length=250)),
                 ("cluster", models.CharField(max_length=250)),
                 ("framework", models.CharField(max_length=250)),
                 ("model", models.CharField(max_length=250)),
