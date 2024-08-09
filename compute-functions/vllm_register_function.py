@@ -1,5 +1,5 @@
 import globus_compute_sdk
-#import random
+import random
 
 def vllm_inference_function(parameters):
     import os
@@ -36,7 +36,7 @@ def vllm_inference_function(parameters):
     start_time = time.time()
     
     # Make the POST request
-    response = requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload, verify=False)
     
     end_time = time.time()
     response_time = end_time - start_time
@@ -67,20 +67,23 @@ def vllm_inference_function(parameters):
 # Creating Globus Compute client
 gcc = globus_compute_sdk.Client()
 
-# Register the function
+# # Register the function
 COMPUTE_FUNCTION_ID = gcc.register_function(vllm_inference_function)
 
-# Write function UUID in a file
-uuid_file_name = "vllm_register_function_polaris_multiple_models.txt"
+# # Write function UUID in a file
+uuid_file_name = "vllm_register_function_multiple_models.txt"
 with open(uuid_file_name, "w") as file:
-    file.write(COMPUTE_FUNCTION_ID)
-    file.write("\n")
+  file.write(COMPUTE_FUNCTION_ID)
+  file.write("\n")
 file.close()
 
-# End of script
-print("Function registered with UUID -", COMPUTE_FUNCTION_ID)
-print("The UUID is stored in " + uuid_file_name + ".")
-print("")
+# # # End of script
+
+
+# TEST CASES
+# print("Function registered with UUID -", COMPUTE_FUNCTION_ID)
+# print("The UUID is stored in " + uuid_file_name + ".")
+# print("")
 
 # Example calls
 
@@ -94,29 +97,56 @@ print("")
 # ]
 
 
-# # Chat completion example
+# # # Chat completion example
 # chat_out = vllm_inference_function({
 #     'model_params': {
-#         'url': '/v1/chat/completions',
+#         'openai_endpoint': 'chat/completions',
 #         'model': 'meta-llama/Meta-Llama-3-8B-Instruct',
-#         'temperature': 0.2,
-#         'max_tokens': 150,
+#         'api_port': 8001,
 #         "messages": [{"role": "user", "content": random.choice(prompts)}],
 #         'logprobs': True
 #     }
 # })
-# print("Chat Completion Output:")
+# print("Chat Completion Output for meta-llama/Meta-Llama-3-8B-Instruct")
+# print(chat_out)
+
+
+
+# # # Chat completion example
+# chat_out = vllm_inference_function({
+#     'model_params': {
+#         'openai_endpoint': 'chat/completions',
+#         'model': 'meta-llama/Meta-Llama-3-70B-Instruct',
+#         'api_port': 8000,
+#         "messages": [{"role": "user", "content": random.choice(prompts)}],
+#         'logprobs': True
+#     }
+# })
+# print("Chat Completion Output for meta-llama/Meta-Llama-3-70B-Instruct")
+# print(chat_out)
+
+# # # Chat completion example
+# chat_out = vllm_inference_function({
+#     'model_params': {
+#         'openai_endpoint': 'chat/completions',
+#         'model': 'mistralai/Mistral-7B-Instruct-v0.3',
+#         'api_port': 8002,
+#         "messages": [{"role": "user", "content": random.choice(prompts)}],
+#         'logprobs': True
+#     }
+# })
+# print("Chat Completion Output for meta-llama/Meta-Llama-3-8B-Instruct")
 # print(chat_out)
 
 # # Text completion example
 # text_out = vllm_inference_function({
 #     'model_params': {
-#         'url': '/v1/completions',
-#         'model': 'meta-llama/Meta-Llama-3-8B-Instruct',
-#         'temperature': 0.2,
-#         'max_tokens': 150,
+#         'openai_endpoint': 'completions',
+#         'model': 'mistralai/Mixtral-8x22B-Instruct-v0.1',
+#         # 'temperature': 0.2,
+#         # 'max_tokens': 150,
 #         'prompt': "List all proteins that interact with RAD51",
-#         'logprobs': True
+#         # 'logprobs': True
 #     }
 # })
 # print("\nText Completion Output:")

@@ -39,4 +39,4 @@ engine:
       (nohup vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 8192 --enforce-eager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt  > /home/openinference_svc/logfile_polaris-vllm-meta-llama-3-8b-instruct.log 2>&1 &) && while ! grep -q "INFO:     Application startup complete." /home/openinference_svc/logfile_polaris-vllm-meta-llama-3-8b-instruct.log; do sleep 1; done;
 # Limit the functions UUID that can be execute
 allowed_functions:
-   - 358e45a4-c2bd-440e-b028-a4dc90c2063c
+   - 3a060933-2297-403f-a9a0-1037d04a09bb
