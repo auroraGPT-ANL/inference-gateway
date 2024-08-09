@@ -8,8 +8,7 @@ class Endpoint(models.Model):
     # In the form of <cluster>-<framework>-<model> (all lower case)
     # An example is polaris-llama-cpp_meta-llama3-8b-instruct
     endpoint_slug = models.SlugField(
-        max_length=100,
-        unique=True,
+        max_length=100    
     )
 
     # HPC machine the endpoint is running on (e.g. polaris)
