@@ -31,10 +31,12 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Debug - Show current branch
-        run: echo "Current branch: $(git branch --show-current)"
+        run: |
+          echo "Current branch: $(git branch --show-current)"
 
       - name: List endpoints contents
-        run: cat fixtures/endpoints.json
+        run: |
+          cat fixtures/endpoints.json
 
       - name: Clean up endpoints.json file
         working-directory: ${{ env.WORKING_DIRECTORY }}
@@ -47,7 +49,8 @@ jobs:
               json.dump(data, file, indent=4)"
 
       - name: List endpoints contents again
-        run: cat fixtures/endpoints.json
+        run: |
+          cat fixtures/endpoints.json
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
