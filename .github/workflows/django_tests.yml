@@ -30,6 +30,14 @@ jobs:
       - name: Clone current GitHub repository
         uses: actions/checkout@v2
 
+      - name: Debug - Show current branch
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+
+      - name: List directory contents
+        run: |
+          ls -la
+
       # Scan codes to look for syntax errors
       - name: Check Python syntax
         uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
