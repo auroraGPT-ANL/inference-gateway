@@ -31,29 +31,23 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Debug - Show current branch
-        run: |
-          echo "Current branch: $(git branch --show-current)"
+        run: echo "Current branch: $(git branch --show-current)"
 
       - name: List endpoints contents
-        run: |
-          cat fixtures/endpoints.json
+        run: cat fixtures/endpoints.json
 
       - name: Clean up endpoints.json file
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
-          python3 -c "
-import json
-with open('fixtures/endpoints.json', 'r') as file:
-    data = json.load(file)
-# Filter out any entry with pk = 10
-data = [entry for entry in data if not (entry['pk'] == 10 and entry['fields']['endpoint_slug'] == 'sophia-vllm-mistralaimixtral-8x22b-instruct-v01')]
-with open('fixtures/endpoints.json', 'w') as file:
-    json.dump(data, file, indent=4)
-          "
+          python3 -c "import json; \
+          with open('fixtures/endpoints.json', 'r') as file: \
+              data = json.load(file); \
+          data = [entry for entry in data if not (entry['pk'] == 10 and entry['fields']['endpoint_slug'] == 'sophia-vllm-mistralaimixtral-8x22b-instruct-v01')]; \
+          with open('fixtures/endpoints.json', 'w') as file: \
+              json.dump(data, file, indent=4)"
 
       - name: List endpoints contents again
-        run: |
-          cat fixtures/endpoints.json
+        run: cat fixtures/endpoints.json
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
