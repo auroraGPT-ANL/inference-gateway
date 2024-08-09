@@ -44,12 +44,13 @@ jobs:
           python3 -c "
 import json
 with open('fixtures/endpoints.json', 'r') as file:
-  data = json.load(file)
+    data = json.load(file)
 # Filter out any entry with pk = 10
 data = [entry for entry in data if not (entry['pk'] == 10 and entry['fields']['endpoint_slug'] == 'sophia-vllm-mistralaimixtral-8x22b-instruct-v01')]
 with open('fixtures/endpoints.json', 'w') as file:
-  json.dump(data, file, indent=4)"
-  
+    json.dump(data, file, indent=4)
+          "
+
       - name: List endpoints contents again
         run: |
           cat fixtures/endpoints.json
@@ -67,6 +68,7 @@ with open('fixtures/endpoints.json', 'w') as file:
       # Setup django environment
       - name: Install Poetry
         uses: abatilo/actions-poetry@v2
+
       - name: Setup Django environment
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
@@ -87,4 +89,3 @@ with open('fixtures/endpoints.json', 'w') as file:
           pip install coverage
           coverage run manage.py test
           coverage report
-          
