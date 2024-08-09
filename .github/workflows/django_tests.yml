@@ -53,17 +53,7 @@ jobs:
           echo 'GLOBUS_APPLICATION_ID=${{ secrets.GLOBUS_APPLICATION_ID }}' >> .env
           echo 'GLOBUS_APPLICATION_SECRET=${{ secrets.GLOBUS_APPLICATION_SECRET }}' >> .env
           python3 manage.py migrate
-      
-      # Delete existing data to avoid UNIQUE constraint errors
-      - name: Delete existing Endpoint data
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: |
           python3 manage.py shell -c "from resource_server.models import Endpoint; Endpoint.objects.all().delete()"
-          
-      # Load the fixture data
-      - name: Load fixture data
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: |
           python3 manage.py loaddata fixtures/endpoints.json
       
       # Run Django built-in tests with Coverage
