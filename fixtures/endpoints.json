@@ -9,7 +9,7 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },
     {
@@ -22,7 +22,7 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },
     {
@@ -35,12 +35,25 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8002,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6ab112ce-8fe2-4756-81a4-eb2209561ed3"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 4,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-mistralaimixtral-8x22b-instruct-v01",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+            "api_port": 8000,
+            "endpoint_uuid": "46a57aff-68a7-48b2-8157-e27347d06740",
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },    
     {
         "model": "resource_server.endpoint",
-        "pk": 4,
+        "pk": 5,
         "fields": {
             "endpoint_slug": "polaris-vllm-meta-llamameta-llama-3-8b-instruct",
             "cluster": "polaris",
@@ -48,12 +61,12 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "be293b79-501f-484e-898c-a448c4e32c36",
-            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 5,
+        "pk": 6,
         "fields": {
             "endpoint_slug": "polaris-vllm-meta-llamameta-llama-3-70b-instruct",
             "cluster": "polaris",
@@ -61,12 +74,12 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "f8bcfd58-54c6-4731-aad1-d7a27850e642",
-            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 6,
+        "pk": 7,
         "fields": {
             "endpoint_slug": "polaris-vllm-mistralaimistral-7b-instruct-v03",
             "cluster": "polaris",
@@ -74,12 +87,12 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8000,
             "endpoint_uuid": "05257c2d-f136-4ffc-8d8c-66638f696335",
-            "function_uuid": "e97eeadf-ec76-47d2-a9e5-85349eed1922"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
         }
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 7,
+        "pk": 8,
         "fields": {
             "endpoint_slug": "polaris-llama-cpp-meta-llama-3-8b-instruct",
             "cluster": "polaris",
@@ -92,7 +105,7 @@
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 8,
+        "pk": 9,
         "fields": {
             "endpoint_slug": "polaris-llama-cpp-mistral-7b-instruct-v03",
             "cluster": "polaris",
@@ -105,7 +118,7 @@
     },
     {
         "model": "resource_server.endpoint",
-        "pk": 9,
+        "pk": 10,
         "fields": {
             "endpoint_slug": "polaris-llama-cpp-meta-llama-3-70b-instruct",
             "cluster": "polaris",

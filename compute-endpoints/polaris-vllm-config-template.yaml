@@ -14,7 +14,7 @@ engine:
     launcher:
       type: SimpleLauncher
     account: DataServicePrototype
-    cpus_per_node: 64
+    cpus_per_node: 128
     select_options: ngpus=4
     scheduler_options: '#PBS -l filesystems=home:eagle'
     queue: 'debug'
@@ -26,7 +26,7 @@ engine:
     worker_init: |
       module use /soft/modulefiles
       module load conda
-      conda activate /home/openinference_svc/envs/vllm_v050_env
+      conda activate ~/envs/vllmv0.5.4-polaris-env
       module use /soft/spack/base/0.7.1/install/modulefiles/Core
       module load gcc/11.4.0
       module load cudatoolkit-standalone
@@ -36,7 +36,7 @@ engine:
       export RAYON_NUM_THREADS=4
       export RUST_BACKTRACE=1
       export VLLM_WORKER_MULTIPROC_METHOD=fork
-      (nohup python3 -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-70B-Instruct --host 0.0.0.0 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --enforce-eager  > /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log 2>&1 &) && while ! grep -q "INFO:     Application startup complete." /home/openinference_svc/logfile_polaris-vllm-Meta-Llama-3-70B-Instruct.log; do sleep 1; done;
+      (nohup vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 8192 --enforce-eager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt  > /home/openinference_svc/logfile_polaris-vllm-meta-llama-3-8b-instruct.log 2>&1 &) && while ! grep -q "INFO:     Application startup complete." /home/openinference_svc/logfile_polaris-vllm-meta-llama-3-8b-instruct.log; do sleep 1; done;
 # Limit the functions UUID that can be execute
 allowed_functions:
-   - f41a39a7-a246-491e-87e6-033b684102ce
+   - 3a060933-2297-403f-a9a0-1037d04a09bb

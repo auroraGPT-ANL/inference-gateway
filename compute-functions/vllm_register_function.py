@@ -2,15 +2,13 @@ import globus_compute_sdk
 import random
 
 def vllm_inference_function(parameters):
-    import socket
     import os
     import time
     import requests
     import json
 
     # Determine the hostname
-    hostname = socket.gethostname()
-    os.environ['no_proxy'] = f"localhost,{hostname}"
+    os.environ['no_proxy'] = f"localhost,127.0.0.1"
 
     # Get the API key from environment variable
     api_key = os.getenv("OPENAI_API_KEY", "random_api_key")
@@ -29,7 +27,7 @@ def vllm_inference_function(parameters):
     # Determine the port based on the URL parameter
     api_port = parameters['model_params'].pop('api_port')
     
-    base_url = f"http://{hostname}:{api_port}/v1/"
+    base_url = f"https://127.0.0.1:{api_port}/v1/"
     url = base_url + openai_endpoint
 
     # Prepare the payload
@@ -38,7 +36,7 @@ def vllm_inference_function(parameters):
     start_time = time.time()
     
     # Make the POST request
-    response = requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload, verify=False)
     
     end_time = time.time()
     response_time = end_time - start_time
@@ -73,16 +71,19 @@ gcc = globus_compute_sdk.Client()
 COMPUTE_FUNCTION_ID = gcc.register_function(vllm_inference_function)
 
 # # Write function UUID in a file
-uuid_file_name = "vllm_register_function_sophia_multiple_models.txt"
+uuid_file_name = "vllm_register_function_multiple_models.txt"
 with open(uuid_file_name, "w") as file:
-    file.write(COMPUTE_FUNCTION_ID)
-    file.write("\n")
+  file.write(COMPUTE_FUNCTION_ID)
+  file.write("\n")
 file.close()
 
-# # End of script
-print("Function registered with UUID -", COMPUTE_FUNCTION_ID)
-print("The UUID is stored in " + uuid_file_name + ".")
-print("")
+# # # End of script
+
+
+# TEST CASES
+# print("Function registered with UUID -", COMPUTE_FUNCTION_ID)
+# print("The UUID is stored in " + uuid_file_name + ".")
+# print("")
 
 # Example calls
 
@@ -141,11 +142,11 @@ print("")
 # text_out = vllm_inference_function({
 #     'model_params': {
 #         'openai_endpoint': 'completions',
-#         'model': 'meta-llama/Meta-Llama-3-8B-Instruct',
-#         'temperature': 0.2,
-#         'max_tokens': 150,
+#         'model': 'mistralai/Mixtral-8x22B-Instruct-v0.1',
+#         # 'temperature': 0.2,
+#         # 'max_tokens': 150,
 #         'prompt': "List all proteins that interact with RAD51",
-#         'logprobs': True
+#         # 'logprobs': True
 #     }
 # })
 # print("\nText Completion Output:")
