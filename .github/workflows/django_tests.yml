@@ -36,7 +36,7 @@ jobs:
 
       - name: List directory contents
         run: |
-          ls -la
+          cat fixtures/endpoints.json
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
@@ -60,7 +60,6 @@ jobs:
           echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env
           echo 'GLOBUS_APPLICATION_ID=${{ secrets.GLOBUS_APPLICATION_ID }}' >> .env
           echo 'GLOBUS_APPLICATION_SECRET=${{ secrets.GLOBUS_APPLICATION_SECRET }}' >> .env
-          rm -f db.sqlite3
           python3 manage.py migrate
           python3 manage.py loaddata fixtures/endpoints.json
       
