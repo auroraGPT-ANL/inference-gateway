@@ -30,7 +30,7 @@ engine:
       export https_proxy="http://proxy.alcf.anl.gov:3128"
       export ftp_proxy="http://proxy.alcf.anl.gov:3128"
       source ~/miniconda3/etc/profile.d/conda.sh
-      conda activate ~/envs/vllm052-sophia-env/
+      conda activate ~/envs/vllmv0.5.4-sophia-env
       export HF_DATASETS_CACHE="/eagle/argonne_tpc/model_weights/"
       export HF_HOME="/eagle/argonne_tpc/model_weights/"
       export RAY_TMPDIR="/tmp"
@@ -48,4 +48,4 @@ engine:
       (CUDA_VISIBLE_DEVICES=6,7 nohup vllm serve mistralai/Mistral-7B-Instruct-v0.3 --host 127.0.0.1 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt > ~/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log 2>&1 &) &&  while ! grep -q "INFO:     Application startup complete." ~/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log; do sleep 1; done;
 # Limit the functions UUID that can be execute
 allowed_functions:
-   - 3c9f009a-9f95-46f1-8a52-7611eff97feb
+   - 3a060933-2297-403f-a9a0-1037d04a09bb
