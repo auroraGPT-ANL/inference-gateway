@@ -52,8 +52,8 @@ jobs:
           echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env
           echo 'GLOBUS_APPLICATION_ID=${{ secrets.GLOBUS_APPLICATION_ID }}' >> .env
           echo 'GLOBUS_APPLICATION_SECRET=${{ secrets.GLOBUS_APPLICATION_SECRET }}' >> .env
+          rm -f db.sqlite3
           python3 manage.py migrate
-          python3 manage.py shell -c "from resource_server.models import Endpoint; Endpoint.objects.all().delete()"
           python3 manage.py loaddata fixtures/endpoints.json
       
       # Run Django built-in tests with Coverage
