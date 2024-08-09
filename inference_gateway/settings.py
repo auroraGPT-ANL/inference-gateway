@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'resource_server',
     'drf_spectacular',
+    'dashboard'
 ]
 
 if ENABLE_BATCHES:
