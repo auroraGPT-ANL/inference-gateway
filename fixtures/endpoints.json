@@ -128,18 +128,5 @@
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
             "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
         }
-    },
-    {
-        "model": "resource_server.endpoint",
-        "pk": 10,
-        "fields": {
-            "endpoint_slug": "sophia-vllm-mistralaimixtral-8x22b-instruct-v01",
-            "cluster": "sophia",
-            "framework": "vllm",
-            "model": "mistralai/Mixtral-8x22B-Instruct-v0.1",
-            "api_port": 8000,
-            "endpoint_uuid": "46a57aff-68a7-48b2-8157-e27347d06740",
-            "function_uuid": "a576d24f-9626-48a9-a7df-d0440147a5d5"
-        }
     }
 ]
