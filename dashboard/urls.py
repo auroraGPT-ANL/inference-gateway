@@ -1,9 +1,14 @@
 from django.urls import path, re_path
-from dashboard import views
+from .views import api
 
 # URLs to access different Django views
+# urlpatterns = [
+#     path('metrics', api.urls, name='metrics'),
+#     path('analytics', api.urls, name='analytics'),
+#     path('logs', api.urls, name='logs'),
+# ]
+
+# Use the unique namespace or versioned API instance
 urlpatterns = [
-    path('metrics', views.MetricsView.as_view(), name='metrics'),
-    path('analytics', views.AnalyticsView.as_view(), name='analytics'),
-    path('logs', views.LogView.as_view(), name='logs'),
+    path('', api.urls),  # This will serve all routes under the 'dashboard/' URL namespace
 ]

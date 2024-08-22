@@ -284,6 +284,9 @@
         let usersPerModelChart;
         let requestsPerUserChart;
 
+        let currentPage = 1; // Track the current page for pagination
+        const pageSize = 1000; // Set page size to 1000
+        
         function fetchMetrics() {
             $.get(metricsUrl, function(data) {
                 $('#total-requests').text(data.total_requests);
@@ -397,7 +400,7 @@
         }
 
         function fetchLogData() {
-            $.get(logsUrl, function(data) {
+            $.get(`${logsUrl}?page=${currentPage}&page_size=${pageSize}`, function(data) {
                 const logsTable = $('#logsTable').DataTable({
                     columns: [
                         { data: 'name' },
@@ -412,7 +415,7 @@
                     ],
                     destroy: true, // Reinitialize DataTable
                     pagingType: "full_numbers", // Add pagination controls
-                    pageLength: 10, // Number of rows per page
+                    pageLength: pageSize, // Load 10,000 rows per page
                     language: {
                         paginate: {
                             first: "<<",
@@ -423,8 +426,9 @@
                     }
                 });
                 logsTable.clear().rows.add(data.results).draw();
-                if (data.next) {
-                    $('#loadMoreBtn').show().data('nextPage', data.next);
+                if (data.page < data.total_pages) {
+                    currentPage++; // Increment the page number
+                    $('#loadMoreBtn').show();
                 } else {
                     $('#loadMoreBtn').hide();
                 }
@@ -432,18 +436,7 @@
         }
 
         function loadMoreLogs() {
-            const nextPage = $('#loadMoreBtn').data('nextPage');
-            if (nextPage) {
-                $.get(nextPage, function(data) {
-                    const logsTable = $('#logsTable').DataTable();
-                    logsTable.rows.add(data.results).draw();
-                    if (data.next) {
-                        $('#loadMoreBtn').data('nextPage', data.next);
-                    } else {
-                        $('#loadMoreBtn').hide();
-                    }
-                });
-            }
+            fetchLogData();
         }
 
         function showRequestDetails() {
@@ -488,32 +481,37 @@
 
             // Fetch metrics initially and set an interval to update them
             fetchMetrics();
-            setInterval(fetchMetrics, 10000); // Update metrics every 10 seconds
+            setInterval(fetchMetrics, 60000); // Update metrics every 10 seconds
 
             // Initialize logs table
-            $('#logsTable').DataTable({
-                columns: [
-                { data: 'name' },
-                        { data: 'username' },
-                        { data: 'model' },
-                        { data: 'framework' },
-                        { data: 'cluster' },
-                        { data: 'prompt' },
-                        { data: 'response_status' },
-                        { data: 'result' },
-                        { data: 'latency' }
-                ],
-                pagingType: "full_numbers", // Add pagination controls
-                pageLength: 10, // Number of rows per page
-                language: {
-                    paginate: {
-                        first: "<<",
-                        last: ">>",
-                        next: ">",
-                        previous: "<"
-                    }
-                }
-            });
+            // $('#logsTable').DataTable({
+            //     columns: [
+            //     { data: 'name' },
+            //             { data: 'username' },
+            //             { data: 'model' },
+            //             { data: 'framework' },
+            //             { data: 'cluster' },
+            //             { data: 'prompt' },
+            //             { data: 'response_status' },
+            //             { data: 'result' },
+            //             { data: 'latency' }
+            //     ],
+            //     pagingType: "full_numbers", // Add pagination controls
+            //     pageLength: 10, // Number of rows per page
+            //     language: {
+            //         paginate: {
+            //             first: "<<",
+            //             last: ">>",
+            //             next: ">",
+            //             previous: "<"
+            //         }
+            //     }
+            // });
+            // Initialize logs table
+            fetchLogData(); // Load the first page of logs
+
+            // Attach event to the "Load More" button
+            $('#loadMoreBtn').on('click', loadMoreLogs);
         });
     </script>
     </body>
