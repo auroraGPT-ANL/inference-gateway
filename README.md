@@ -89,6 +89,8 @@ Install required packages
 ```bash
 sudo apt install postgresql postgresql-contrib
 sudo apt install pgloader
+sudo apt install libpq-dev
+pip install psycopg2-binary
 pip install psycopg2
 ```
 
@@ -110,9 +112,10 @@ postgres=# \q
 Also create a .pgpass file which looks similar to this for postgres password `hostname:port:database:username:password`
 
 
-Make the migrations
+Before you make the migrations change the `pgloader.load` file with appropriate path to sqllite and specify the details of postgres.
 
 ```bash
+source .env
 python manage.py migrate
 pgloader pgloader.load
 python reset_cursor.py
