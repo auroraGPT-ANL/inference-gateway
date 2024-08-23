@@ -60,7 +60,7 @@ def get_tokens_from_globus_app():
 
 
 # Get authenticated Compute Client using tokens
-@cached(cache=LRUCache(maxsize=128))
+@cached(cache=LRUCache(maxsize=1024))
 def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     """
     Create and return an authenticated Compute client using using existing tokens.
@@ -95,7 +95,7 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 
 # Get authenticated Compute Executor using existing client
-@cached(cache=LRUCache(maxsize=128))
+@cached(cache=LRUCache(maxsize=1024))
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     """
     Create and return an authenticated Compute Executor using using existing client.
