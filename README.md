@@ -31,6 +31,10 @@ POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
 DEBUG=False
 GLOBUS_GROUPS="<globus-group-uuid>"
 GLOBUS_POLICIES="<globus-policy-uuid>"
+PGHOST="localhost"
+PGPORT=5432
+PGDATABASE="<Postgres DB Name>"
+PGUSER="<Postgres User Name>"
 ```
 
 The official Inference Group and Policy UUIDs for `GLOBUS_GROUPS` and `GLOBUS_POLICIES` are 1e56984c-d5ae-11ee-8844-b93550bcf92a and 41689588-6a11-4ce9-aa24-f196ca7bf774, respectively.
@@ -69,4 +73,47 @@ Install with poetry and run from within a `poetry shell` session:
 
 ```
 poetry run agpt-bulk-cli
+```
+
+
+## Migration To Postgres DB from local SQLlite
+
+First dump existing data
+
+```bash
+python manage.py dumpdata --natural-foreign --natural-primary > datadump.json
+```
+
+Install required packages
+
+```bash
+sudo apt install postgresql postgresql-contrib
+sudo apt install pgloader
+pip install psycopg2
+```
+
+Make a copy of sqllite and create super user. 
+
+```bash
+cp db.sqlite3 db_backup.sqlite3
+#sudo -u postgres psql
+>$ psql postgres
+psql (14.13 (Homebrew))
+Type "help" for help.
+
+postgres=# CREATE USER dataportaldev WITH PASSWORD '';
+postgres=# CREATE DATABASE inferencegateway OWNER dataportaldev;
+postgres=# GRANT ALL PRIVILEGES ON DATABASE inferencegateway TO dataportaldev;
+postgres=# \q
+```
+
+Also create a .pgpass file which looks similar to this for postgres password `hostname:port:database:username:password`
+
+
+Make the migrations
+
+```bash
+python manage.py migrate
+pgloader pgloader.load
+python reset_cursor.py
 ```
