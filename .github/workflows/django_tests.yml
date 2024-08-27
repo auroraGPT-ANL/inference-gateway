@@ -1,20 +1,15 @@
-# This name will be displayed in the main README badges
 name: Django
 
-# Enable test workflow on the main branch
 on: 
   push:
     branches:
       - main
-      - github_actions  # For development in github_actions branch
+      - github_actions
   pull_request:
     branches:
       - main
 
-# List of tests
 jobs:
-
-  # Execute built-in Django tests along with a python syntax check
   django:
     name: Django
     runs-on: ubuntu-latest
@@ -26,15 +21,14 @@ jobs:
           POSTGRES_DB: mydatabase
           POSTGRES_USER: myusername
           POSTGRES_PASSWORD: mypassword
-        options: > 
-          --health-cmd="pg_isready -U myusername" 
-          --health-interval=10s 
-          --health-timeout=5s 
-          --health-retries=5
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
         ports:
           - 5432:5432
 
-    # Re-usable workflow environment variables
     env:
       WORKING_DIRECTORY: './'
       PGHOST: localhost
@@ -43,10 +37,7 @@ jobs:
       PGDATABASE: mydatabase
       PGPORT: 5432
 
-    # Steps to be executed sequentially
     steps:
-    
-      # Upload codes to the environment
       - name: Clone current GitHub repository
         uses: actions/checkout@v2
 
@@ -54,17 +45,14 @@ jobs:
         run: |
           echo "Current branch: $(git branch --show-current)"
 
-      # Scan codes to look for syntax errors
       - name: Check Python syntax
         uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
-      # Install the python version that emerged from pyproject.toml
       - name: Install Python 3.10.7
         uses: actions/setup-python@v5
         with:
           python-version: '3.10.7'
 
-      # Setup django environment
       - name: Install Poetry
         uses: abatilo/actions-poetry@v2
 
@@ -85,7 +73,6 @@ jobs:
           python3 manage.py migrate
           python3 manage.py loaddata fixtures/endpoints.json
       
-      # Run Django built-in tests with Coverage
       - name: Run Django tests
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
