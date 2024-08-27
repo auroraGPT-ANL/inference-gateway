@@ -6,8 +6,11 @@ from resource_server.models import Endpoint, Log
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncWeek, TruncMonth
 import resource_server.utils as utils
+from django.utils.timezone import now
+from datetime import timedelta
+
 
 class MetricsView(APIView):
     """API view to provide metrics data."""
@@ -67,6 +70,17 @@ class MetricsView(APIView):
             failed_requests=Count('id', filter=~Q(response_status=200) & Q(response_status__isnull=False))
         )
 
+        # New metric: Weekly usage trend over the past three months
+        three_months_ago = now() - timedelta(days=90)
+        weekly_usage = logs_with_annotations.filter(
+            timestamp_receive__gte=three_months_ago
+        ).annotate(
+            month=TruncMonth('timestamp_receive'),
+            week=TruncWeek('timestamp_receive')
+        ).values('month', 'week').annotate(
+            request_count=Count('id')
+        ).order_by('month', 'week')
+
         metrics = {
             'total_requests': total_requests,
             'request_details': {'successful': successful_requests, 'failed': failed_requests},
@@ -77,6 +91,7 @@ class MetricsView(APIView):
             'model_latency': list(model_latency),
             'users_per_model': list(users_per_model),
             'requests_per_user': list(requests_per_user),
+            'weekly_usage': list(weekly_usage),
         }
 
         return Response(metrics)

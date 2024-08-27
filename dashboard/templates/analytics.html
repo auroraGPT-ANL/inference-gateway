@@ -221,6 +221,12 @@
                     <canvas id="requestsPerUserChart"></canvas>
                 </div>
             </div>
+            <div class="metric-card">
+                <h2>Weekly Usage Trend</h2>
+                <div class="chart-container">
+                    <canvas id="weeklyUsageChart"></canvas>
+                </div>
+            </div>
         </div>
         <div class="logs-container">
             <h2>Log Data</h2>
@@ -359,6 +365,21 @@
                         borderWidth: 1
                     }
                 ]);
+
+                // Update the weekly usage trend line chart
+                const labels = data.weekly_usage.map(item => `${item.month.substring(0, 7)} - Week ${new Date(item.week).getWeekNumber()}`);
+                const dataPoints = data.weekly_usage.map(item => item.request_count);
+
+                updateLineChart(weeklyUsageChart, labels, [
+                    {
+                        label: 'Requests per Week',
+                        data: dataPoints,
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        fill: true,
+                        tension: 0.3
+                    }
+                ]);
             });
         }
 
@@ -391,6 +412,41 @@
                     hover: {
                         mode: 'index',
                         intersect: false
+                    }
+                }
+            });
+        }
+
+        function updateLineChart(chart, labels, datasets) {
+            chart.data.labels = labels;
+            chart.data.datasets = datasets;
+            chart.update();
+        }
+
+        function createLineChart(ctx, label, labels, datasets) {
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    hover: {
+                        mode: 'nearest',
+                        intersect: true
                     }
                 }
             });
@@ -486,6 +542,11 @@
             const requestsPerUserCtx = document.getElementById('requestsPerUserChart').getContext('2d');
             requestsPerUserChart = createChart(requestsPerUserCtx, 'Requests per User', [], []);
 
+            // Initialize the weekly usage trend chart
+            const weeklyUsageCtx = document.getElementById('weeklyUsageChart').getContext('2d');
+            weeklyUsageChart = createLineChart(weeklyUsageCtx, 'Weekly Usage Trend', [], []);
+
+
             // Fetch metrics initially and set an interval to update them
             fetchMetrics();
             setInterval(fetchMetrics, 10000); // Update metrics every 10 seconds
@@ -515,6 +576,15 @@
                 }
             });
         });
+
+        Date.prototype.getWeekNumber = function() {
+            const date = new Date(this.getTime());
+            date.setHours(0, 0, 0, 0);
+            date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+            const yearStart = new Date(date.getFullYear(), 0, 1);
+            return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+        };
     </script>
     </body>
 </html>
+
