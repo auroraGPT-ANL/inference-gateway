@@ -34,25 +34,24 @@ jobs:
         run: |
           echo "Current branch: $(git branch --show-current)"
 
-      - name: List endpoints contents
-        run: |
-          cat fixtures/endpoints.json
+      # Install PostgreSQL
+      - name: Install PostgreSQL
+        uses: Harmon758/postgresql-action@v1.0.0
+        with:
+          postgresql version: '13'
 
-      - name: Clean up endpoints.json file
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: |
-          python3 -c "
-          import json
-          with open('fixtures/endpoints.json', 'r') as file:
-              data = json.load(file)
-          data = [entry for entry in data if not (entry['pk'] == 10 and entry['fields']['endpoint_slug'] == 'sophia-vllm-mistralaimixtral-8x22b-instruct-v01')]
-          with open('fixtures/endpoints.json', 'w') as file:
-              json.dump(data, file, indent=4)
-          "
+      - name: Start PostgreSQL service
+        run: sudo systemctl start postgresql
 
-      - name: List endpoints contents again
+      - name: Create PostgreSQL database and user
         run: |
-          cat fixtures/endpoints.json
+          sudo -u postgres psql -c "CREATE DATABASE mydatabase;"
+          sudo -u postgres psql -c "CREATE USER myusername WITH PASSWORD 'mypassword';"
+          sudo -u postgres psql -c "ALTER ROLE myusername SET client_encoding TO 'utf8';"
+          sudo -u postgres psql -c "ALTER ROLE myusername SET default_transaction_isolation TO 'read committed';"
+          sudo -u postgres psql -c "ALTER ROLE myusername SET timezone TO 'UTC';"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mydatabase TO myusername;"
+
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
@@ -77,6 +76,11 @@ jobs:
           echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env
           echo 'GLOBUS_APPLICATION_ID=${{ secrets.GLOBUS_APPLICATION_ID }}' >> .env
           echo 'GLOBUS_APPLICATION_SECRET=${{ secrets.GLOBUS_APPLICATION_SECRET }}' >> .env
+          echo 'PGDATABASE=mydatabase' >> .env
+          echo 'PGUSER=myusername' >> .env
+          echo 'PGPASSWORD=mypassword' >> .env
+          echo 'PGHOST=localhost' >> .env
+          echo 'PGPORT=5432' >> .env
           python3 manage.py migrate
           python3 manage.py loaddata fixtures/endpoints.json
       
