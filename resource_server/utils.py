@@ -97,7 +97,7 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 # Get authenticated Compute Executor using existing client
 #@cached(cache=LRUCache(maxsize=1024))
-#@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
+@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     """
     Create and return an authenticated Compute Executor using using existing client.
