@@ -34,24 +34,23 @@ jobs:
         run: |
           echo "Current branch: $(git branch --show-current)"
 
-      # Install PostgreSQL
-      - name: Install PostgreSQL
-        uses: Harmon758/postgresql-action@v1.0.0
+      # Setup PostgreSQL with Docker
+      - name: Set up PostgreSQL
+        uses: docker/setup-buildx-action@v2
+      - name: Run PostgreSQL container
+        uses: addnab/docker-run-action@v3
         with:
-          postgresql version: '13'
+          image: postgres:13
+          options: --name pg_test -e POSTGRES_USER=myusername -e POSTGRES_PASSWORD=mypassword -e POSTGRES_DB=mydatabase -p 5432:5432
+          run: |
+            docker ps -a
 
-      - name: Start PostgreSQL service
-        run: sudo systemctl start postgresql
-
-      - name: Create PostgreSQL database and user
+      - name: Wait for PostgreSQL to start
         run: |
-          sudo -u postgres psql -c "CREATE DATABASE mydatabase;"
-          sudo -u postgres psql -c "CREATE USER myusername WITH PASSWORD 'mypassword';"
-          sudo -u postgres psql -c "ALTER ROLE myusername SET client_encoding TO 'utf8';"
-          sudo -u postgres psql -c "ALTER ROLE myusername SET default_transaction_isolation TO 'read committed';"
-          sudo -u postgres psql -c "ALTER ROLE myusername SET timezone TO 'UTC';"
-          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mydatabase TO myusername;"
-
+          until docker exec pg_test pg_isready -U myusername -d mydatabase; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 5
+          done
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
