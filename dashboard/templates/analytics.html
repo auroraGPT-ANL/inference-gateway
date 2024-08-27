@@ -281,6 +281,10 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Include Moment.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>    
+    <!-- Include the Chart.js Moment.js adapter -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0"></script>
     <script>
         const metricsUrl = 'metrics';
         const logsUrl = 'logs';
@@ -367,7 +371,7 @@
                 ]);
 
                 // Update the weekly usage trend line chart
-                const labels = data.weekly_usage.map(item => `${item.month.substring(0, 7)} - Week ${new Date(item.week).getWeekNumber()}`);
+                const labels = data.weekly_usage.map(item => formatDate(new Date(item.week_start)));
                 const dataPoints = data.weekly_usage.map(item => item.request_count);
 
                 updateLineChart(weeklyUsageChart, labels, [
@@ -381,6 +385,12 @@
                     }
                 ]);
             });
+        }
+
+        function updateLineChart(chart, labels, datasets) {
+            chart.data.labels = labels;
+            chart.data.datasets = datasets;
+            chart.update();
         }
 
         function updateChart(chart, labels, datasets) {
@@ -417,10 +427,11 @@
             });
         }
 
-        function updateLineChart(chart, labels, datasets) {
-            chart.data.labels = labels;
-            chart.data.datasets = datasets;
-            chart.update();
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
 
         function createLineChart(ctx, label, labels, datasets) {
@@ -434,6 +445,17 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'week',
+                                tooltipFormat: 'll'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Week Start Date'
+                            }
+                        },
                         y: {
                             beginAtZero: true
                         }
@@ -542,7 +564,7 @@
             const requestsPerUserCtx = document.getElementById('requestsPerUserChart').getContext('2d');
             requestsPerUserChart = createChart(requestsPerUserCtx, 'Requests per User', [], []);
 
-            // Initialize the weekly usage trend chart
+            // Initialize the weekly usage trend line chart
             const weeklyUsageCtx = document.getElementById('weeklyUsageChart').getContext('2d');
             weeklyUsageChart = createLineChart(weeklyUsageCtx, 'Weekly Usage Trend', [], []);
 

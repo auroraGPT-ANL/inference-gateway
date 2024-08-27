@@ -72,14 +72,15 @@ class MetricsView(APIView):
 
         # New metric: Weekly usage trend over the past three months
         three_months_ago = now() - timedelta(days=90)
+        # Start from the Monday of the week for three months ago
+        start_date = three_months_ago - timedelta(days=three_months_ago.weekday())
         weekly_usage = logs_with_annotations.filter(
-            timestamp_receive__gte=three_months_ago
+            timestamp_receive__gte=start_date
         ).annotate(
-            month=TruncMonth('timestamp_receive'),
-            week=TruncWeek('timestamp_receive')
-        ).values('month', 'week').annotate(
+            week_start=models.functions.TruncWeek('timestamp_receive', output_field=models.DateField())
+        ).values('week_start').annotate(
             request_count=Count('id')
-        ).order_by('month', 'week')
+        ).order_by('week_start')
 
         metrics = {
             'total_requests': total_requests,
