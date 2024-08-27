@@ -20,6 +20,8 @@ drf-spectacular = "^0.27.2"
 cachetools = "^5.3.3"
 typer = { extras = ["all"], version = "^0.12.3" }
 django-filter = "^24.3"
+psycopg2 = "^2.9.9"
+psycopg2-binary = "^2.9.9"
 
 [build-system]
 requires = ["poetry-core"]

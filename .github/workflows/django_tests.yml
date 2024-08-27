@@ -1,32 +1,43 @@
-# This name will be displayed in the main README badges
 name: Django
 
-# Enable test workflow on the main branch
 on: 
   push:
     branches:
       - main
-      - github_actions  # For development in github_actions branch
+      - github_actions
   pull_request:
     branches:
       - main
 
-# List of tests
 jobs:
-
-  # Execute built-in Django tests along with a python syntax check
   django:
     name: Django
     runs-on: ubuntu-latest
 
-    # Re-usable workflow environment variables
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: mydatabase
+          POSTGRES_USER: myusername
+          POSTGRES_PASSWORD: mypassword
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     env:
       WORKING_DIRECTORY: './'
+      PGHOST: localhost
+      PGUSER: myusername
+      PGPASSWORD: mypassword
+      PGDATABASE: mydatabase
+      PGPORT: 5432
 
-    # Steps to be executed sequentially
     steps:
-    
-      # Upload codes to the environment
       - name: Clone current GitHub repository
         uses: actions/checkout@v2
 
@@ -34,37 +45,14 @@ jobs:
         run: |
           echo "Current branch: $(git branch --show-current)"
 
-      - name: List endpoints contents
-        run: |
-          cat fixtures/endpoints.json
-
-      - name: Clean up endpoints.json file
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: |
-          python3 -c "
-          import json
-          with open('fixtures/endpoints.json', 'r') as file:
-              data = json.load(file)
-          data = [entry for entry in data if not (entry['pk'] == 10 and entry['fields']['endpoint_slug'] == 'sophia-vllm-mistralaimixtral-8x22b-instruct-v01')]
-          with open('fixtures/endpoints.json', 'w') as file:
-              json.dump(data, file, indent=4)
-          "
-
-      - name: List endpoints contents again
-        run: |
-          cat fixtures/endpoints.json
-
-      # Scan codes to look for syntax errors
       - name: Check Python syntax
         uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
-      # Install the python version that emerged from pyproject.toml
       - name: Install Python 3.10.7
         uses: actions/setup-python@v5
         with:
           python-version: '3.10.7'
 
-      # Setup django environment
       - name: Install Poetry
         uses: abatilo/actions-poetry@v2
 
@@ -77,10 +65,14 @@ jobs:
           echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env
           echo 'GLOBUS_APPLICATION_ID=${{ secrets.GLOBUS_APPLICATION_ID }}' >> .env
           echo 'GLOBUS_APPLICATION_SECRET=${{ secrets.GLOBUS_APPLICATION_SECRET }}' >> .env
+          echo 'PGDATABASE=mydatabase' >> .env
+          echo 'PGUSER=myusername' >> .env
+          echo 'PGPASSWORD=mypassword' >> .env
+          echo 'PGHOST=localhost' >> .env
+          echo 'PGPORT=5432' >> .env
           python3 manage.py migrate
           python3 manage.py loaddata fixtures/endpoints.json
       
-      # Run Django built-in tests with Coverage
       - name: Run Django tests
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |

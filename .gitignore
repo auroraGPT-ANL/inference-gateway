@@ -35,3 +35,8 @@ access_token.txt
 
 # System files
 Thumbs.db
+
+# Migration files
+datadump.json
+db_backup.sqlite3
+.pgpass
