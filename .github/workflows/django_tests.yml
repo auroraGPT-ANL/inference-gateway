@@ -19,9 +19,29 @@ jobs:
     name: Django
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: mydatabase
+          POSTGRES_USER: myusername
+          POSTGRES_PASSWORD: mypassword
+        options: > 
+          --health-cmd="pg_isready -U myusername" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+        ports:
+          - 5432:5432
+
     # Re-usable workflow environment variables
     env:
       WORKING_DIRECTORY: './'
+      PGHOST: localhost
+      PGUSER: myusername
+      PGPASSWORD: mypassword
+      PGDATABASE: mydatabase
+      PGPORT: 5432
 
     # Steps to be executed sequentially
     steps:
@@ -33,24 +53,6 @@ jobs:
       - name: Debug - Show current branch
         run: |
           echo "Current branch: $(git branch --show-current)"
-
-      # Setup PostgreSQL with Docker
-      - name: Set up PostgreSQL
-        uses: docker/setup-buildx-action@v2
-      - name: Run PostgreSQL container
-        uses: addnab/docker-run-action@v3
-        with:
-          image: postgres:13
-          options: --name pg_test -e POSTGRES_USER=myusername -e POSTGRES_PASSWORD=mypassword -e POSTGRES_DB=mydatabase -p 5432:5432
-          run: |
-            docker ps -a
-
-      - name: Wait for PostgreSQL to start
-        run: |
-          until docker exec pg_test pg_isready -U myusername -d mydatabase; do
-            echo "Waiting for PostgreSQL to be ready..."
-            sleep 5
-          done
 
       # Scan codes to look for syntax errors
       - name: Check Python syntax
