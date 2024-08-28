@@ -7,6 +7,7 @@ import globus_sdk
 from django.utils.text import slugify
 from django.utils import timezone
 from django.db import IntegrityError, transaction
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from resource_server.models import Endpoint, Log
 
 # Data validation
@@ -161,7 +162,7 @@ class ClusterBase(APIView):
         try:
             result = future.result(timeout=60*28)
             db_data["task_uuid"] = future.task_id
-        except TimeoutError:
+        except FuturesTimeoutError as e:
             log.error({"Error: Wait until results are done": f"Timeout with resources_ready == {resources_ready}."})
             if resources_ready:
                 return self.__get_response(
@@ -180,8 +181,8 @@ class ClusterBase(APIView):
                 #TODO: Check if the job was running, if so, then the worker_init is stalled
                 #TODO: Check if the job was submitted or missing, if so, then the job could be waiting in the queue
         except Exception as e:
-            log.error({"Error: Wait until results are done": e})
-            return self.__get_response(db_data, f"Error: {e}.", status.HTTP_400_BAD_REQUEST)
+            log.error({"Error: Wait until results are done": repr(e)})
+            return self.__get_response(db_data, f"Error: {repr(e)}.", status.HTTP_400_BAD_REQUEST)
 
         # Return Globus Compute results
         return self.__get_response(db_data, result, status.HTTP_200_OK)
