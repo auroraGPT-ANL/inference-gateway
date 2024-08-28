@@ -74,7 +74,12 @@ class MockClient():
     
     # Mock endpoint status
     def get_endpoint_status(self, endpoint_uuid):
-        return {"status": "online"}
+        return {
+            "status": "online",
+            "details": {
+                "managers": 1
+            }
+        }
     
         # Mock run (needs to be random distinct uuids to avoid UNIQUE database errors)
     def run(self, data, endpoint_id=None, function_id=None):
@@ -99,7 +104,7 @@ class MockExecutor():
 class MockFuture():
     def __init__(self):
         self.task_id = str(uuid.uuid4())
-    def result(self):
+    def result(self, timeout=None):
         return MOCK_RESPONSE
 
 
