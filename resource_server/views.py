@@ -157,17 +157,16 @@ class ClusterBase(APIView):
             log.error({"Error: Start a Globus Compute task": e})
             return self.__get_response(db_data, f"Error: {e}.", status.HTTP_400_BAD_REQUEST)
 
-        # Wait for the result
+        # Wait for the result with a 28 minute timeout (Nginx and Gunicorn timeouts are 30 minutes)
         try:
-            result = future.result(timeout=60*20)
+            result = future.result(timeout=60*28)
             db_data["task_uuid"] = future.task_id
         except TimeoutError:
-            db_data["task_uuid"] = future.task_id
             log.error({"Error: Wait until results are done": f"Timeout with resources_ready == {resources_ready}."})
             if resources_ready:
                 return self.__get_response(
                     db_data, 
-                    "TimeoutError: The compute service had to be restarted due to an issue with the compute resources. Please try again.",
+                    "TimeoutError: The compute resources are likely not responding. Please try again later or contact the admistrators.",
                     status.HTTP_408_REQUEST_TIMEOUT
                 )
                 #TODO: Restart PBS job and/or restart endpoint?
@@ -175,7 +174,7 @@ class ClusterBase(APIView):
             else:
                 return self.__get_response(
                     db_data, 
-                    "TimeoutError: The compute service is currently attempting to acquire the compute resources. Please try again in 10 minutes.",
+                    "TimeoutError: The compute service was attempting to acquire the compute resources. Please try again in 10 minutes.",
                     status.HTTP_408_REQUEST_TIMEOUT
                 )
                 #TODO: Check if the job was running, if so, then the worker_init is stalled
