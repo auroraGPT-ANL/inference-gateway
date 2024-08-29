@@ -1,12 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
 from utils.auth_utils import globus_authenticated
 import json
-import time
 import globus_sdk
 from django.utils.text import slugify
 from django.utils import timezone
 from django.db import IntegrityError, transaction
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from resource_server.models import Endpoint, Log
 
 # Data validation
@@ -40,9 +41,9 @@ class ListEndpoints(APIView):
                     "model_name": endpoint.model
                 })
             if not all_endpoints:
-                return Response({"Error": "No endpoints found."}, status=400)
+                return Response({"Error": "No endpoints found."}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"Error": f"Exception while fetching endpoints.{e}"}, status=400)
+            return Response({"Error": f"Exception while fetching endpoints.{e}"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(all_endpoints)
 
 
@@ -65,20 +66,28 @@ class ClusterBase(APIView):
 
         # Make sure the requested framework is supported
         if not framework:
-            return self.__get_response(db_data, "Error: Framework not provided.", 400)
+            return self.__get_response(db_data, "Error: Framework not provided.", status.HTTP_400_BAD_REQUEST)
         if not framework in self.allowed_frameworks:
-            return self.__get_response(db_data, f"Error: {framework} framework not supported.", 400)
+            return self.__get_response(db_data, f"Error: {framework} framework not supported.", status.HTTP_400_BAD_REQUEST)
 
         # Make sure the requested endpoint is supported
         if not openai_endpoint:
-            return self.__get_response(db_data, f"Error: Openai endpoint of type {self.allowed_openai_endpoints} not provided.", 400)
+            return self.__get_response(
+                db_data, 
+                f"Error: Openai endpoint of type {self.allowed_openai_endpoints} not provided.",
+                status.HTTP_400_BAD_REQUEST
+            )
         if not openai_endpoint in self.allowed_openai_endpoints:
-            return self.__get_response(db_data, f"Error: {openai_endpoint} endpoint not supported. Currently supporting {self.allowed_openai_endpoints}.", 400)
+            return self.__get_response(
+                db_data, 
+                f"Error: {openai_endpoint} endpoint not supported. Currently supporting {self.allowed_openai_endpoints}.", 
+                status.HTTP_400_BAD_REQUEST
+            )
         
         # Validate and build the inference request data
         data = self.__validate_request_body(request, framework, openai_endpoint)
         if "error" in data.keys():
-            return self.__get_response(db_data, f"Error: {data['error']}", 400)
+            return self.__get_response(db_data, f"Error: {data['error']}", status.HTTP_400_BAD_REQUEST)
         log.info("data", data)
 
         # Update the database with the input text from user
@@ -111,10 +120,14 @@ class ClusterBase(APIView):
             db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
         except Endpoint.DoesNotExist:
             log.error(f"Error: The requested endpoint {endpoint_slug} does not exist.")
-            return self.__get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+            return self.__get_response(
+                db_data,
+                f"Error: The requested endpoint {endpoint_slug} does not exist.", 
+                status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             log.error({"Error: Pull the targetted endpoint UUID and function UUID": e})
-            return self.__get_response(db_data, f"Error: {e}", 400)
+            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
         
         # Get Globus Compute client (using the endpoint identity)
         try:
@@ -122,19 +135,20 @@ class ClusterBase(APIView):
             gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
         except Exception as e:
             log.error({"Error: Get Globus Compute client": e})
-            return self.__get_response(db_data, f"Error: {e}", 400)
+            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
 
-        # Check if the endpoint is running
+        # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
         try:
             endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
             if not endpoint_status["status"] == "online":
-                return self.__get_response(db_data, f"Error: Endpoint {endpoint_slug} is not online.", 400)
+                return self.__get_response(db_data, f"Error: Endpoint {endpoint_slug} is not online.", status.HTTP_400_BAD_REQUEST)
+            resources_ready = int(endpoint_status["details"]["managers"]) > 0
         except globus_sdk.GlobusAPIError as e:
             log.error({f"Error: Cannot access the status of endpoint {endpoint_slug}": e})
-            return self.__get_response(db_data, f"Error: Cannot access the status of endpoint {endpoint_slug}.", 400)
+            return self.__get_response(db_data, f"Error: Cannot access the status of endpoint {endpoint_slug}.", status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             log.error({"Error: Check if the endpoint is running": e})
-            return self.__get_response(db_data, f"Error: {e}", 400)
+            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
 
         # Start a Globus Compute task
         try:
@@ -142,18 +156,36 @@ class ClusterBase(APIView):
             future = gce.submit_to_registered_function(function_uuid, args=[data])
         except Exception as e:
             log.error({"Error: Start a Globus Compute task": e})
-            return self.__get_response(db_data, f"Error: {e}.", 400)
+            return self.__get_response(db_data, f"Error: {e}.", status.HTTP_400_BAD_REQUEST)
 
-        # Wait for the result
+        # Wait for the result with a 28 minute timeout (Nginx and Gunicorn timeouts are 30 minutes)
         try:
-            result = future.result()
+            result = future.result(timeout=60*28)
             db_data["task_uuid"] = future.task_id
+        except FuturesTimeoutError as e:
+            log.error({"Error: Wait until results are done": f"Timeout with resources_ready == {resources_ready}."})
+            if resources_ready:
+                return self.__get_response(
+                    db_data, 
+                    "TimeoutError: The compute resources are likely not responding. Please try again later or contact the admistrators.",
+                    status.HTTP_408_REQUEST_TIMEOUT
+                )
+                #TODO: Restart PBS job and/or restart endpoint?
+                #TODO: Send alert-email automatically to dev team?
+            else:
+                return self.__get_response(
+                    db_data, 
+                    "TimeoutError: The compute service was attempting to acquire the compute resources. Please try again in 10 minutes.",
+                    status.HTTP_408_REQUEST_TIMEOUT
+                )
+                #TODO: Check if the job was running, if so, then the worker_init is stalled
+                #TODO: Check if the job was submitted or missing, if so, then the job could be waiting in the queue
         except Exception as e:
-            log.error({"Error: Wait until results are done": e})
-            return self.__get_response(db_data, f"Error: {e}.", 400)
+            log.error({"Error: Wait until results are done": repr(e)})
+            return self.__get_response(db_data, f"Error: {repr(e)}.", status.HTTP_400_BAD_REQUEST)
 
         # Return Globus Compute results
-        return self.__get_response(db_data, result, 200)
+        return self.__get_response(db_data, result, status.HTTP_200_OK)
     
 
     # Validate request body
@@ -210,7 +242,10 @@ class ClusterBase(APIView):
                 db_log.save()
         except IntegrityError as e:
             log.error({"Error: Create and save database entry": e})
-            return Response({SERVER_RESPONSE: f"Error: Something went wrong when saving the database entry. {e}"}, status=400)
+            return Response({
+                SERVER_RESPONSE: f"Error: Something went wrong when saving the database entry. {e}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Return the error response
         return Response({SERVER_RESPONSE: content}, status=code)

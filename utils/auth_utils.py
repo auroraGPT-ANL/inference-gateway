@@ -26,7 +26,7 @@ def get_globus_client():
 
 
 # Credits to Nick Saint and Ryan Chard to help me out here on caching
-@cached(cache=TTLCache(maxsize=1024, ttl=60*60))
+@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
 def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     """
         Introspect a token with policies, collect group memberships, and return the response.
