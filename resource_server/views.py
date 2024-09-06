@@ -98,7 +98,7 @@ class ClusterBase(APIView):
         except Exception as e:
             message = f"Error: Could not extract endpoint and function UUIDs: {e}"
             log.error(message)
-            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return self.__get_response(db_data, message, status.HTTP_400_BAD_REQUEST)
         
         # Get Globus Compute client (using the endpoint identity)
         try:
