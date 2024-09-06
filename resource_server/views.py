@@ -41,10 +41,10 @@ class ListEndpoints(APIView):
                     "model_name": endpoint.model
                 })
             if not all_endpoints:
-                return Response({"Error": "No endpoints found."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response("Error: No endpoints found.", status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"Error": f"Exception while fetching endpoints.{e}"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(all_endpoints)
+            return Response(f"Error: Exception while fetching endpoints: {e}", status=status.HTTP_400_BAD_REQUEST)
+        return Response(all_endpoints, status=status.HTTP_200_OK)
 
 
 # Reusable base view class for different clusters
@@ -56,7 +56,7 @@ class ClusterBase(APIView):
         """Point of entry to call Globus Compute endpoints on a specific cluster."""
 
         # Create data for the database entry
-        # The database entry creation is done in the self.__get_response() function
+        # The actual database entry creation is performed in the self.__get_response() function
         db_data = {
             "name": kwargs["user"]["name"],
             "username": kwargs["user"]["username"],
@@ -64,49 +64,22 @@ class ClusterBase(APIView):
             "sync": True
         }
 
-        # Make sure the requested framework is supported
-        if not framework:
-            return self.__get_response(db_data, "Error: Framework not provided.", status.HTTP_400_BAD_REQUEST)
-        if not framework in self.allowed_frameworks:
-            return self.__get_response(db_data, f"Error: {framework} framework not supported.", status.HTTP_400_BAD_REQUEST)
-
-        # Make sure the requested endpoint is supported
-        if not openai_endpoint:
-            return self.__get_response(
-                db_data, 
-                f"Error: Openai endpoint of type {self.allowed_openai_endpoints} not provided.",
-                status.HTTP_400_BAD_REQUEST
-            )
-        if not openai_endpoint in self.allowed_openai_endpoints:
-            return self.__get_response(
-                db_data, 
-                f"Error: {openai_endpoint} endpoint not supported. Currently supporting {self.allowed_openai_endpoints}.", 
-                status.HTTP_400_BAD_REQUEST
-            )
+        # Make sure the requested framework and openai endpoint are supported
+        error_message = self.__validate_request_framework(framework, openai_endpoint)
+        if len(error_message) > 0:
+            return self.__get_response(db_data, error_message, status.HTTP_400_BAD_REQUEST)
         
         # Validate and build the inference request data
         data = self.__validate_request_body(request, framework, openai_endpoint)
         if "error" in data.keys():
             return self.__get_response(db_data, f"Error: {data['error']}", status.HTTP_400_BAD_REQUEST)
-        log.info("data", data)
+        #log.info("data", data)
 
         # Update the database with the input text from user
-        if "prompt" in data["model_params"]:
-            prompt = data["model_params"]["prompt"]
-        elif "messages" in data["model_params"]:
-            prompt = data["model_params"]["messages"]
-        elif "input" in data["model_params"]:
-            prompt = data["model_params"]["input"]
-        else:
-            prompt = "default"
-        db_data["prompt"] = json.dumps(prompt)
+        db_data["prompt"] = json.dumps(self.__extract_prompt(data["model_params"]))
 
         # Build the requested endpoint slug
-        endpoint_slug = slugify(" ".join([
-            self.cluster,
-            framework, 
-            data["model_params"]["model"].lower()
-        ]))
+        endpoint_slug = slugify(" ".join([self.cluster, framework, data["model_params"]["model"].lower()]))
         log.info("endpoint_slug", endpoint_slug)
         print("endpoint_slug", endpoint_slug)
         db_data["endpoint_slug"] = endpoint_slug
@@ -119,74 +92,87 @@ class ClusterBase(APIView):
             data["model_params"]["api_port"] = endpoint.api_port
             db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
         except Endpoint.DoesNotExist:
-            log.error(f"Error: The requested endpoint {endpoint_slug} does not exist.")
-            return self.__get_response(
-                db_data,
-                f"Error: The requested endpoint {endpoint_slug} does not exist.", 
-                status.HTTP_400_BAD_REQUEST
-            )
+            message = f"Error: The requested endpoint {endpoint_slug} does not exist."
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            log.error({"Error: Pull the targetted endpoint UUID and function UUID": e})
-            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Could not extract endpoint and function UUIDs: {e}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_400_BAD_REQUEST)
         
         # Get Globus Compute client (using the endpoint identity)
         try:
             gcc = utils.get_compute_client_from_globus_app()
             gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
         except Exception as e:
-            log.error({"Error: Get Globus Compute client": e})
-            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Could not get the Globus Compute client: {e}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
         try:
             endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
             if not endpoint_status["status"] == "online":
-                return self.__get_response(db_data, f"Error: Endpoint {endpoint_slug} is not online.", status.HTTP_400_BAD_REQUEST)
+                message = f"Error: Endpoint {endpoint_slug} is offline."
+                return self.__get_response(db_data, message, status.HTTP_503_SERVICE_UNAVAILABLE)
             resources_ready = int(endpoint_status["details"]["managers"]) > 0
         except globus_sdk.GlobusAPIError as e:
-            log.error({f"Error: Cannot access the status of endpoint {endpoint_slug}": e})
-            return self.__get_response(db_data, f"Error: Cannot access the status of endpoint {endpoint_slug}.", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
-            log.error({"Error: Check if the endpoint is running": e})
-            return self.__get_response(db_data, f"Error: {e}", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Start a Globus Compute task
         try:
             db_data["timestamp_submit"] = timezone.now()
             future = gce.submit_to_registered_function(function_uuid, args=[data])
         except Exception as e:
-            log.error({"Error: Start a Globus Compute task": e})
-            return self.__get_response(db_data, f"Error: {e}.", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Could not start the Globus Compute task: {e}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Wait for the result with a 28 minute timeout (Nginx and Gunicorn timeouts are 30 minutes)
         try:
             result = future.result(timeout=60*28)
             db_data["task_uuid"] = future.task_id
         except FuturesTimeoutError as e:
-            log.error({"Error: Wait until results are done": f"Timeout with resources_ready == {resources_ready}."})
             if resources_ready:
-                return self.__get_response(
-                    db_data, 
-                    "TimeoutError: The compute resources are likely not responding. Please try again later or contact the admistrators.",
-                    status.HTTP_408_REQUEST_TIMEOUT
-                )
-                #TODO: Restart PBS job and/or restart endpoint?
-                #TODO: Send alert-email automatically to dev team?
+                message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
             else:
-                return self.__get_response(
-                    db_data, 
-                    "TimeoutError: The compute service was attempting to acquire the compute resources. Please try again in 10 minutes.",
-                    status.HTTP_408_REQUEST_TIMEOUT
-                )
-                #TODO: Check if the job was running, if so, then the worker_init is stalled
-                #TODO: Check if the job was submitted or missing, if so, then the job could be waiting in the queue
+                message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_408_REQUEST_TIMEOUT)
         except Exception as e:
-            log.error({"Error: Wait until results are done": repr(e)})
-            return self.__get_response(db_data, f"Error: {repr(e)}.", status.HTTP_400_BAD_REQUEST)
+            message = f"Error: Could not recover future result: {repr(e)}"
+            log.error(message)
+            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Return Globus Compute results
         return self.__get_response(db_data, result, status.HTTP_200_OK)
-    
+
+
+    # Validate request framework
+    def __validate_request_framework(self, framework, openai_endpoint):
+        """Check if the requested framework and openai endpoint are valid, and send error message if not."""
+
+        # Make sure the requested framework is supported
+        if not framework:
+            return "Error: Framework not provided."
+        if not framework in self.allowed_frameworks:
+            return f"Error: {framework} framework not supported."
+
+        # Make sure the requested endpoint is supported
+        if not openai_endpoint:
+            return f"Error: Openai endpoint of type {self.allowed_openai_endpoints} not provided."
+        if not openai_endpoint in self.allowed_openai_endpoints:
+            return f"Error: {openai_endpoint} endpoint not supported. Currently supporting {self.allowed_openai_endpoints}."
+        
+        # Return empty error message if nothing wrong happened
+        return ""
+
 
     # Validate request body
     def __validate_request_body(self, request, framework, openai_endpoint):
@@ -204,7 +190,7 @@ class ClusterBase(APIView):
         elif "embeddings" in openai_endpoint:
             serializer_class = OpenAIEmbeddingsParamSerializer
         else:
-            return {"error": f"The requested {openai_endpoint} openai endpoint is not supported. Currently supporting {self.allowed_openai_endpoints}."}
+            return {"error": f"Error: {openai_endpoint} endpoint not supported. Currently supporting {self.allowed_openai_endpoints}."}
         
         # Decode request body into a dictionary
         try:
@@ -226,6 +212,26 @@ class ClusterBase(APIView):
         return {"model_params": model_params}
 
 
+    # Extract user prompt
+    def __extract_prompt(self, model_params):
+        """Extract the user input text from the requested model parameters."""
+
+        # Completions
+        if "prompt" in model_params:
+            return model_params["prompt"]
+        
+        # Chat completions
+        elif "messages" in model_params:
+            return model_params["messages"]
+        
+        # Embeddings
+        elif "input" in model_params:
+            return model_params["input"]
+        
+        # Undefined
+        return "default"
+
+
     # Log and get response
     def __get_response(self, db_data, content, code):
         """Log result or error in the current database model and return the HTTP response."""
@@ -241,11 +247,9 @@ class ClusterBase(APIView):
                 db_log = Log(**db_data)
                 db_log.save()
         except IntegrityError as e:
-            log.error({"Error: Create and save database entry": e})
-            return Response({
-                SERVER_RESPONSE: f"Error: Something went wrong when saving the database entry. {e}"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            message = f"Error: Could not create or save database entry: {e}"
+            log.error(message)
+            return Response({SERVER_RESPONSE: message}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the error response
         return Response({SERVER_RESPONSE: content}, status=code)
@@ -259,7 +263,7 @@ class Polaris(ClusterBase):
     cluster = "polaris"
     allowed_frameworks = ["llama-cpp", "vllm"]
     allowed_openai_endpoints = ["chat/completions", "completions", "embeddings"]
-    
+
     # Post request call
     @globus_authenticated
     def post(self, request, framework, openai_endpoint, *args, **kwargs):
@@ -275,7 +279,7 @@ class Sophia(ClusterBase):
     cluster = "sophia"
     allowed_frameworks = ["vllm"]
     allowed_openai_endpoints = ["chat/completions", "completions", "embeddings"]
-    
+
     # Post request call
     @globus_authenticated
     def post(self, request, framework, openai_endpoint, *args, **kwargs):
