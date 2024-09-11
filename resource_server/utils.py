@@ -116,3 +116,20 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     # Create Compute Executor
     return gce
 
+
+# Get endpoint status
+@cached(cache=TTLCache(maxsize=1024, ttl=30))
+def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
+    """
+    Query the status of a Globus Compute endpoint. It caches the 
+    result for 30 seconds to avoid generating a too-many-request
+    from Globus services when sereval incoming requests target 
+    an endpoint that is offline.
+    """
+
+    try:
+        return client.get_endpoint_status(endpoint_uuid)
+    except globus_sdk.GlobusAPIError as e:
+        return f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+    except Exception as e:
+        return f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
