@@ -109,21 +109,18 @@ class ClusterBase(APIView):
             log.error(message)
             return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # Query the status of the targetted Globus Compute endpoint
+        # If the endpoint status query failed, it retuns a string with the error message
+        endpoint_status = utils.get_endpoint_status(endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
+        if isinstance(endpoint_status, str):
+            log.error(endpoint_status)
+            return self.__get_response(db_data, endpoint_status, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-        try:
-            endpoint_status = gcc.get_endpoint_status(endpoint_uuid)
-            if not endpoint_status["status"] == "online":
-                message = f"Error: Endpoint {endpoint_slug} is offline."
-                return self.__get_response(db_data, message, status.HTTP_503_SERVICE_UNAVAILABLE)
-            resources_ready = int(endpoint_status["details"]["managers"]) > 0
-        except globus_sdk.GlobusAPIError as e:
-            message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-            log.error(message)
-            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except Exception as e:
-            message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-            log.error(message)
-            return self.__get_response(db_data, message, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if not endpoint_status["status"] == "online":
+            message = f"Error: Endpoint {endpoint_slug} is offline."
+            return self.__get_response(db_data, message, status.HTTP_503_SERVICE_UNAVAILABLE)
+        resources_ready = int(endpoint_status["details"]["managers"]) > 0
 
         # Start a Globus Compute task
         try:
