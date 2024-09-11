@@ -145,22 +145,23 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         message = f"Error: Could not get the Globus Compute client: {e}"
         log.error(message)
         return await get_response(db_data, message, 500)
-
+    
+    # Query the status of the targetted Globus Compute endpoint
+    # If the endpoint status query failed, it retuns a string with the error message
+    endpoint_status =  await sync_to_async(utils.get_endpoint_status)(
+        endpoint_uuid=endpoint_uuid, 
+        client=gcc, 
+        endpoint_slug=endpoint_slug
+    )
+    if isinstance(endpoint_status, str):
+        log.error(endpoint_status)
+        return await get_response(db_data, endpoint_status, 500)
+        
     # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-    try:
-        endpoint_status = await sync_to_async(gcc.get_endpoint_status)(endpoint_uuid)
-        if not endpoint_status["status"] == "online":
-            message = f"Error: Endpoint {endpoint_slug} is offline."
-            return await get_response(db_data, message, 503)
-        resources_ready = int(endpoint_status["details"]["managers"]) > 0
-    except globus_sdk.GlobusAPIError as e:
-        message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-        log.error(message)
-        return await get_response(db_data, message, 500)
-    except Exception as e:
-        message = f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-        log.error(message)
-        return await get_response(db_data, message, 500)
+    if not endpoint_status["status"] == "online":
+        message = f"Error: Endpoint {endpoint_slug} is offline."
+        return await get_response(db_data, message, 503)
+    resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
     # Start a Globus Compute task
     try:
