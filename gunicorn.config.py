@@ -1,4 +1,4 @@
-"""gunicorn WSGI server configuration."""
+"""gunicorn ASGI server configuration."""
 
 # Localhost port to communicate between Nginx and Gunicorn
 bind = '0.0.0.0:7000'
@@ -20,13 +20,16 @@ backlog = 2048
 
 # Process only one request at a time to avoid stealing Globus App SDK client session
 # This is temporary, once we use user's credentials and share compute endpoints, we can scale up
-worker_class = "sync"
-workers = 9
+worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
+workers = 4
 threads = 1
 
 # Access and error logs
 accesslog = "/var/log/inference-service/backend_gateway.access.log"
 errorlog = "/var/log/inference-service/backend_gateway.error.log"
+
+# Log format
+access_log_format = '[host: %h|pid: %p|timestamp: %t](%H)s (%r)s (%m)s (%U)s referer (%f)s => response %(s)s %(b)s bytes %(D)s'
 
 # Whether to send Django output to the error log
 capture_output = True
