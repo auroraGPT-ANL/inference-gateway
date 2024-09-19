@@ -9,7 +9,7 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6a411c82-6b82-4d42-9119-9b799cdc4271"
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
     },
     {
@@ -22,7 +22,7 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6a411c82-6b82-4d42-9119-9b799cdc4271"
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
     },
     {
@@ -35,7 +35,7 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8002,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "6a411c82-6b82-4d42-9119-9b799cdc4271"
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
     },
     {
@@ -48,7 +48,7 @@
             "model": "mistralai/Mixtral-8x22B-Instruct-v0.1",
             "api_port": 8000,
             "endpoint_uuid": "46a57aff-68a7-48b2-8157-e27347d06740",
-            "function_uuid": "6a411c82-6b82-4d42-9119-9b799cdc4271"
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
     },    
     {
@@ -127,6 +127,45 @@
             "api_port": 8000,
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
             "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 11,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-70b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+            "api_port": 8000,
+            "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 12,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "api_port": 8000,
+            "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 13,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-mistralaimistral-large-instruct-2407",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "mistralai/Mistral-Large-Instruct-2407",
+            "api_port": 8000,
+            "endpoint_uuid": "33bc18db-752b-4f60-81ad-2c7756990184",
+            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
     }
 ]

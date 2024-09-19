@@ -8,7 +8,7 @@ packages = [{include = "agpt_bulk_cli"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-django = "^4.2.15"
+django = "5.1.1"
 globus-sdk = "^3.28.0"
 globus-compute-sdk = "^2.3.2"
 djangorestframework = "^3.15.2"
@@ -22,6 +22,9 @@ typer = { extras = ["all"], version = "^0.12.3" }
 django-filter = "^24.3"
 psycopg2 = "^2.9.9"
 psycopg2-binary = "^2.9.9"
+psycopg = "3.2.2"
+psycopg-pool = "3.2.3"
+websockets = "^13.0.1"
 
 [build-system]
 requires = ["poetry-core"]
