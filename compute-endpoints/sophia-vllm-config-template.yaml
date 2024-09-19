@@ -29,8 +29,10 @@ engine:
       export https_proxy="http://proxy.alcf.anl.gov:3128"
       export ftp_proxy="http://proxy.alcf.anl.gov:3128"
 
-      source ~/miniconda3/etc/profile.d/conda.sh
-      conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.5.5-sophia-env
+      source /etc/profile.d/modules.sh
+      module use /soft/modulefiles
+      module load conda
+      conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.6.1-sophia-env/
 
 
       export HF_DATASETS_CACHE="/eagle/argonne_tpc/model_weights/"
@@ -167,17 +169,17 @@ engine:
           echo "Starting models sequence..."
 
           # Start first model
-          if ! start_model "Meta-Llama-3-70B-Instruct" "CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve meta-llama/Meta-Llama-3-70B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-custom-all-reduce --use-v2-block_manager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-70b-instruct.log" retry_counter_model_1; then
+          if ! start_model "Meta-Llama-3-70B-Instruct" "CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve meta-llama/Meta-Llama-3-70B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-70b-instruct.log" retry_counter_model_1; then
               continue  # Restart from the beginning if this fails
           fi
 
           # Start second model
-          if ! start_model "Meta-Llama-3-8B-Instruct" "CUDA_VISIBLE_DEVICES=4,5 vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8001 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-custom-all-reduce --use-v2-block_manager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-8b-instruct.log" retry_counter_model_2; then
+          if ! start_model "Meta-Llama-3-8B-Instruct" "CUDA_VISIBLE_DEVICES=4,5 vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8001 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-8b-instruct.log" retry_counter_model_2; then
               continue  # Restart from the beginning if this fails
           fi
 
           # Start third model
-          if ! start_model "Mistral-7B-Instruct-v0.3" "CUDA_VISIBLE_DEVICES=6,7 vllm serve mistralai/Mistral-7B-Instruct-v0.3 --host 127.0.0.1 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-custom-all-reduce --use-v2-block_manager --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log" retry_counter_model_3; then
+          if ! start_model "Mistral-7B-Instruct-v0.3" "CUDA_VISIBLE_DEVICES=6,7 vllm serve mistralai/Mistral-7B-Instruct-v0.3 --host 127.0.0.1 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log" retry_counter_model_3; then
               continue  # Restart from the beginning if this fails
           fi
 
@@ -186,4 +188,4 @@ engine:
       done
 # Limit the functions UUID that can be execute
 allowed_functions:
-  - 6a411c82-6b82-4d42-9119-9b799cdc4271
+  - 8c9486d3-89f8-4322-be96-5f2afafad547

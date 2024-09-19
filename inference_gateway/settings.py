@@ -145,6 +145,13 @@ DATABASES = {
         'PASSWORD': '',  # Leave this empty to use .pgpass
         'HOST': os.getenv('PGHOST', 'localhost'),
         'PORT': os.getenv('PGPORT', '5432'),
+        "OPTIONS": {
+            "pool": {
+                "min_size": 5,
+                "max_size": 40,
+                "timeout": 10,
+            }
+        },
     }
 }
 
