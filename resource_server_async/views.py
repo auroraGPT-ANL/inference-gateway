@@ -148,7 +148,9 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     
     # Query the status of the targetted Globus Compute endpoint
     # If the endpoint status query failed, it retuns a string with the error message
-    endpoint_status =  await sync_to_async(utils.get_endpoint_status)(
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
+    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
+    endpoint_status = utils.get_endpoint_status(
         endpoint_uuid=endpoint_uuid, 
         client=gcc, 
         endpoint_slug=endpoint_slug
@@ -164,9 +166,10 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
     # Start a Globus Compute task
+    # NOTE: No need to do await here, the submit* function return the future "immediately"
     try:
         db_data["timestamp_submit"] = timezone.now()
-        future = await sync_to_async(gce.submit_to_registered_function)(function_uuid, args=[data])
+        future = gce.submit_to_registered_function(function_uuid, args=[data])
     except Exception as e:
         message = f"Error: Could not start the Globus Compute task: {e}"
         log.error(message)
