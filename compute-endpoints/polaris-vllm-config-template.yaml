@@ -3,9 +3,9 @@ display_name: polaris-vllm-meta-llama-3-70b-instruct
 engine:
   type: GlobusComputeEngine
   max_retries_on_system_failure: 2
-  max_workers_per_node: 4
+  max_workers_per_node: 60
   job_status_kwargs:
-    max_idletime: 600
+    max_idletime: 3600
   address:
     type: address_by_interface
     ifname: bond0

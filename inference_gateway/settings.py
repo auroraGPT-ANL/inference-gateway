@@ -38,6 +38,11 @@ GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 
+# Sync or Async for Gunicorn
+# True: resource_server_async app with asgi and Django Ninja
+# False: resource_server app with wsgi and Django Rest
+ENABLE_ASYNC = os.getenv("ENABLE_ASYNC", "False").lower() in ("true", "1", "t")
+
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
@@ -70,6 +75,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'resource_server',
+    'resource_server_async',
     'drf_spectacular',
     'dashboard'
 ]
@@ -139,6 +145,13 @@ DATABASES = {
         'PASSWORD': '',  # Leave this empty to use .pgpass
         'HOST': os.getenv('PGHOST', 'localhost'),
         'PORT': os.getenv('PGPORT', '5432'),
+        "OPTIONS": {
+            "pool": {
+                "min_size": 5,
+                "max_size": 40,
+                "timeout": 10,
+            }
+        },
     }
 }
 

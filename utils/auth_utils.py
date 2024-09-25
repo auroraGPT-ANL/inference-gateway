@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -16,6 +17,15 @@ log = logging.getLogger(__name__)
 class AuthUtilsError(Exception):
     pass
 
+# Data structure returned by the access token validation function
+@dataclass
+class atv_response:
+    is_valid: bool
+    name: str = ""
+    username: str = ""
+    error_message: str = ""
+    error_code: int = 0
+    
 
 # Get Globus SDK confidential client
 def get_globus_client():
@@ -123,7 +133,59 @@ def check_globus_groups(my_groups):
         return False, f"User is not a member of an allowed Globus Group."
 
 
-# Globus Authenticated
+# Validate access token sent by user
+def validate_access_token(request):
+    """This function returns a atv_response data structure."""
+
+    # Make sure the request is authenticated
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        error_message = "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers."
+        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+
+    # Make sure the bearer flag is mentioned
+    try:
+        ttype, bearer_token = auth_header.split()
+        if ttype != "Bearer":
+            error_message = "Error: Only Authorization: Bearer <token> is allowed."
+            return atv_response(is_valid=False, error_message=error_message, error_code=400)
+    except (AttributeError, ValueError):
+        error_message = "Error: Auth only allows header type Authorization: Bearer <token>."
+        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+
+    # Introspect the access token
+    introspection, my_groups = introspect_token(bearer_token)
+
+    # If there an error (introspection not a globus object), return the error stored in the introspection variable
+    if isinstance(introspection, str):
+        error_message = f"Error: Token introspection: {introspection}"
+        log.error(error_message)
+        return atv_response(is_valid=False, error_message=error_message, error_code=401)
+
+    # Make sure the token is not expired
+    expires_in = introspection["exp"] - time.time()
+    if expires_in <= 0:
+        error_message = "Error: User not Authorized. Access token expired."
+        return atv_response(is_valid=False, error_message=error_message, error_code=401)
+
+    # Make sure the authenticated user comes from an allowed domain
+    if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
+        successful, error_message = check_globus_policies(introspection)
+        if not successful:
+            return atv_response(is_valid=False, error_message=error_message, error_code=401)
+
+    # Make sure the authenticated user is at least in one of the allowed Globus Groups
+    if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
+        successful, error_message = check_globus_groups(my_groups)
+        if not successful:
+            return atv_response(is_valid=False, error_message=error_message, error_code=401)
+
+    # Return valid token response
+    log.info(f"{introspection['name']} requesting {introspection['scope']}")
+    return atv_response(is_valid=True, name=introspection["name"], username=introspection["username"])
+
+
+# Globus Authenticated (for decorator, which works with Django Rest, but not with Django Ninja)
 def globus_authenticated(f):
     """
         Decorator that will validate request headers to make sure the user
@@ -137,54 +199,13 @@ def globus_authenticated(f):
             # Record the time close to when the HTTP request was received by the server
             kwargs["timestamp_receive"] = timezone.now()
 
-            # Make sure the request is authenticated
-            auth_header = request.headers.get("Authorization")
-            if not auth_header:
-                return Response(
-                    {"Error": "Missing ('Authorization': 'Bearer <your-access-token>') in request headers."},status=400
-                )
-            
-            # Make sure the bearer flag is mentioned
-            try:
-                ttype, bearer_token = auth_header.split()
-                if ttype != "Bearer":
-                    return Response({"Error": "Only Authorization: Bearer <token> is allowed."}, status=400)
-            except (AttributeError, ValueError):
-                return Response({"Error": "Auth only allows header type Authorization: Bearer <token>"}, status=400)
-            
-            # Introspect the access token
-            introspection, my_groups = introspect_token(bearer_token)
-            
-            # If there an error (introspection not a globus object), return the error stored in the introspection variable
-            if isinstance(introspection, str):
-                log.error({"Error: Introspect the access token": introspection})
-                return Response({"Error": introspection}, status=401)
+            # Validate access token
+            response = validate_access_token(request)
+            if not response.is_valid:
+                return Response(response.error_message, status=response.error_code)
 
             # Prepare user details to be passed to the Django view
-            kwargs["user"] = {
-                "name": introspection["name"],
-                "username": introspection["username"]
-            }
-
-            # Log access request
-            log.info(f"{introspection['name']} requesting {introspection['scope']}")
-
-            # Make sure the token is not expired
-            expires_in = introspection["exp"] - time.time()
-            if expires_in <= 0:
-                return Response({"Error": "User not Authorized. Access token expired"}, status=401)
-            
-            # Make sure the authenticated user comes from an allowed domain
-            if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
-                successful, error_message = check_globus_policies(introspection)
-                if not successful:
-                    return Response({"Error": error_message}, status=401)
-                
-            # Make sure the authenticated user is at least in one of the allowed Globus Groups
-            if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
-                successful, error_message = check_globus_groups(my_groups)
-                if not successful:
-                    return Response({"Error": error_message}, status=401)
+            kwargs["user"] = {"name": response.name, "username": response.username}
 
             return f(self, request, *args, **kwargs) 
         except Exception as e:
