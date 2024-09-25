@@ -60,6 +60,7 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
           poetry config virtualenvs.create false --local
+          poetry lock --no-update
           poetry install
           touch .env
           echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env
