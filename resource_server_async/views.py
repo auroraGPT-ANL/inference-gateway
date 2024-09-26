@@ -12,7 +12,11 @@ log = logging.getLogger(__name__)
 # Local utils
 from utils.auth_utils import validate_access_token
 import resource_server.utils as utils
-from resource_server_async.utils import validate_url_inputs, extract_prompt, validate_request_body
+from resource_server_async.utils import (
+    validate_url_inputs, 
+    extract_prompt, 
+    validate_request_body
+)
 log.info("Utils functions loaded.")
 
 # Django database
@@ -139,8 +143,10 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Get Globus Compute client (using the endpoint identity)
     try:
-        gcc = await sync_to_async(utils.get_compute_client_from_globus_app)()
-        gce = await sync_to_async(utils.get_compute_executor)(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+        # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+        # NOTE: Make sure there will only be one executor for the whole application
+        gcc = utils.get_compute_client_from_globus_app()
+        gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
     except Exception as e:
         message = f"Error: Could not get the Globus Compute client: {e}"
         log.error(message)
@@ -166,9 +172,9 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
     # Start a Globus Compute task
-    # NOTE: No need to do await here, the submit* function return the future "immediately"
     try:
         db_data["timestamp_submit"] = timezone.now()
+        # NOTE: No need to do await here, the submit* function return the future "immediately"
         future = gce.submit_to_registered_function(function_uuid, args=[data])
     except Exception as e:
         message = f"Error: Could not start the Globus Compute task: {e}"

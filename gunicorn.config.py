@@ -18,8 +18,7 @@ max_requests_jitter = 300
 # If the number of pending requests exceed this number, there will be a ConnectTimeout/MaxEntry error
 backlog = 2048
 
-# Process only one request at a time to avoid stealing Globus App SDK client session
-# This is temporary, once we use user's credentials and share compute endpoints, we can scale up
+# Type of workers
 worker_class = "sync"
 workers = 9
 threads = 1

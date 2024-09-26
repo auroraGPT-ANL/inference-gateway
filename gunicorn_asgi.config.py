@@ -18,10 +18,10 @@ max_requests_jitter = 300
 # If the number of pending requests exceed this number, there will be a ConnectTimeout/MaxEntry error
 backlog = 2048
 
-# Process only one request at a time to avoid stealing Globus App SDK client session
-# This is temporary, once we use user's credentials and share compute endpoints, we can scale up
+# Type of workers
+# NOTE: With async we should only use one cached executor (recommendation from Globus)
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
-workers = 4
+workers = 1
 threads = 1
 
 # Access and error logs
