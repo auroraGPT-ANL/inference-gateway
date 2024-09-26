@@ -1,4 +1,8 @@
-from utils.serializers import OpenAICompletionsParamSerializer, OpenAIChatCompletionsParamSerializer, OpenAIEmbeddingsParamSerializer
+from utils.serializers import (
+    OpenAICompletionsParamSerializer, 
+    OpenAIChatCompletionsParamSerializer, 
+    OpenAIEmbeddingsParamSerializer
+)
 from rest_framework.exceptions import ValidationError
 import json
 
