@@ -35,6 +35,7 @@ PGHOST="localhost"
 PGPORT=5432
 PGDATABASE="<Postgres DB Name>"
 PGUSER="<Postgres User Name>"
+ENABLE_ASYNC=True
 ```
 
 The official Inference Group and Policy UUIDs for `GLOBUS_GROUPS` and `GLOBUS_POLICIES` are 1e56984c-d5ae-11ee-8844-b93550bcf92a and 41689588-6a11-4ce9-aa24-f196ca7bf774, respectively.
