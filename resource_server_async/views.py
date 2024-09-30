@@ -59,15 +59,40 @@ async def get_list_endpoints(request):
         return HttpResponse(json.dumps(message), status=400)
 
     # Prepare the list of available frameworks and models
+    all_endpoints = {"clusters": {}}
     try:
-        all_endpoints = []
+
+        # For each database endpoint entry ...
         for endpoint in endpoint_list:
-            all_endpoints.append({
-                "completion_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/completions/",
-                "chat_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/",
-                "embedding_endpoint_url": f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/embeddings/",
-                "model_name": endpoint.model
-            })
+
+            # Add a new cluster dictionary entry if needed
+            if not endpoint.cluster in all_endpoints["clusters"]:
+                all_endpoints["clusters"][endpoint.cluster] = {
+                    "base_url": f"/resource_server/{endpoint.cluster}",
+                    "frameworks": {}
+                }
+            
+            # Add a new framework dictionary entry if needed
+            if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
+                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
+                    "models": [],
+                    "endpoints": {
+                        "chat": f"/{endpoint.framework}/v1/chat/completions/",
+                        "completion": f"/{endpoint.framework}/v1/completions/",
+                        "embedding": f"/{endpoint.framework}/v1/embeddings/"
+                    }
+                }
+
+            # Add model
+            all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
+
+        # Sort models alphabetically
+        for cluster in all_endpoints["clusters"]:
+            for framework in all_endpoints["clusters"][cluster]["frameworks"]:
+                all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
+                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"])
+
+    # Error message if something went wrong while building the endpoint list
     except Exception as e:
         message = f"Error: Could not generate list of frameworks and models from database: {e}"
         log.error(message)
