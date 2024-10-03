@@ -3,7 +3,6 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.http import HttpResponse
 from django.db import IntegrityError
-import globus_sdk
 
 # Tool to log access requests
 import logging
@@ -169,9 +168,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Get Globus Compute client (using the endpoint identity)
     try:
         # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-        # NOTE: Make sure there will only be one executor for the whole application
         gcc = utils.get_compute_client_from_globus_app()
-        gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+        #gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+        # NOTE: Make sure there will only be one executor for the whole application
+        #       Do not include endpoint_id argument otherwise it will cache multiple executors
+        #       Do not await anything before after future.result in order preserve the endpoint_id
+        gce = utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
         message = f"Error: Could not get the Globus Compute client: {e}"
         log.error(message)
@@ -200,6 +202,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     try:
         db_data["timestamp_submit"] = timezone.now()
         # NOTE: No need to do await here, the submit* function return the future "immediately"
+        gce.endpoint_id = endpoint_uuid
         future = gce.submit_to_registered_function(function_uuid, args=[data])
     except Exception as e:
         message = f"Error: Could not start the Globus Compute task: {e}"
