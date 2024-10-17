@@ -177,8 +177,8 @@
             "framework": "vllm",
             "model": "Qwen/Qwen2.5-7B-Instruct",
             "api_port": 8000,
-            "endpoint_uuid": "c33285a8-1f68-43ee-a580-b26574aa64ea",
-            "function_uuid": "f76e2f2d-9940-48e2-85d3-d7c40e50458b"
+            "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
+            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
         }
     },
     {
@@ -190,8 +190,8 @@
             "framework": "vllm",
             "model": "Qwen/Qwen2.5-14B-Instruct",
             "api_port": 8001,
-            "endpoint_uuid": "c33285a8-1f68-43ee-a580-b26574aa64ea",
-            "function_uuid": "f76e2f2d-9940-48e2-85d3-d7c40e50458b"
+            "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
+            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
         }
     }
 ]
