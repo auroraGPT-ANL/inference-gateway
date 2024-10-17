@@ -167,5 +167,31 @@
             "endpoint_uuid": "33bc18db-752b-4f60-81ad-2c7756990184",
             "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
         }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 14,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-qwenqwen25-7b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "api_port": 8000,
+            "endpoint_uuid": "c33285a8-1f68-43ee-a580-b26574aa64ea",
+            "function_uuid": "f76e2f2d-9940-48e2-85d3-d7c40e50458b"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 15,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-qwenqwen25-14b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "Qwen/Qwen2.5-14B-Instruct",
+            "api_port": 8001,
+            "endpoint_uuid": "c33285a8-1f68-43ee-a580-b26574aa64ea",
+            "function_uuid": "f76e2f2d-9940-48e2-85d3-d7c40e50458b"
+        }
     }
 ]
