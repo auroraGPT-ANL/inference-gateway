@@ -247,7 +247,10 @@ async def get_response(db_data, content, code):
         return HttpResponse(message, status=400)
         
     # Return the error response
-    return HttpResponse(json.dumps(content), status=code)
+    if code == 200:
+        return HttpResponse(content, status=code)
+    else:
+        return HttpResponse(json.dumps(content), status=code)
 
 
 # Add URLs to the Ninja API
