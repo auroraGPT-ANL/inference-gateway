@@ -25,9 +25,6 @@ from resource_server.models import Endpoint, Log
 from asgiref.sync import sync_to_async
 import asyncio
 
-# Constants
-SERVER_RESPONSE = "server_response"
-
 # Ninja API
 from ninja import NinjaAPI, Router
 api = NinjaAPI(urls_namespace='resource_server_async_api')
@@ -146,7 +143,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
     log.info("endpoint_slug", endpoint_slug)
-    print("endpoint_slug", endpoint_slug)
+    print("endpoint_slug", endpoint_slug, "-", atv_response.username)
     db_data["endpoint_slug"] = endpoint_slug
     
     # Pull the targetted endpoint UUID and function UUID from the database
@@ -247,10 +244,10 @@ async def get_response(db_data, content, code):
     except IntegrityError as e:
         message = f"Error: Could not create or save database entry: {e}"
         log.error(message)
-        return HttpResponse({SERVER_RESPONSE: message}, status=400)
+        return HttpResponse(message, status=400)
         
     # Return the error response
-    return HttpResponse(json.dumps({SERVER_RESPONSE: content}), status=code)
+    return HttpResponse(json.dumps(content), status=code)
 
 
 # Add URLs to the Ninja API
