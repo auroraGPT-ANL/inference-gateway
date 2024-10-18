@@ -12,7 +12,7 @@ engine:
   provider:
     type: PBSProProvider
     launcher:
-      type: SimpleLauncher
+      type: MpiExecLauncher
     account: argonne_tpc
     select_options: ngpus=8
     scheduler_options: '#PBS -l filesystems=home:eagle'
@@ -242,4 +242,4 @@ engine:
 
 # Limit the functions UUID that can be execute
 allowed_functions:
-  - 8c9486d3-89f8-4322-be96-5f2afafad547
+  - 1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab
