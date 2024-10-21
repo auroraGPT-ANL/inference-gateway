@@ -172,6 +172,7 @@
         "model": "resource_server.endpoint",
         "pk": 14,
         "fields": {
+<<<<<<< HEAD
             "endpoint_slug": "sophia-vllm-qwenqwen25-7b-instruct",
             "cluster": "sophia",
             "framework": "vllm",
@@ -192,6 +193,15 @@
             "api_port": 8001,
             "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
             "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+=======
+            "endpoint_slug": "sophia-vllm-mgoinnemotron-4-340b-instruct-hf",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "mgoin/Nemotron-4-340B-Instruct-hf",
+            "api_port": 8000,
+            "endpoint_uuid": "81be96a8-46e5-4409-8d37-1117361a45fa",
+            "function_uuid": "f76e2f2d-9940-48e2-85d3-d7c40e50458b"
+>>>>>>> 091dd75 (Add new template and endpoint for large multi node models)
         }
     }
 ]

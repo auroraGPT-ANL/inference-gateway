@@ -1,0 +1,256 @@
+amqp_port: 443
+display_name: sophia-vllm-nemotron-4-340B-instruct 
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 128
+  job_status_kwargs:
+    max_idletime: 86400
+  address:
+    type: address_by_interface
+    ifname: ens10f0
+  provider:
+    type: PBSProProvider
+    launcher:
+      type: SimpleLauncher
+    account: argonne_tpc
+    select_options: ngpus=8
+    scheduler_options: '#PBS -l filesystems=home:eagle'
+    queue: 'by-node'
+    init_blocks: 0
+    max_blocks: 1
+    min_blocks: 0
+    nodes_per_block: 4
+    walltime: 24:00:00
+    worker_init: |
+        # Set proxy configurations
+        export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+        export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+        export http_proxy="http://proxy.alcf.anl.gov:3128"
+        export https_proxy="http://proxy.alcf.anl.gov:3128"
+        export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+
+        # Detect MPI rank and size
+        rank=${OMPI_COMM_WORLD_RANK:-0}
+        size=${OMPI_COMM_WORLD_SIZE:-1}
+        host=$(hostname)
+
+        echo "Running on node $host with rank $rank"
+
+        # Load modules and activate the conda environment
+        source /etc/profile.d/modules.sh
+        module use /soft/modulefiles
+        module load conda
+        conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.6.2-sophia-env/
+
+        # Set environment variables
+        export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
+        export HF_HOME='/eagle/argonne_tpc/model_weights/'
+        export RAY_TMPDIR='/tmp'
+        export NCCL_SOCKET_IFNAME=bond0
+        export OMP_NUM_THREADS=8
+        ulimit -c unlimited
+
+        # Shared directory for synchronization
+        SYNC_DIR=" /eagle/argonne_tpc/inference-gateway/sync_ray_cluster"
+        mkdir -p "$SYNC_DIR"
+
+        # Function to clean up Ray processes on the local node
+        cleanup_ray_processes() {
+            echo "Cleaning up Ray processes on node $(hostname)..."
+
+            # Store the current script's PID to protect it from being killed
+            script_pid=$$
+
+            # Function to check if Ray processes are running
+            ray_running() {
+                pgrep -f 'ray::' > /dev/null || pgrep -f 'ray' > /dev/null || \
+                pgrep -f 'raylet' > /dev/null || pgrep -f 'plasma_store' > /dev/null || \
+                pgrep -f 'gcs_server' > /dev/null || pgrep -f 'redis-server' > /dev/null || \
+                pgrep -f 'log_monitor.py' > /dev/null || pgrep -f 'main.py' > /dev/null
+                return $?
+            }
+
+            # Function to kill all Ray-related processes, excluding the current script's PID
+            kill_ray_processes() {
+                for pid in $(pgrep -f 'ray::|ray|raylet|plasma_store|gcs_server|redis-server|log_monitor.py|main.py'); do
+                    if [ "$pid" -ne "$script_pid" ]; then
+                        kill -9 "$pid"
+                    fi
+                done
+                pkill -9 -f 'ray' -P $script_pid
+                pkill -9 -f 'python' -P $script_pid
+                pkill -9 -f 'ray::' -P $script_pid
+            }
+
+            # Try to stop Ray gracefully with retries
+            for attempt in $(seq 1 3); do
+                echo "Attempt $attempt to stop Ray on $(hostname)"
+                if command -v ray &> /dev/null; then
+                    ray stop
+                    sleep 5
+                    if ! ray_running; then
+                        echo "Ray stopped successfully on $(hostname)"
+                        return
+                    fi
+                else
+                    echo "Ray command not found on $(hostname)"
+                    break
+                fi
+            done
+
+            # If Ray processes are still running after all attempts, force kill them
+            if ray_running; then
+                echo 'Forcefully killing Ray processes on $(hostname)'
+                kill_ray_processes
+                sleep 5
+                if ray_running; then
+                    echo 'Failed to kill all Ray processes on $(hostname)'
+                    echo 'Remaining processes:'
+                    ps aux | grep -E 'ray::|ray|raylet|plasma_store|gcs_server|redis-server|log_monitor.py|main.py'
+                    exit 1
+                fi
+            fi
+
+            echo 'Ray cleanup completed on $(hostname)'
+        }
+
+        # Function to start the Ray cluster using MPI ranks
+        start_ray_cluster() {
+            echo "Starting Ray cluster on node $(hostname) with rank $rank..."
+
+            # Stop any existing Ray processes
+            ray stop
+
+            # Get the hostname of the head node (rank 0)
+            head_node=$(head -n 1 "$PBS_NODEFILE")
+
+            # If rank == 0, start the Ray head node
+            if [ "$rank" -eq 0 ]; then
+                echo "Starting Ray head node on $(hostname)"
+                nohup ray start --num-cpus=64 --num-gpus=8 --head --port=6379 --include-dashboard=false > ray_head.out 2>&1 &
+            else
+                # Wait for the head node to be ready
+                sleep 10
+                echo "Starting Ray worker node on $(hostname)"
+                nohup ray start --num-cpus=64 --num-gpus=8 --address=${head_node}:6379 > ray_worker_${rank}.out 2>&1 &
+            fi
+
+            # Signal that this node has started Ray by creating a status file
+            touch "$SYNC_DIR/ray_started_${rank}"
+
+            echo "Ray started on node $(hostname) with rank $rank"
+        }
+
+        # Function to wait for all nodes to start Ray
+        wait_for_ray_cluster() {
+            echo "Waiting for all nodes to start Ray..."
+            total_nodes=$size
+            timeout=300  # 5 minutes timeout
+            start_time=$(date +%s)
+
+            while true; do
+                files=("$SYNC_DIR"/ray_started_*)
+                num_files=${#files[@]}
+
+                if [ "$num_files" -eq "$total_nodes" ]; then
+                    echo "All nodes have started Ray."
+                    return 0
+                fi
+
+                current_time=$(date +%s)
+                elapsed_time=$((current_time - start_time))
+
+                if [ $elapsed_time -ge $timeout ]; then
+                    echo "Timeout waiting for all nodes to start Ray."
+                    return 1
+                fi
+
+                sleep 5
+            done
+        }
+
+        # Function to start the model (only on rank 0)
+        start_model() {
+            local model_name="$1"
+            local command="$2"
+            local log_file="$3"
+            local -n attempt_counter_ref="$4"  # Pass by reference for attempt counter
+            local max_attempts=3
+            local timeout=900  # 15 minutes timeout
+
+            while [ $attempt_counter_ref -lt $max_attempts ]; do
+                attempt_counter_ref=$((attempt_counter_ref + 1))
+                echo "Starting $model_name (Attempt $attempt_counter_ref of $max_attempts)"
+
+                # Start the model server
+                echo "Starting model server..."
+                nohup bash -c "$command" > "$log_file" 2>&1 &
+                local pid=$!
+
+                # Wait for the startup message or timeout
+                local start_time=$(date +%s)
+                while true; do
+                    if [[ -f "$log_file" ]] && grep -q "INFO:     Application startup complete." "$log_file"; then
+                        echo "$model_name started successfully"
+                        return 0
+                    fi
+
+                    local current_time=$(date +%s)
+                    local elapsed_time=$((current_time - start_time))
+
+                    if [ $elapsed_time -ge $timeout ]; then
+                        echo "Timeout reached for $model_name. Killing process."
+                        kill -9 $pid
+                        break
+                    fi
+
+                    sleep 5
+                done
+
+                echo "Failed to start $model_name. Cleaning up and retrying..." | tee -a error_log.txt
+                # Continue to next attempt
+            done
+            echo "Failed to start $model_name after $max_attempts attempts" | tee -a error_log.txt
+            exit 1
+        }
+
+        # Initialize retry counter for the model
+        retry_counter_model_1=0
+
+        # Cleanup any existing Ray processes
+        cleanup_ray_processes
+
+        # Start Ray cluster on all nodes
+        start_ray_cluster
+
+        # Wait for all nodes to signal that Ray has started
+        if ! wait_for_ray_cluster; then
+            echo "Ray cluster failed to start on all nodes."
+            exit 1
+        fi
+
+        # Remove synchronization files
+        if [ "$rank" -eq 0 ]; then
+            rm -f "$SYNC_DIR"/ray_started_*
+        fi
+
+        # Start the model only on rank 0
+        if [ "$rank" -eq 0 ]; then
+            echo "All nodes have started Ray. Starting the model..."
+
+            # Start the model
+            if ! start_model "Nemotron-4-340B-Instruct" \
+                "vllm serve mgoin/Nemotron-4-340B-Instruct-hf --host 0.0.0.0 --port 8000 \
+                --tensor-parallel-size 8 --pipeline-parallel-size 4 --enforce-eager \
+                --trust-remote-code --gpu-memory-utilization 0.95 --disable-log-requests" \
+                "$PWD/logfile_nemotron_vllm.log" retry_counter_model_1; then
+                echo "Model failed to start."
+                exit 1
+            fi
+        echo "Script completed on node $(hostname) with rank $rank."
+
+
+# Limit the functions UUID that can be execute
+allowed_functions:
+  - f76e2f2d-9940-48e2-85d3-d7c40e50458b

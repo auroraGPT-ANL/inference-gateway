@@ -32,6 +32,7 @@ testem.log
 .ipynb_checkpoints/
 debug.log
 access_token.txt
+/logs
 
 # System files
 Thumbs.db
