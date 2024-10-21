@@ -2,7 +2,17 @@
 ![Build](https://github.com/auroraGPT-ANL/inference-gateway/workflows/Django/badge.svg)
 
 # Inference Gateway
-Prototype to create a checkpoint to authorize inference requests coming from outside Argonne.
+A RESTful API Gateway code to authenticate and authorize inference requests coming from within or outside Argonne. Trusted users can submit jobs to the ALCFss compute endpoints. 
+
+## Documentation
+
+The API/Usage documentation can be found [here](https://github.com/argonne-lcf/inference-endpoints).
+
+## Prerequisites
+
+- Python 3.8+
+- PostgreSQL
+- [Poetry](https://python-poetry.org/docs/#installation)
 
 ## Installation
 
