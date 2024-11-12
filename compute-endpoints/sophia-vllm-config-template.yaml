@@ -5,7 +5,7 @@ engine:
   max_retries_on_system_failure: 2
   max_workers_per_node: 100
   job_status_kwargs:
-    max_idletime: 43200
+    max_idletime: 86400
   address:
     type: address_by_interface
     ifname: ens10f0
@@ -16,12 +16,13 @@ engine:
     account: argonne_tpc
     select_options: ngpus=8
     scheduler_options: '#PBS -l filesystems=home:eagle'
-    queue: 'single-node'
+    queue: 'by-node'
     init_blocks: 0
-    max_blocks: 1
+    max_blocks: 2
     min_blocks: 0
     nodes_per_block: 1
-    walltime: 12:00:00
+    walltime: 24:00:00
+    worker_init: |
     worker_init: |
       export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
       export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
@@ -32,7 +33,10 @@ engine:
       source /etc/profile.d/modules.sh
       module use /soft/modulefiles
       module load conda
-      conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.6.1-sophia-env/
+      conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.6.2-sophia-env/
+
+      #source ~/miniconda3/etc/profile.d/conda.sh
+      #conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.5.5-sophia-env
 
 
       export HF_DATASETS_CACHE="/eagle/argonne_tpc/model_weights/"
@@ -169,17 +173,17 @@ engine:
           echo "Starting models sequence..."
 
           # Start first model
-          if ! start_model "Meta-Llama-3-70B-Instruct" "CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve meta-llama/Meta-Llama-3-70B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-70b-instruct.log" retry_counter_model_1; then
+          if ! start_model "Meta-Llama-3-70B-Instruct" "CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve meta-llama/Meta-Llama-3-70B-Instruct --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-log-requests --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-70b-instruct_$(hostname).log" retry_counter_model_1; then
               continue  # Restart from the beginning if this fails
           fi
 
           # Start second model
-          if ! start_model "Meta-Llama-3-8B-Instruct" "CUDA_VISIBLE_DEVICES=4,5 vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8001 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-8b-instruct.log" retry_counter_model_2; then
+          if ! start_model "Meta-Llama-3-8B-Instruct" "CUDA_VISIBLE_DEVICES=4,5 vllm serve meta-llama/Meta-Llama-3-8B-Instruct --host 127.0.0.1 --port 8001 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-log-requests --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-meta-llama-3-8b-instruct_$(hostname).log" retry_counter_model_2; then
               continue  # Restart from the beginning if this fails
           fi
 
           # Start third model
-          if ! start_model "Mistral-7B-Instruct-v0.3" "CUDA_VISIBLE_DEVICES=6,7 vllm serve mistralai/Mistral-7B-Instruct-v0.3 --host 127.0.0.1 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --num-scheduler-steps 10 --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-mistral-7b-instruct-v0.3.log" retry_counter_model_3; then
+          if ! start_model "Mistral-7B-Instruct-v0.3" "CUDA_VISIBLE_DEVICES=6,7 vllm serve mistralai/Mistral-7B-Instruct-v0.3 --host 127.0.0.1 --port 8002 --tensor-parallel-size 2 --gpu-memory-utilization 0.95 --max-model-len 4096 --enforce-eager --disable-log-requests --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt" "$PWD/logfile_sophia-vllm-mistral-7b-instruct-v0.3_$(hostname).log" retry_counter_model_3; then
               continue  # Restart from the beginning if this fails
           fi
 
@@ -188,4 +192,4 @@ engine:
       done
 # Limit the functions UUID that can be execute
 allowed_functions:
-  - 8c9486d3-89f8-4322-be96-5f2afafad547
+  - 1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab
