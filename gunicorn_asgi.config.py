@@ -1,4 +1,9 @@
+import os
+
 """gunicorn ASGI server configuration."""
+
+# Determine if we're in production or development
+environment = os.getenv("ENV", "production")
 
 # Localhost port to communicate between Nginx and Gunicorn
 bind = '0.0.0.0:7000'
@@ -7,26 +12,29 @@ bind = '0.0.0.0:7000'
 timeout = 1800
 
 # Number of requests before workers automatically restart
-# This helps limit damage caused by memory leaks (ensure workers release memory from time to time)
 max_requests = 3000
 
-# Random number (between 0 and max_requests_jitter) added to the max_requests number
-# This randomize when workers are restarting and limit the risk of all workers restarting at the same time
+# Randomize worker restarts
 max_requests_jitter = 300
 
-# Maximum number of pending connections (default 2048)
-# If the number of pending requests exceed this number, there will be a ConnectTimeout/MaxEntry error
+# Maximum number of pending connections
 backlog = 2048
 
 # Type of workers
-# NOTE: With async we should only use one cached executor (recommendation from Globus)
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 workers = 1
 threads = 1
 
-# Access and error logs
-accesslog = "/var/log/inference-service/backend_gateway.access.log"
-errorlog = "/var/log/inference-service/backend_gateway.error.log"
+# Log directory based on environment
+if environment == "development":
+    # Development log files in the current directory
+    accesslog = "./logs/backend_gateway.access.log"
+    errorlog = "./logs/backend_gateway.error.log"
+    bind = '127.0.0.1:8000'
+else:
+    # Local development log files in a local directory
+    accesslog = "/var/log/inference-service/backend_gateway.access.log"
+    errorlog = "/var/log/inference-service/backend_gateway.error.log"
 
 # Whether to send Django output to the error log
 capture_output = True
