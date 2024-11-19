@@ -131,3 +131,25 @@ python manage.py migrate
 pgloader pgloader.load
 python reset_cursor.py
 ```
+
+## Run Application in a Podman Container
+
+Create the image:
+```bash
+podman build . -t inference-gateway
+```
+
+Run the container:
+```bash
+podman run --rm -d -p 7000:7000 localhost/inference-gateway
+```
+
+To see the ID of the running container, type the following:
+```bash
+podman container list
+```
+
+To stop the container, type the following:
+```bash
+podman container stop <containerID>
+```
