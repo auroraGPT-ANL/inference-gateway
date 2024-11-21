@@ -53,7 +53,7 @@ def get_tokens_from_globus_app():
 
     # Error if getting tokens failed
     except globus_sdk.GlobusAPIError as e:
-        raise ResourceServerError(f"Compute: Could not get access tokens from client application.")
+        raise ResourceServerError(f"Compute: Could not get access tokens from client application. {e}")
 
     # Return tokens
     return openid_token, compute_token
