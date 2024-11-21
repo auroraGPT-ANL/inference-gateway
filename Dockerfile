@@ -18,7 +18,7 @@ RUN rm .env
 RUN rm db.sqlite3
 
 # Copy environment variables (temporary, should be added through GitLab secret key/values)
-COPY ./.env ./
+#COPY ./.env ./
 
 # Initialize and fill Django database
 RUN python manage.py migrate --no-input
