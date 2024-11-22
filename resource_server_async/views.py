@@ -113,6 +113,14 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         log.error(error_message)
         return HttpResponse(json.dumps(error_message), status=400)
     
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_groups = atv_response.user_groups
+    except Exception as e:
+        message = f"Error: Could access user's Globus Group membership.Endpoint database entries: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
@@ -121,6 +129,8 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         "timestamp_receive": timezone.now(),
         "sync": True # True means the server response is the Globus result, not the task UUID
     }
+
+    # Gather the list of Globus Groups
 
     # Strip the last forward slash is needed
     if openai_endpoint[-1] == "/":
