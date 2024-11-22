@@ -17,6 +17,10 @@ ALLOWED_OPENAI_ENDPOINTS = {
 }
 ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 
+# Exception to raise in case of errors
+class ResourceServerError(Exception):
+    pass
+
 
 # Validate URL inputs
 def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
@@ -90,3 +94,25 @@ def validate_request_body(request, openai_endpoint):
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Extract group UUIDs from an allowed_globus_groups model field
+def extract_group_uuids(globus_groups):
+    """Extract group UUIDs from an allowed_globus_groups model field."""
+
+    # Make sure the globus_groups argument is a string
+    if not isinstance(globus_groups, str):
+        raise ValidationError("globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' ")
+
+    # Declare the list of group UUIDs
+    group_uuids = []
+
+    # Append each UUID to the list
+    try:
+        for group_name_uuid in globus_groups.split(";"):
+            group_uuids.append(group_name_uuid.split(":")[-1])
+    except Exception as e:
+        raise ResourceServerError(f"Exception while extracting Globus Group UUIDs. {e}")
+    
+    # Return the list of group UUIDs
+    return group_uuids
