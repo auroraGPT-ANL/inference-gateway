@@ -104,6 +104,10 @@ def extract_group_uuids(globus_groups):
     if not isinstance(globus_groups, str):
         raise ValidationError("globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' ")
 
+    # Return empty list if no group restriction was provided
+    if len(globus_groups) == 0:
+        return []
+
     # Declare the list of group UUIDs
     group_uuids = []
 
