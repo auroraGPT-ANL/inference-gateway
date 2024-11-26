@@ -5,6 +5,7 @@ from utils.serializers import (
 )
 from rest_framework.exceptions import ValidationError
 import json
+from uuid import UUID
 
 # Constants
 ALLOWED_FRAMEWORKS = {
@@ -102,7 +103,7 @@ def extract_group_uuids(globus_groups):
 
     # Make sure the globus_groups argument is a string
     if not isinstance(globus_groups, str):
-        raise ValidationError("globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' ")
+        return [], "Error: globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' "
 
     # Return empty list if no group restriction was provided
     if len(globus_groups) == 0:
@@ -116,7 +117,14 @@ def extract_group_uuids(globus_groups):
         for group_name_uuid in globus_groups.split(";"):
             group_uuids.append(group_name_uuid.split(":")[-1])
     except Exception as e:
-        raise ResourceServerError(f"Exception while extracting Globus Group UUIDs. {e}")
+        return [], f"Error: Exception while extracting Globus Group UUIDs. {e}"
+    
+    # Make sure that all UUID strings have the UUID format
+    for uuid_to_test in group_uuids:
+        try:
+            uuid_obj = UUID(uuid_to_test).version
+        except Exception as e:
+            return [], f"Error: Could not extract UUID format from the database. {e}"
     
     # Return the list of group UUIDs
-    return group_uuids
+    return group_uuids, ""

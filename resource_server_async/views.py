@@ -171,8 +171,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         log.error(message)
         return await get_response(db_data, message, 400)
     
+    # Extract the list of group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_response(db_data, error_message, 401)
+    
     # If there is a Globus Group restriction on the targetted endpoint ...
-    allowed_globus_groups = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(allowed_globus_groups) > 0:
 
         # Block access if the user is not a member of at least one of the required groups
