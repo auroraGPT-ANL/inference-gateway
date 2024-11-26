@@ -118,7 +118,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     try:
         user_group_uuids = atv_response.user_group_uuids
     except Exception as e:
-        message = f"Error: Could access user's Globus Group membership.Endpoint database entries: {e}"
+        message = f"Error: Could access user's Globus Group memberships. {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
     
