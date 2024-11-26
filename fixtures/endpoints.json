@@ -100,7 +100,8 @@
             "model": "meta-llama-3-8b-instruct",
             "api_port": 8000,
             "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "InferenceDev:e0337c8a-9153-11ef-9fac-6f9995a83a2e"
         }
     },
     {
@@ -113,7 +114,8 @@
             "model": "mistral-7b-instruct-v03",
             "api_port": 8000,
             "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "InferenceDev:e0337c8a-9153-11ef-9fac-6f9995a83a2e"
         }
     },
     {
@@ -126,7 +128,8 @@
             "model": "meta-llama-3-70b-instruct",
             "api_port": 8000,
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "InferenceDev:e0337c8a-9153-11ef-9fac-6f9995a83a2e"
         }
     },
     {
