@@ -67,26 +67,22 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     if introspection["active"] is False:
         return "Token is either not active or invalid", []
     
-    # If Globus Group membership needs to be checked ...
-    user_groups = []
-    if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
+    # Get dependent access token to view group membership
+    try:
+        dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
+        access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
+    except Exception as e:
+        return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
 
-        # Get dependent access token to view group membership
-        try:
-            dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
-            access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
-        except Exception as e:
-            return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
+    # Create a Globus Group Client using the access token sent by the user
+    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
 
-        # Create a Globus Group Client using the access token sent by the user
-        authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
-        groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
-
-        # Get the user's group memberships
-        try:
-            user_groups = groups_client.get_my_groups()
-        except Exception as e:
-            return f"Could not recover group memberships. {e}", []
+    # Get the user's group memberships
+    try:
+        user_groups = groups_client.get_my_groups()
+    except Exception as e:
+        return f"Could not recover group memberships. {e}", []
         
     # Return the introspection data along with the group 
     return introspection, user_groups
