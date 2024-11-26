@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -23,6 +23,7 @@ class atv_response:
     is_valid: bool
     name: str = ""
     username: str = ""
+    user_group_uuids: list = field(default_factory=lambda: [])
     error_message: str = ""
     error_code: int = 0
     
@@ -182,7 +183,12 @@ def validate_access_token(request):
 
     # Return valid token response
     log.info(f"{introspection['name']} requesting {introspection['scope']}")
-    return atv_response(is_valid=True, name=introspection["name"], username=introspection["username"], user_groups=user_groups)
+    return atv_response(
+        is_valid=True, 
+        name=introspection["name"], 
+        username=introspection["username"], 
+        user_group_uuids=[group["id"] for group in user_groups]
+    )
 
 
 # Globus Authenticated (for decorator, which works with Django Rest, but not with Django Ninja)
