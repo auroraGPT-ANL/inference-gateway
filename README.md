@@ -18,12 +18,12 @@ The API/Usage documentation can be found [here](https://github.com/argonne-lcf/i
 
 **Note:** All commands listed below should be executed within this folder where this README.md file is located.
 
-### Virtual Environment
+### Virtual Environment (Python 3.11.9)
 Install all required dependencies using poetry:
 
 ```bash
-poetry env use ..path-to-your-targetted-python-executable..
 poetry config virtualenvs.in-project true
+poetry env use ..path-to-your-targetted-python-executable..
 poetry install
 ```
 
