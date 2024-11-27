@@ -1,0 +1,47 @@
+amqp_port: 443
+display_name: sophia-vllm-llama3.1-artiller-test-endpoint
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 100
+  job_status_kwargs:
+    max_idletime: 86400
+  address:
+    type: address_by_interface
+    ifname: ens10f0
+  provider:
+    type: PBSProProvider
+    launcher:
+      type: SimpleLauncher
+    account: argonne_tpc
+    select_options: ngpus=8
+    scheduler_options: '#PBS -l filesystems=home:eagle'
+    queue: 'by-node'
+    init_blocks: 0
+    max_blocks: 2
+    min_blocks: 0
+    nodes_per_block: 1
+    walltime: 24:00:00
+    worker_init: |
+      # single_model_launch.sh
+      # Source the common script
+      source /home/openinference_svc/sophia_common_scripts.sh   # Replace with the actual path to common.sh
+      # Setup the environment
+      setup_environment
+      # Define model parameters
+      model_name="Meta-Llama-3.1-8B-Instruct"
+      model_command="vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct --host 127.0.0.1 --port 8000 \
+      --tensor-parallel-size 8 --gpu-memory-utilization 0.95 \
+      --disable-log-requests --enable-chunked-prefill \
+      --enable-prefix-caching --multi-step-stream-outputs False \
+      --served-model-name meta-llama/Meta-Llama-3.1-8B-Instruct/artillery-test \
+      --ssl-keyfile ~/certificates/mykey.key --ssl-certfile ~/certificates/mycert.crt"
+      log_file="$PWD/logfile_sophia_vllm_$(model_name)_$(hostname).log"
+
+      # Initialize retry counter for the model
+      retry_counter_model_1=0
+
+      # Start the model
+      start_model "$model_name" "$model_command" "$log_file" retry_counter_model_1
+allowed_functions:
+  - 3073ed77-6a17-4e85-826a-e1dca5309e01 
