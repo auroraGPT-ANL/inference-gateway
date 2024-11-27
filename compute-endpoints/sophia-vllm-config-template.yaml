@@ -23,7 +23,6 @@ engine:
     nodes_per_block: 1
     walltime: 24:00:00
     worker_init: |
-    worker_init: |
       export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
       export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
       export http_proxy="http://proxy.alcf.anl.gov:3128"
@@ -187,8 +186,10 @@ engine:
               continue  # Restart from the beginning if this fails
           fi
 
+          # vllm serve Qwen/Qwen2.5-72B-Instruct    --tensor-parallel-size 4  --gpu-memory-utilization 0.9   --max-model-len 8192   --max-num-seqs 128   --max-num-batched-tokens 131072   --tokenizer-pool-size 128   --scheduling-policy fcfs   --disable-log-stats   --enable-prefix-caching   --tokenizer-mode auto   --swap-space 16   --enable-chunked-prefill   --block-size 32   --num-scheduler-steps 1   --multi-step-stream-outputs False
           echo "All models started successfully."
           break  # Exit the loop if all models start successfully
+          
       done
 # Limit the functions UUID that can be execute
 allowed_functions:

@@ -9,7 +9,7 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -22,7 +22,7 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -35,7 +35,7 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8002,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -48,7 +48,7 @@
             "model": "mistralai/Mixtral-8x22B-Instruct-v0.1",
             "api_port": 8000,
             "endpoint_uuid": "46a57aff-68a7-48b2-8157-e27347d06740",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },    
     {
@@ -140,7 +140,7 @@
             "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -151,9 +151,9 @@
             "cluster": "sophia",
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-            "api_port": 8000,
+            "api_port": 8001,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -166,7 +166,7 @@
             "model": "mistralai/Mistral-Large-Instruct-2407",
             "api_port": 8000,
             "endpoint_uuid": "33bc18db-752b-4f60-81ad-2c7756990184",
-            "function_uuid": "8c9486d3-89f8-4322-be96-5f2afafad547"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -179,7 +179,7 @@
             "model": "Qwen/Qwen2.5-7B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -192,7 +192,7 @@
             "model": "Qwen/Qwen2.5-14B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -205,7 +205,7 @@
             "model": "mgoin/Nemotron-4-340B-Instruct-hf",
             "api_port": 8000,
             "endpoint_uuid": "34fa20a8-0d4a-49d2-8a73-39dc85bd2ed4",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     },
     {
@@ -218,7 +218,20 @@
             "model": "meta-llama/Meta-Llama-3.1-405B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "d39cbc54-b6ed-4d1f-894f-499dff5b1dc8",
-            "function_uuid": "1c6f251e-8ed9-4f9c-b142-ce6602f9c0ab"
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 18,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-qwenqwen2-vl-72b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "Qwen/Qwen2-VL-72B-Instruct",
+            "api_port": 8000,
+            "endpoint_uuid": "fb539f97-a72b-4515-a87c-7c8fe431dfc4",
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
     }
 ]
