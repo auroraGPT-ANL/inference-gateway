@@ -46,6 +46,14 @@ async def get_list_endpoints(request):
         error_message = "Error: Name and username could not be recovered."
         log.error(error_message)
         return HttpResponse(json.dumps(error_message), status=400)
+    
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        message = f"Error: Could access user's Globus Group memberships. {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
 
     # Collect endpoints objects from the database
     try:
@@ -62,26 +70,36 @@ async def get_list_endpoints(request):
         # For each database endpoint entry ...
         for endpoint in endpoint_list:
 
-            # Add a new cluster dictionary entry if needed
-            if not endpoint.cluster in all_endpoints["clusters"]:
-                all_endpoints["clusters"][endpoint.cluster] = {
-                    "base_url": f"/resource_server/{endpoint.cluster}",
-                    "frameworks": {}
-                }
-            
-            # Add a new framework dictionary entry if needed
-            if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
-                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
-                    "models": [],
-                    "endpoints": {
-                        "chat": f"/{endpoint.framework}/v1/chat/completions/",
-                        "completion": f"/{endpoint.framework}/v1/completions/",
-                        "embedding": f"/{endpoint.framework}/v1/embeddings/"
-                    }
-                }
+            # Extract the list of allowed group UUIDs tied to the endpoint
+            allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+            if len(error_message) > 0:
+                log.error(error_message)
+                return HttpResponse(json.dumps(error_message), status=400)
+    
+            # If the user is allowed to see the endpoint ...
+            # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
+            if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
 
-            # Add model
-            all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
+                # Add a new cluster dictionary entry if needed
+                if not endpoint.cluster in all_endpoints["clusters"]:
+                    all_endpoints["clusters"][endpoint.cluster] = {
+                        "base_url": f"/resource_server/{endpoint.cluster}",
+                        "frameworks": {}
+                    }
+                
+                # Add a new framework dictionary entry if needed
+                if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
+                    all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
+                        "models": [],
+                        "endpoints": {
+                            "chat": f"/{endpoint.framework}/v1/chat/completions/",
+                            "completion": f"/{endpoint.framework}/v1/completions/",
+                            "embedding": f"/{endpoint.framework}/v1/embeddings/"
+                        }
+                    }
+
+                # Add model
+                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
 
         # Sort models alphabetically
         for cluster in all_endpoints["clusters"]:
@@ -171,15 +189,13 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         log.error(message)
         return await get_response(db_data, message, 400)
     
-    # Extract the list of group UUIDs tied to the targetted endpoint
+    # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
         return await get_response(db_data, error_message, 401)
     
-    # If there is a Globus Group restriction on the targetted endpoint ...
-    if len(allowed_globus_groups) > 0:
-
-        # Block access if the user is not a member of at least one of the required groups
+    # Block access if the user is not a member of at least one of the required groups
+    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
 
