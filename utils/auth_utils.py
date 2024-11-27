@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -23,6 +23,7 @@ class atv_response:
     is_valid: bool
     name: str = ""
     username: str = ""
+    user_group_uuids: list = field(default_factory=lambda: [])
     error_message: str = ""
     error_code: int = 0
     
@@ -66,29 +67,25 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     if introspection["active"] is False:
         return "Token is either not active or invalid", []
     
-    # If Globus Group membership needs to be checked ...
-    my_groups = []
-    if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
+    # Get dependent access token to view group membership
+    try:
+        dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
+        access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
+    except Exception as e:
+        return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
 
-        # Get dependent access token to view group membership
-        try:
-            dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
-            access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
-        except Exception as e:
-            return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
+    # Create a Globus Group Client using the access token sent by the user
+    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
 
-        # Create a Globus Group Client using the access token sent by the user
-        authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
-        groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
-
-        # Get the user's group memberships
-        try:
-            my_groups = groups_client.get_my_groups()
-        except Exception as e:
-            return f"Could not recover group memberships. {e}", []
+    # Get the user's group memberships
+    try:
+        user_groups = groups_client.get_my_groups()
+    except Exception as e:
+        return f"Could not recover group memberships. {e}", []
         
     # Return the introspection data along with the group 
-    return introspection, my_groups
+    return introspection, user_groups
 
 
 # Check Globus Policies
@@ -112,7 +109,7 @@ def check_globus_policies(introspection):
 
 
 # User In Allowed Groups
-def check_globus_groups(my_groups):
+def check_globus_groups(user_groups):
     """
         Define whether an authenticated user has the proper Globus memberships.
         User should be member of at least in one of the allowed Globus groups.
@@ -120,7 +117,7 @@ def check_globus_groups(my_groups):
 
     # Collect the list of Globus Groups that the user is a member of
     try:
-        user_groups = [group["id"] for group in my_groups]
+        user_groups = [group["id"] for group in user_groups]
     except:
         return False, "Introspection object does not have the 'get_my_groups' key."
     
@@ -154,7 +151,7 @@ def validate_access_token(request):
         return atv_response(is_valid=False, error_message=error_message, error_code=400)
 
     # Introspect the access token
-    introspection, my_groups = introspect_token(bearer_token)
+    introspection, user_groups = introspect_token(bearer_token)
 
     # If there an error (introspection not a globus object), return the error stored in the introspection variable
     if isinstance(introspection, str):
@@ -176,13 +173,18 @@ def validate_access_token(request):
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
-        successful, error_message = check_globus_groups(my_groups)
+        successful, error_message = check_globus_groups(user_groups)
         if not successful:
             return atv_response(is_valid=False, error_message=error_message, error_code=401)
 
     # Return valid token response
     log.info(f"{introspection['name']} requesting {introspection['scope']}")
-    return atv_response(is_valid=True, name=introspection["name"], username=introspection["username"])
+    return atv_response(
+        is_valid=True, 
+        name=introspection["name"], 
+        username=introspection["username"], 
+        user_group_uuids=[group["id"] for group in user_groups]
+    )
 
 
 # Globus Authenticated (for decorator, which works with Django Rest, but not with Django Ninja)

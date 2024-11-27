@@ -45,7 +45,7 @@ def introspect_token(access_token):
         introspection["exp"] -= 2000
         
     # Return the mock token introspection and the Globus group details (here None)
-    return introspection, None
+    return introspection, []
 
 
 # Get mock headers 
