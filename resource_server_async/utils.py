@@ -5,6 +5,7 @@ from utils.serializers import (
 )
 from rest_framework.exceptions import ValidationError
 import json
+from uuid import UUID
 
 # Constants
 ALLOWED_FRAMEWORKS = {
@@ -16,6 +17,10 @@ ALLOWED_OPENAI_ENDPOINTS = {
     "sophia": ["chat/completions", "completions", "embeddings"]
 }
 ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
+
+# Exception to raise in case of errors
+class ResourceServerError(Exception):
+    pass
 
 
 # Validate URL inputs
@@ -90,3 +95,36 @@ def validate_request_body(request, openai_endpoint):
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Extract group UUIDs from an allowed_globus_groups model field
+def extract_group_uuids(globus_groups):
+    """Extract group UUIDs from an allowed_globus_groups model field."""
+
+    # Make sure the globus_groups argument is a string
+    if not isinstance(globus_groups, str):
+        return [], "Error: globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' "
+
+    # Return empty list with no error message if no group restriction was provided
+    if len(globus_groups) == 0:
+        return [], ""
+
+    # Declare the list of group UUIDs
+    group_uuids = []
+
+    # Append each UUID to the list
+    try:
+        for group_name_uuid in globus_groups.split(";"):
+            group_uuids.append(group_name_uuid.split(":")[-1])
+    except Exception as e:
+        return [], f"Error: Exception while extracting Globus Group UUIDs. {e}"
+    
+    # Make sure that all UUID strings have the UUID format
+    for uuid_to_test in group_uuids:
+        try:
+            uuid_obj = UUID(uuid_to_test).version
+        except Exception as e:
+            return [], f"Error: Could not extract UUID format from the database. {e}"
+    
+    # Return the list of group UUIDs
+    return group_uuids, ""

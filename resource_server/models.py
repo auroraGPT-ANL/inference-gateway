@@ -30,6 +30,10 @@ class Endpoint(models.Model):
     # API port (for distinct models running on the same node)
     api_port = models.IntegerField(default=8000)
 
+    # Groups that are allowed to access the endpoint (no restriction if empty)
+    # Format: "group1-name:group1-uuid; group2-name:group2-uuid; ..."
+    allowed_globus_groups = models.TextField(default="", blank=True)
+
     # String function
     def __str__(self):
         return f"<Endpoint {self.endpoint_slug}>"

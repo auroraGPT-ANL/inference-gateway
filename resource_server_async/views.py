@@ -14,7 +14,8 @@ import resource_server.utils as utils
 from resource_server_async.utils import (
     validate_url_inputs, 
     extract_prompt, 
-    validate_request_body
+    validate_request_body,
+    extract_group_uuids
 )
 log.info("Utils functions loaded.")
 
@@ -113,6 +114,14 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         log.error(error_message)
         return HttpResponse(json.dumps(error_message), status=400)
     
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        message = f"Error: Could access user's Globus Group memberships. {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
@@ -161,12 +170,23 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         message = f"Error: Could not extract endpoint and function UUIDs: {e}"
         log.error(message)
         return await get_response(db_data, message, 400)
+    
+    # Extract the list of group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_response(db_data, error_message, 401)
+    
+    # If there is a Globus Group restriction on the targetted endpoint ...
+    if len(allowed_globus_groups) > 0:
+
+        # Block access if the user is not a member of at least one of the required groups
+        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+            return await get_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
 
     # Get Globus Compute client (using the endpoint identity)
     try:
         # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
         gcc = utils.get_compute_client_from_globus_app()
-        #gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
         # NOTE: Make sure there will only be one executor for the whole application
         #       Do not include endpoint_id argument otherwise it will cache multiple executors
         #       Do not await anything before after future.result in order preserve the endpoint_id
