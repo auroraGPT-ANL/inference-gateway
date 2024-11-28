@@ -161,8 +161,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Pull the targetted endpoint UUID and function UUID from the database
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-        endpoint_uuid = endpoint.endpoint_uuid
-        function_uuid = endpoint.function_uuid
         data["model_params"]["api_port"] = endpoint.api_port
         db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     except Endpoint.DoesNotExist:
@@ -196,7 +194,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
     # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
     endpoint_status, error_message = utils.get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, 
+        endpoint_uuid=endpoint.endpoint_uuid, 
         client=gcc, 
         endpoint_slug=endpoint_slug
     )
@@ -212,8 +210,8 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     try:
         db_data["timestamp_submit"] = timezone.now()
         # NOTE: No need to do await here, the submit* function return the future "immediately"
-        gce.endpoint_id = endpoint_uuid
-        future = gce.submit_to_registered_function(function_uuid, args=[data])
+        gce.endpoint_id = endpoint.endpoint_uuid
+        future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
     except Exception as e:
         return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
     
