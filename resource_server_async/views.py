@@ -41,8 +41,6 @@ async def get_list_endpoints(request):
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    if len(atv_response.name) == 0 or len(atv_response.username) == 0:
-        return await get_plain_response("Error: Name and username could not be recovered.", 400)
     
     # Gather the list of Globus Group memberships of the authenticated user
     try:
@@ -117,8 +115,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    if len(atv_response.name) == 0 or len(atv_response.username) == 0:
-        return await get_plain_response("Error: Name and username could not be recovered.", 400)
     
     # Gather the list of Globus Group memberships of the authenticated user
     try:
