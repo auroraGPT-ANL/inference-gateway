@@ -40,28 +40,21 @@ async def get_list_endpoints(request):
     # Check if request is authenticated
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
-        log.error(atv_response.error_message)
-        return HttpResponse(json.dumps(atv_response.error_message), status=atv_response.error_code)
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
     if len(atv_response.name) == 0 or len(atv_response.username) == 0:
-        error_message = "Error: Name and username could not be recovered."
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+        return await get_plain_response("Error: Name and username could not be recovered.", 400)
     
     # Gather the list of Globus Group memberships of the authenticated user
     try:
         user_group_uuids = atv_response.user_group_uuids
     except Exception as e:
-        message = f"Error: Could access user's Globus Group memberships. {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
+        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
 
     # Collect endpoints objects from the database
     try:
         endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
     except Exception as e:
-        message = f"Error: Could not access Endpoint database entries: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
+        return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
@@ -109,9 +102,7 @@ async def get_list_endpoints(request):
 
     # Error message if something went wrong while building the endpoint list
     except Exception as e:
-        message = f"Error: Could not generate list of frameworks and models from database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
+        return await get_plain_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400)
 
     # Return list of frameworks and models
     return HttpResponse(json.dumps(all_endpoints), status=200)
@@ -125,12 +116,15 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Check if request is authenticated
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
-        log.error(atv_response.error_message)
-        return HttpResponse(json.dumps(atv_response.error_message), status=atv_response.error_code)
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
     if len(atv_response.name) == 0 or len(atv_response.username) == 0:
-        error_message = "Error: Name and username could not be recovered."
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+        return await get_plain_response("Error: Name and username could not be recovered.", 400)
+    
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
@@ -140,12 +134,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         "timestamp_receive": timezone.now(),
         "sync": True # True means the server response is the Globus result, not the task UUID
     }
-
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
 
     # Strip the last forward slash is needed
     if openai_endpoint[-1] == "/":
@@ -246,6 +234,13 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Return Globus Compute results
     return await get_response(db_data, result, 200)
+
+# Get plain response
+async def get_plain_response(content, code):
+    """Log error (if any) and return HTTP json.dumps response without writting to the database."""
+    if code >= 300:
+        log.error(content)
+    return HttpResponse(json.dumps(content), status=code)
 
 
 # Log and get response
