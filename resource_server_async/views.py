@@ -186,7 +186,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
     
     # Query the status of the targetted Globus Compute endpoint
-    # If the endpoint status query failed, it retuns a string with the error message
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
     # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
     endpoint_status, error_message = utils.get_endpoint_status(
@@ -205,13 +204,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Start a Globus Compute task
     try:
         db_data["timestamp_submit"] = timezone.now()
-        # NOTE: No need to do await here, the submit* function return the future "immediately"
         gce.endpoint_id = endpoint.endpoint_uuid
+        # NOTE: Do not await here, the submit* function return the future "immediately"
         future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
     except Exception as e:
         return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
     
-    # Convert concurrent future received by Globus into an asyncio future
     # Wait for the Globus Compute result using asyncio and coroutine
     try:
         asyncio_future = asyncio.wrap_future(future)
