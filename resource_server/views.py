@@ -111,10 +111,10 @@ class ClusterBase(APIView):
 
         # Query the status of the targetted Globus Compute endpoint
         # If the endpoint status query failed, it retuns a string with the error message
-        endpoint_status = utils.get_endpoint_status(endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
-        if isinstance(endpoint_status, str):
-            log.error(endpoint_status)
-            return self.__get_response(db_data, endpoint_status, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        endpoint_status, error_message = utils.get_endpoint_status(endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
+        if len(error_message) > 0:
+            log.error(error_message)
+            return self.__get_response(db_data, error_message, status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
         if not endpoint_status["status"] == "online":

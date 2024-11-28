@@ -175,7 +175,6 @@ def validate_access_token(request):
     if len(introspection["name"]) == 0 or len(introspection["username"]) == 0:
         return atv_response(is_valid=False, error_message="Error: Name and username could not be recovered.", error_code=400)
 
-
     # Return valid token response
     log.info(f"{introspection['name']} requesting {introspection['scope']}")
     return atv_response(
@@ -201,12 +200,12 @@ def globus_authenticated(f):
             kwargs["timestamp_receive"] = timezone.now()
 
             # Validate access token
-            response = validate_access_token(request)
-            if not response.is_valid:
-                return Response(response.error_message, status=response.error_code)
+            atv_response = validate_access_token(request)
+            if not atv_response.is_valid:
+                return Response(atv_response.error_message, status=atv_response.error_code)
 
             # Prepare user details to be passed to the Django view
-            kwargs["user"] = {"name": response.name, "username": response.username}
+            kwargs["user"] = {"name": atv_response.name, "username": atv_response.username}
 
             return f(self, request, *args, **kwargs) 
         except Exception as e:
