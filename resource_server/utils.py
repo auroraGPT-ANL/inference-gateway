@@ -127,8 +127,8 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
     """
 
     try:
-        return client.get_endpoint_status(endpoint_uuid)
+        return client.get_endpoint_status(endpoint_uuid), ""
     except globus_sdk.GlobusAPIError as e:
-        return f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
     except Exception as e:
-        return f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"

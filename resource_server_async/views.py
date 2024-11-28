@@ -132,14 +132,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         log.error(error_message)
         return HttpResponse(json.dumps(error_message), status=400)
     
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        message = f"Error: Could access user's Globus Group memberships. {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
@@ -149,6 +141,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         "sync": True # True means the server response is the Globus result, not the task UUID
     }
 
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
+
     # Strip the last forward slash is needed
     if openai_endpoint[-1] == "/":
         openai_endpoint = openai_endpoint[:-1]
@@ -156,8 +154,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework, openai_endpoint)
     if len(error_message):
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+        return await get_response(db_data, error_message, 400)
 
     # Validate and build the inference request data
     data = validate_request_body(request, openai_endpoint)
@@ -181,13 +178,9 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         data["model_params"]["api_port"] = endpoint.api_port
         db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     except Endpoint.DoesNotExist:
-        message = f"Error: The requested endpoint {endpoint_slug} does not exist."
-        log.error(message)
-        return await get_response(db_data, message, 400)
+        return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
     except Exception as e:
-        message = f"Error: Could not extract endpoint and function UUIDs: {e}"
-        log.error(message)
-        return await get_response(db_data, message, 400)
+        return await get_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
     
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
@@ -208,27 +201,23 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         #       Do not await anything before after future.result in order preserve the endpoint_id
         gce = utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
-        message = f"Error: Could not get the Globus Compute client: {e}"
-        log.error(message)
-        return await get_response(db_data, message, 500)
+        return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
     
     # Query the status of the targetted Globus Compute endpoint
     # If the endpoint status query failed, it retuns a string with the error message
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
     # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_status = utils.get_endpoint_status(
+    endpoint_status, error_message = utils.get_endpoint_status(
         endpoint_uuid=endpoint_uuid, 
         client=gcc, 
         endpoint_slug=endpoint_slug
     )
-    if isinstance(endpoint_status, str):
-        log.error(endpoint_status)
-        return await get_response(db_data, endpoint_status, 500)
+    if len(error_message) > 0:
+        return await get_response(db_data, error_message, 500)
         
     # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
     if not endpoint_status["status"] == "online":
-        message = f"Error: Endpoint {endpoint_slug} is offline."
-        return await get_response(db_data, message, 503)
+        return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
     # Start a Globus Compute task
@@ -238,9 +227,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         gce.endpoint_id = endpoint_uuid
         future = gce.submit_to_registered_function(function_uuid, args=[data])
     except Exception as e:
-        message = f"Error: Could not start the Globus Compute task: {e}"
-        log.error(message)
-        return await get_response(db_data, message, 500)
+        return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
     
     # Convert concurrent future received by Globus into an asyncio future
     # Wait for the Globus Compute result using asyncio and coroutine
@@ -250,15 +237,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         db_data["task_uuid"] = future.task_id
     except TimeoutError as e:
         if resources_ready:
-            message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
+            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
         else:
-            message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
-        log.error(message)
-        return await get_response(db_data, message, 408)
+            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
+        return await get_response(db_data, error_message, 408)
     except Exception as e:
-        message = f"Error: Could not recover future result: {repr(e)}"
-        log.error(message)
-        return await get_response(db_data, message, 500)
+        return await get_response(db_data, f"Error: Could not recover future result: {repr(e)}", 500)
 
     # Return Globus Compute results
     return await get_response(db_data, result, 200)
@@ -282,10 +266,11 @@ async def get_response(db_data, content, code):
         log.error(message)
         return HttpResponse(message, status=400)
         
-    # Return the error response
+    # Return the response or the error message
     if code == 200:
         return HttpResponse(content, status=code)
     else:
+        log.error(content)
         return HttpResponse(json.dumps(content), status=code)
 
 
