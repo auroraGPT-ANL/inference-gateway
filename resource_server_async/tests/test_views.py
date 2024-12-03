@@ -114,8 +114,6 @@ class ResourceServerViewTestCase(TestCase):
     # Test post_inference view (POST)
     def test_post_inference_view(self):
 
-        # NOTE check along the way if that is private or not or MOCK private or not ....
-
         # Make sure POST requests fail when targetting an unsupported cluster, framewor, or openai endpoint
         for wrong_url in self.__get_wrong_endpoint_urls():
             response = self.client.post(wrong_url, headers=self.headers)
