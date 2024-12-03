@@ -75,8 +75,11 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         return None, [], f"Error: Could not recover dependent access token for groups.api.globus.org. {e}"
 
     # Create a Globus Group Client using the access token sent by the user
-    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
-    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
+    try:
+        authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+        groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
+    except Exception as e:
+        return None, [], f"Error: Could not create GroupsClient. {e}"
 
     # Get the user's group memberships
     try:
@@ -147,6 +150,9 @@ def validate_access_token(request):
             return atv_response(is_valid=False, error_message="Error: Authorization type should be Bearer.", error_code=400)
     except (AttributeError, ValueError):
         error_message = "Error: Auth only allows header type Authorization: Bearer <token>."
+        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+    except Exception as e:
+        error_message = f"Error: Something went wrong while reading headers. {e}"
         return atv_response(is_valid=False, error_message=error_message, error_code=400)
 
     # Introspect the access token

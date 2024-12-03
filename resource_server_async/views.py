@@ -251,7 +251,11 @@ async def get_response(db_data, content, code):
     except IntegrityError as e:
         message = f"Error: Could not create or save database entry: {e}"
         log.error(message)
-        return HttpResponse(message, status=400)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
         
     # Return the response or the error message
     if code == 200:
