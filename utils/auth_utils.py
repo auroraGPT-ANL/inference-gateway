@@ -50,7 +50,7 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     try:
         client = get_globus_client()
     except Exception as e:
-        return f"Could not create Globus confidential client. {e}", []
+        return None, [], f"Error: Could not create Globus confidential client. {e}"
 
     # Include the access token and Globus policies (if needed) in the instrospection
     introspect_body = {"token": bearer_token}
@@ -61,18 +61,18 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     try: 
         introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
     except Exception as e:
-        return f"Could not introspect token with Globus /v2/oauth2/token/introspect. {e}", []
+        return None, [], f"Error: Could not introspect token with Globus /v2/oauth2/token/introspect. {e}"
     
     # Error if the token is invalid
     if introspection["active"] is False:
-        return "Token is either not active or invalid", []
+        return None, [], "Error: Token is either not active or invalid"
     
     # Get dependent access token to view group membership
     try:
         dependent_tokens = client.oauth2_get_dependent_tokens(bearer_token)
         access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
     except Exception as e:
-        return f"Could not recover dependent access token for groups.api.globus.org. {e}", []
+        return None, [], f"Error: Could not recover dependent access token for groups.api.globus.org. {e}"
 
     # Create a Globus Group Client using the access token sent by the user
     authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
@@ -82,10 +82,10 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     try:
         user_groups = groups_client.get_my_groups()
     except Exception as e:
-        return f"Could not recover group memberships. {e}", []
+        return None, [], f"Error: Could not recover group memberships. {e}"
         
     # Return the introspection data along with the group 
-    return introspection, user_groups
+    return introspection, user_groups, ""
 
 
 # Check Globus Policies
@@ -97,7 +97,7 @@ def check_globus_policies(introspection):
 
     # Return False if policies cannot be evaluated went wrong
     if not len(introspection["policy_evaluations"]) == settings.NUMBER_OF_GLOBUS_POLICIES:
-        return False, "Some Globus policies could not be passed to the introspect API call."
+        return False, "Error: Some Globus policies could not be passed to the introspect API call."
 
     # Return False if the user failed to meet one of the policies 
     for policies in introspection["policy_evaluations"].values():
@@ -119,7 +119,7 @@ def check_globus_groups(user_groups):
     try:
         user_groups = [group["id"] for group in user_groups]
     except:
-        return False, "Introspection object does not have the 'get_my_groups' key."
+        return False, "Error: Introspection object does not have the 'get_my_groups' key."
     
     # Grant access if the user is a member of at least one of the allowed Globus Groups
     if len(set(user_groups).intersection(settings.GLOBUS_GROUPS)) > 0:
@@ -127,7 +127,7 @@ def check_globus_groups(user_groups):
     
     # Deny access if authenticated user is not part of any of the allowed Globus Groups
     else:
-        return False, f"User is not a member of an allowed Globus Group."
+        return False, f"Error: User is not a member of an allowed Globus Group."
 
 
 # Validate access token sent by user
@@ -144,26 +144,20 @@ def validate_access_token(request):
     try:
         ttype, bearer_token = auth_header.split()
         if ttype != "Bearer":
-            error_message = "Error: Only Authorization: Bearer <token> is allowed."
-            return atv_response(is_valid=False, error_message=error_message, error_code=400)
+            return atv_response(is_valid=False, error_message="Error: Authorization type should be Bearer.", error_code=400)
     except (AttributeError, ValueError):
         error_message = "Error: Auth only allows header type Authorization: Bearer <token>."
         return atv_response(is_valid=False, error_message=error_message, error_code=400)
 
     # Introspect the access token
-    introspection, user_groups = introspect_token(bearer_token)
-
-    # If there an error (introspection not a globus object), return the error stored in the introspection variable
-    if isinstance(introspection, str):
-        error_message = f"Error: Token introspection: {introspection}"
-        log.error(error_message)
-        return atv_response(is_valid=False, error_message=error_message, error_code=401)
+    introspection, user_groups, error_message = introspect_token(bearer_token)
+    if len(error_message) > 0:
+        return atv_response(is_valid=False, error_message=f"Token introspection: {error_message}", error_code=401)
 
     # Make sure the token is not expired
     expires_in = introspection["exp"] - time.time()
     if expires_in <= 0:
-        error_message = "Error: User not Authorized. Access token expired."
-        return atv_response(is_valid=False, error_message=error_message, error_code=401)
+        return atv_response(is_valid=False, error_message="Error: Access token expired.", error_code=401)
 
     # Make sure the authenticated user comes from an allowed domain
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
@@ -177,12 +171,16 @@ def validate_access_token(request):
         if not successful:
             return atv_response(is_valid=False, error_message=error_message, error_code=401)
 
+    # Make sure the user's identity can be recorded
+    if len(introspection["name"]) == 0 or len(introspection["username"]) == 0:
+        return atv_response(is_valid=False, error_message="Error: Name and username could not be recovered.", error_code=400)
+
     # Return valid token response
     log.info(f"{introspection['name']} requesting {introspection['scope']}")
     return atv_response(
-        is_valid=True, 
-        name=introspection["name"], 
-        username=introspection["username"], 
+        is_valid=True,
+        name=introspection["name"],
+        username=introspection["username"],
         user_group_uuids=[group["id"] for group in user_groups]
     )
 
@@ -202,12 +200,12 @@ def globus_authenticated(f):
             kwargs["timestamp_receive"] = timezone.now()
 
             # Validate access token
-            response = validate_access_token(request)
-            if not response.is_valid:
-                return Response(response.error_message, status=response.error_code)
+            atv_response = validate_access_token(request)
+            if not atv_response.is_valid:
+                return Response(atv_response.error_message, status=atv_response.error_code)
 
             # Prepare user details to be passed to the Django view
-            kwargs["user"] = {"name": response.name, "username": response.username}
+            kwargs["user"] = {"name": atv_response.name, "username": atv_response.username}
 
             return f(self, request, *args, **kwargs) 
         except Exception as e:
