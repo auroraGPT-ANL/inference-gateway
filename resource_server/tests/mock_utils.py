@@ -29,7 +29,7 @@ def introspect_token(access_token):
 
     # Emulate an error in the introspection call
     if (ACTIVE not in access_token) or (EXPIRED in access_token):
-        return "mock error message", None
+        return None, [], "mock error message"
 
     # Base-line response for an active and valid token
     introspection = {
@@ -44,8 +44,8 @@ def introspect_token(access_token):
     if EXPIRED in access_token:
         introspection["exp"] -= 2000
         
-    # Return the mock token introspection and the Globus group details (here None)
-    return introspection, []
+    # Return the mock token introspection and the Globus group details (here []])
+    return introspection, [], ""
 
 
 # Get mock headers 
