@@ -3,7 +3,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from utils.auth_utils import globus_authenticated
 import json
-import globus_sdk
 from django.utils.text import slugify
 from django.utils import timezone
 from django.db import IntegrityError, transaction
@@ -19,7 +18,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Utils functions
-import resource_server.utils as utils
+import utils.globus_utils as globus_utils
 log.info("Utils functions loaded.")
 
 # Constants
@@ -102,8 +101,8 @@ class ClusterBase(APIView):
         
         # Get Globus Compute client (using the endpoint identity)
         try:
-            gcc = utils.get_compute_client_from_globus_app()
-            gce = utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
+            gcc = globus_utils.get_compute_client_from_globus_app()
+            gce = globus_utils.get_compute_executor(endpoint_id=endpoint_uuid, client=gcc, amqp_port=443)
         except Exception as e:
             message = f"Error: Could not get the Globus Compute client: {e}"
             log.error(message)
@@ -111,7 +110,7 @@ class ClusterBase(APIView):
 
         # Query the status of the targetted Globus Compute endpoint
         # If the endpoint status query failed, it retuns a string with the error message
-        endpoint_status, error_message = utils.get_endpoint_status(endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
+        endpoint_status, error_message = globus_utils.get_endpoint_status(endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
         if len(error_message) > 0:
             log.error(error_message)
             return self.__get_response(db_data, error_message, status.HTTP_500_INTERNAL_SERVER_ERROR)

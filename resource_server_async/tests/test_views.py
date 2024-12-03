@@ -10,14 +10,14 @@ from resource_server_async.views import router
 # Overwrite utils functions to prevent contacting Globus services
 import asyncio
 import utils.auth_utils as auth_utils
-import resource_server.utils as resource_utils
+import utils.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
 auth_utils.get_globus_client = mock_utils.get_globus_client
 auth_utils.check_globus_policies = mock_utils.check_globus_policies
 auth_utils.check_globus_groups = mock_utils.check_globus_groups
 auth_utils.introspect_token = mock_utils.introspect_token
-resource_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_from_globus_app
-resource_utils.get_compute_executor = mock_utils.get_compute_executor
+globus_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_from_globus_app
+globus_utils.get_compute_executor = mock_utils.get_compute_executor
 asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
 

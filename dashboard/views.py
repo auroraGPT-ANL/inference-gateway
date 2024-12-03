@@ -7,7 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models.functions import Coalesce, TruncWeek, TruncMonth
-import resource_server.utils as utils
+import utils.globus_utils as utils
 from django.utils.timezone import now
 from datetime import timedelta
 

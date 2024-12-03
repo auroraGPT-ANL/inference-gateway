@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 
 # Local utils
 from utils.auth_utils import validate_access_token
-import resource_server.utils as utils
+import utils.globus_utils as globus_utils
 from resource_server_async.utils import (
     validate_url_inputs, 
     extract_prompt, 
@@ -177,18 +177,18 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Get Globus Compute client (using the endpoint identity)
     try:
         # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-        gcc = utils.get_compute_client_from_globus_app()
+        gcc = globus_utils.get_compute_client_from_globus_app()
         # NOTE: Make sure there will only be one executor for the whole application
         #       Do not include endpoint_id argument otherwise it will cache multiple executors
         #       Do not await anything before after future.result in order preserve the endpoint_id
-        gce = utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
         return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
     
     # Query the status of the targetted Globus Compute endpoint
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
     # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_status, error_message = utils.get_endpoint_status(
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
         endpoint_uuid=endpoint.endpoint_uuid, 
         client=gcc, 
         endpoint_slug=endpoint_slug
