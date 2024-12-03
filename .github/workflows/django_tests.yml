@@ -48,10 +48,10 @@ jobs:
       - name: Check Python syntax
         uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
-      - name: Install Python 3.10.7
+      - name: Install Python 3.11.9
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10.7'
+          python-version: '3.11.9'
 
       - name: Install Poetry
         uses: abatilo/actions-poetry@v2
