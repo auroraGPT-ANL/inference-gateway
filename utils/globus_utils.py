@@ -116,6 +116,7 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     # Create Compute Executor
     return gce
 
+
 # Get endpoint status
 @cached(cache=TTLCache(maxsize=1024, ttl=60))
 def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):

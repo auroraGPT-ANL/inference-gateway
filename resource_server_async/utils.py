@@ -89,6 +89,8 @@ def validate_request_body(request, openai_endpoint):
         is_valid = serializer.is_valid(raise_exception=True)
     except ValidationError as e:
         return {"error": f"Error: Could not validate data: {e}"}
+    except Exception as e:
+        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
 
     # Add the 'url' parameter to model_params
     model_params['openai_endpoint'] = openai_endpoint

@@ -75,16 +75,25 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         return None, [], f"Error: Could not recover dependent access token for groups.api.globus.org. {e}"
 
     # Create a Globus Group Client using the access token sent by the user
-    authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
-    groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
+    try:
+        authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
+        groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
+    except Exception as e:
+        return None, [], f"Error: Could not create GroupsClient. {e}"
 
     # Get the user's group memberships
     try:
         user_groups = groups_client.get_my_groups()
     except Exception as e:
-        return None, [], f"Error: Could not recover group memberships. {e}"
+        return None, [], f"Error: Could not recover user group memberships. {e}"
+
+    # Collect the list of Globus Groups that the user is a member of
+    try:
+        user_groups = [group["id"] for group in user_groups]
+    except:
+        return None, [], "Error: Could not extract group['id'] from 'get_my_groups'."
         
-    # Return the introspection data along with the group 
+    # Return the introspection data along with the group (with empty error message)
     return introspection, user_groups, ""
 
 
@@ -114,12 +123,6 @@ def check_globus_groups(user_groups):
         Define whether an authenticated user has the proper Globus memberships.
         User should be member of at least in one of the allowed Globus groups.
     """
-
-    # Collect the list of Globus Groups that the user is a member of
-    try:
-        user_groups = [group["id"] for group in user_groups]
-    except:
-        return False, "Error: Introspection object does not have the 'get_my_groups' key."
     
     # Grant access if the user is a member of at least one of the allowed Globus Groups
     if len(set(user_groups).intersection(settings.GLOBUS_GROUPS)) > 0:
@@ -147,6 +150,9 @@ def validate_access_token(request):
             return atv_response(is_valid=False, error_message="Error: Authorization type should be Bearer.", error_code=400)
     except (AttributeError, ValueError):
         error_message = "Error: Auth only allows header type Authorization: Bearer <token>."
+        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+    except Exception as e:
+        error_message = f"Error: Something went wrong while reading headers. {e}"
         return atv_response(is_valid=False, error_message=error_message, error_code=400)
 
     # Introspect the access token
@@ -181,7 +187,7 @@ def validate_access_token(request):
         is_valid=True,
         name=introspection["name"],
         username=introspection["username"],
-        user_group_uuids=[group["id"] for group in user_groups]
+        user_group_uuids=user_groups
     )
 
 
