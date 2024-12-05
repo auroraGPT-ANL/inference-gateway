@@ -260,5 +260,32 @@
             "function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 21,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamallama-32-90b-vision-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+            "api_port": 8000,
+            "endpoint_uuid": "499a85ea-c9d0-400e-a836-aef6c0f2d43b",
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 22,
+        "fields": {
+            "endpoint_slug": "sophia-infinity-nvidianv-embed-v2",
+            "cluster": "sophia",
+            "framework": "infinity",
+            "model": "nvidia/NV-Embed-v2",
+            "api_port": 8000,
+            "endpoint_uuid": "da5f2dbb-f265-4c61-a62a-2c1ec44c29eb",
+            "function_uuid": "12d8339d-28eb-412b-ae37-d7b612f3f44d"
+        }
     }
+
 ]

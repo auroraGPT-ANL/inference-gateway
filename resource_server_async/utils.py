@@ -10,7 +10,7 @@ from uuid import UUID
 # Constants
 ALLOWED_FRAMEWORKS = {
     "polaris": ["llama-cpp", "vllm"],
-    "sophia": ["vllm"]
+    "sophia": ["vllm","infinity"]
 }
 ALLOWED_OPENAI_ENDPOINTS = {
     "polaris": ["chat/completions", "completions", "embeddings"],
