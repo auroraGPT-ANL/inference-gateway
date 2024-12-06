@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'resource_server',
     'resource_server_async',
     'drf_spectacular',
     'dashboard'
