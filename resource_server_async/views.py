@@ -15,7 +15,8 @@ from resource_server_async.utils import (
     validate_url_inputs, 
     extract_prompt, 
     validate_request_body,
-    extract_group_uuids
+    extract_group_uuids,
+    ALLOWED_QSTAT_ENDPOINTS
 )
 log.info("Utils functions loaded.")
 
@@ -105,6 +106,89 @@ async def get_list_endpoints(request):
     # Return list of frameworks and models
     return HttpResponse(json.dumps(all_endpoints), status=200)
 
+
+# List Endpoints (GET)
+@router.get("/{cluster}/jobs")
+async def get_jobs(request, cluster:str):
+    """GET request to list the available frameworks and models."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_response() function
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "sync": True # True means the server response is the Globus result, not the task UUID
+    }
+
+    # Make sure the URL inputs point to an available endpoint 
+    error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
+    if len(error_message):
+        return await get_response(db_data, error_message, 400)
+
+    
+    # Return list of frameworks and models
+
+
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+        gcc = globus_utils.get_compute_client_from_globus_app()
+        # NOTE: Make sure there will only be one executor for the whole application
+        #       Do not include endpoint_id argument otherwise it will cache multiple executors
+        #       Do not await anything before after future.result in order preserve the endpoint_id
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
+    
+    # Query the status of the targetted Globus Compute endpoint
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
+    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
+    endpoint_slug=f"{cluster}/jobs"
+    endpoint_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["endpoint_uuid"]
+    function_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["function_uuid"]
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint_uuid, 
+        client=gcc, 
+        endpoint_slug=endpoint_slug
+    )
+    if len(error_message) > 0:
+        return await get_response(db_data, error_message, 500)
+        
+    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
+    if not endpoint_status["status"] == "online":
+        return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
+    resources_ready = int(endpoint_status["details"]["managers"]) > 0
+    
+    # Start a Globus Compute task
+    try:
+        db_data["timestamp_submit"] = timezone.now()
+        gce.endpoint_id = endpoint_uuid
+        # NOTE: Do not await here, the submit* function return the future "immediately"
+        future = gce.submit_to_registered_function(function_uuid)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
+    
+    # Wait for the Globus Compute result using asyncio and coroutine
+    try:
+        asyncio_future = asyncio.wrap_future(future)
+        result = await asyncio.wait_for(asyncio_future, timeout=60*28)
+        db_data["task_uuid"] = future.task_id
+    except TimeoutError as e:
+        if resources_ready:
+            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
+        else:
+            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
+        return await get_response(db_data, error_message, 408)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not recover future result: {repr(e)}", 500)
+     # Return Globus Compute results
+    return await get_response(db_data, result, 200)
 
 # Inference (POST)
 @router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
