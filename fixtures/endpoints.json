@@ -286,6 +286,33 @@
             "endpoint_uuid": "da5f2dbb-f265-4c61-a62a-2c1ec44c29eb",
             "function_uuid": "12d8339d-28eb-412b-ae37-d7b612f3f44d"
         }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 23,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamallama-33-70b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "meta-llama/Llama-3.3-70B-Instruct",
+            "api_port": 8181,
+            "endpoint_uuid": "c3daad56-7af1-4ba4-bca4-63e4ce72f268",
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 24,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-auroragptauroragpt-01-chkpt-7b-base",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "auroragpt/auroragpt-0.1-chkpt-7B-Base",
+            "api_port": 8182,
+            "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
+        }
     }
+
 
 ]
