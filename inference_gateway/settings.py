@@ -38,11 +38,6 @@ GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 
-# Sync or Async for Gunicorn
-# True: resource_server_async app with asgi and Django Ninja
-# False: resource_server app with wsgi and Django Rest
-ENABLE_ASYNC = os.getenv("ENABLE_ASYNC", "False").lower() in ("true", "1", "t")
-
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
