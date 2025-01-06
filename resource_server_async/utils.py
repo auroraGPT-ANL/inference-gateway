@@ -7,6 +7,10 @@ from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
 
+from asyncache import cached as asynccached
+from cachetools import TTLCache
+from utils.globus_utils import submit_and_get_result
+
 # Constants
 ALLOWED_FRAMEWORKS = {
     "polaris": ["llama-cpp", "vllm"],
@@ -137,3 +141,9 @@ def extract_group_uuids(globus_groups):
     
     # Return the list of group UUIDs
     return group_uuids, ""
+
+
+# Submit job, get result, and cache it
+@asynccached(TTLCache(maxsize=1024, ttl=15))
+async def submit_and_cache(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60):
+    return await submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=data, timeout=timeout)
