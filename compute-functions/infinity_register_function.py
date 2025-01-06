@@ -1,5 +1,5 @@
 import globus_compute_sdk
-import random
+from globus_compute_sdk.serialize import JSONData
 
 def infinity_inference_function(parameters):
     import socket
@@ -67,7 +67,7 @@ def infinity_inference_function(parameters):
     return json_output
 
 # Creating Globus Compute client
-gcc = globus_compute_sdk.Client()
+gcc = globus_compute_sdk.Client(data_serialization_strategy=JSONData())
 
 # # Register the function
 COMPUTE_FUNCTION_ID = gcc.register_function(infinity_inference_function)

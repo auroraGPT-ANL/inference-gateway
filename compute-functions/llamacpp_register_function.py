@@ -1,5 +1,6 @@
 # Import packages
 import globus_compute_sdk
+from globus_compute_sdk.serialize import JSONData
 
 # Define Globus Compute function
 def llamacpp_inference (parameters):
@@ -34,7 +35,7 @@ def llamacpp_inference (parameters):
     return json_response
 
 # Creating Globus Compute client
-gcc = globus_compute_sdk.Client()
+gcc = globus_compute_sdk.Client(data_serialization_strategy=JSONData())
 
 # Register the function
 COMPUTE_FUNCTION_ID = gcc.register_function(llamacpp_inference)

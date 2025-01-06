@@ -1,4 +1,5 @@
 import globus_compute_sdk
+from globus_compute_sdk.serialize import JSONData
 
 def qstat_inference_function():
     import os
@@ -196,7 +197,7 @@ def qstat_inference_function():
     return json_output
 
 # Creating Globus Compute client
-gcc = globus_compute_sdk.Client()
+gcc = globus_compute_sdk.Client(data_serialization_strategy=JSONData())
 
 # # Register the function
 COMPUTE_FUNCTION_ID = gcc.register_function(qstat_inference_function)

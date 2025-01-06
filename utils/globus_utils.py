@@ -4,6 +4,7 @@ from django.conf import settings
 # Globus imports
 import globus_sdk
 from globus_compute_sdk import Client, Executor
+from globus_compute_sdk.serialize import JSONData
 
 # Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached, LRUCache
@@ -35,7 +36,8 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
             app=globus_sdk.ClientApp(
                 client_id=settings.POLARIS_ENDPOINT_ID,
                 client_secret=settings.POLARIS_ENDPOINT_SECRET
-            )
+            ),
+            data_serialization_strategy=JSONData()
         )
     except Exception as e:
         raise ResourceServerError("Exception in creating client. Error",e)
