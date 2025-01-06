@@ -75,7 +75,7 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
 
 
 # Submit function and wait for result
-async def run_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*28):
+async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*28):
     """
     Assign endpoint UUID to the executor, submit task to the endpoint,
     wait for the result asynchronously, and return the result or the
