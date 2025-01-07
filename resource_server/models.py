@@ -118,4 +118,4 @@ class ListEndpointsLog(models.Model):
 
     # String function
     def __str__(self):
-        return f"<{self.username} - {self.timestamp_receive} - {self.endpoint_slug}>"
+        return f"<{self.username} - {self.timestamp_receive} - {self.response_status}>"
