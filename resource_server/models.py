@@ -98,11 +98,11 @@ class ListEndpointsLog(models.Model):
     name = models.CharField(max_length=100)
     username = models.CharField(max_length=100)
 
-    # List (string separated by ";") of endpoint slugs that were triggered by the user
+    # List (string separated by ";") of endpoint slugs targetted by the user
     endpoint_slugs = models.TextField(default="", blank=True)
 
     # List (string separated by ";") of Globus Compute task UUIDs triggered by the user
-    task_uuids =models.TextField(default="", blank=True)
+    task_uuids = models.TextField(default="", blank=True)
 
     # Time when the HTTP request was received (after the auth checks)
     timestamp_receive = models.DateTimeField(null=True, blank=False)
