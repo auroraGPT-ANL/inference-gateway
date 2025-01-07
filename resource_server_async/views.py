@@ -17,7 +17,7 @@ from resource_server_async.utils import (
     validate_request_body,
     extract_group_uuids,
     ALLOWED_QSTAT_ENDPOINTS,
-    submit_and_cache
+    get_qstat_details
 )
 log.info("Utils functions loaded.")
 
@@ -26,7 +26,6 @@ from resource_server.models import Endpoint, Log
 
 # Async tools
 from asgiref.sync import sync_to_async
-import asyncio
 
 # Ninja API
 from ninja import NinjaAPI, Router
@@ -55,9 +54,19 @@ async def get_list_endpoints(request):
         endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
     except Exception as e:
         return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
+    
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500)
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
+    qstat_key_value = {} # This needs to be declare before looping over the database endpoints
     try:
 
         # For each database endpoint entry ...
@@ -73,14 +82,31 @@ async def get_list_endpoints(request):
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
             if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
 
-                # Add a new cluster dictionary entry if needed
+                # If this is a new cluster for the dictionary ...
                 if not endpoint.cluster in all_endpoints["clusters"]:
+
+                    # Add new entry to the dictionary
                     all_endpoints["clusters"][endpoint.cluster] = {
                         "base_url": f"/resource_server/{endpoint.cluster}",
                         "frameworks": {}
                     }
-                
+
+                    # Collect qstat details on the jobs running/queued on the cluster
+                    qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
+                        endpoint.cluster, gcc, gce, timeout=60
+                    )
+
+                    # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
+                    if len(error_message) == 0:
+                        for entry in qstat_result["running"]:
+                            endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
+                            qstat_key_value[endpoint_slug] = entry["Model Status"]
+                        for entry in qstat_result["queued"]:
+                            endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
+                            qstat_key_value[endpoint_slug] = "queued"
+
                 # Add a new framework dictionary entry if needed
+                # TODO: Make sure this dynamically get populated based on the cluster using ALLOWED_OPENAI_ENDPOINTS
                 if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
                     all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
                         "models": [],
@@ -91,14 +117,34 @@ async def get_list_endpoints(request):
                         }
                     }
 
-                # Add model
-                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
+                # Check status of the current Globus Compute endpoint
+                endpoint_status, error_message = globus_utils.get_endpoint_status(
+                    endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
+                )
+                if len(error_message) > 0:
+                    return await get_plain_response(error_message, 500)
+                
+                # Assign the status of the model
+                # NOTE: "offline" status should always take priority over the qstat result
+                if endpoint_status["status"] == "online" and endpoint.endpoint_slug in qstat_key_value:
+                    model_status = qstat_key_value[endpoint.endpoint_slug]
+                else:
+                    #TODO: Find a more user-friendly terms for "online"?
+                    model_status = endpoint_status["status"]
 
-        # Sort models alphabetically
+                # Add model to the dictionary
+                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
+                    {
+                        "name": endpoint.model,
+                        "status": model_status
+                    }    
+                )
+
+        # Sort models alphabetically (case insensitive)
         for cluster in all_endpoints["clusters"]:
             for framework in all_endpoints["clusters"][cluster]["frameworks"]:
                 all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
-                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"])
+                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"], key=lambda x: x["name"].lower())
 
     # Error message if something went wrong while building the endpoint list
     except Exception as e:
@@ -145,29 +191,9 @@ async def get_jobs(request, cluster:str):
     except Exception as e:
         return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
-    # Query the status of the targetted Globus Compute endpoint
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
-    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_slug=f"{cluster}/jobs"
-    endpoint_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["endpoint_uuid"]
-    function_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["function_uuid"]
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, 
-        client=gcc, 
-        endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return await get_response(db_data, error_message, 500)
-        
-    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-    if not endpoint_status["status"] == "online":
-        return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
-    resources_ready = int(endpoint_status["details"]["managers"]) > 0
-    
-    # Run task and wait for result
-    # NOTE: submit_and_cache() will cache the result of globus_utils.submit_and_get_result()
+    # Collect (qstat) details on the jobs running/queued on the cluster
     db_data["timestamp_submit"] = timezone.now()
-    result, task_uuid, error_message, error_code = await submit_and_cache(gce, endpoint_uuid, function_uuid, resources_ready)
+    result, task_uuid, error_message, error_code = await get_qstat_details(cluster, gcc, gce, timeout=60)
     if len(error_message) > 0:
         return await get_response(db_data, error_message, error_code)
     db_data["task_uuid"] = task_uuid
