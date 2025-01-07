@@ -22,7 +22,7 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log
+from resource_server.models import Endpoint, Log, ListEndpointsLog
 
 # Async tools
 from asgiref.sync import sync_to_async
@@ -43,17 +43,27 @@ async def get_list_endpoints(request):
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
     
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_list_response() function
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "endpoint_slugs": "",
+        "task_uuids": ""
+    }
+    
     # Gather the list of Globus Group memberships of the authenticated user
     try:
         user_group_uuids = atv_response.user_group_uuids
     except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
+        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
 
     # Collect endpoints objects from the database
     try:
         endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
     except Exception as e:
-        return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
+        return await get_list_response(db_data, f"Error: Could not access Endpoint database entries: {e}", 400)
     
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -62,7 +72,7 @@ async def get_list_endpoints(request):
         gcc = globus_utils.get_compute_client_from_globus_app()
         gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
-        return await get_plain_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
@@ -75,8 +85,7 @@ async def get_list_endpoints(request):
             # Extract the list of allowed group UUIDs tied to the endpoint
             allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
             if len(error_message) > 0:
-                log.error(error_message)
-                return HttpResponse(json.dumps(error_message), status=400)
+                return await get_list_response(db_data, json.dumps(error_message), 400)
     
             # If the user is allowed to see the endpoint ...
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
@@ -91,19 +100,35 @@ async def get_list_endpoints(request):
                         "frameworks": {}
                     }
 
-                    # Collect qstat details on the jobs running/queued on the cluster
-                    qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
-                        endpoint.cluster, gcc, gce, timeout=60
-                    )
+                    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
+                    if endpoint.cluster in ALLOWED_QSTAT_ENDPOINTS:
 
-                    # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
-                    if len(error_message) == 0:
-                        for entry in qstat_result["running"]:
-                            endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
-                            qstat_key_value[endpoint_slug] = entry["Model Status"]
-                        for entry in qstat_result["queued"]:
-                            endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
-                            qstat_key_value[endpoint_slug] = "queued"
+                        # Update database entry
+                        if len(db_data["endpoint_slugs"]) > 0:
+                            db_data["endpoint_slugs"] += "; "
+                        db_data["endpoint_slugs"] += f"{endpoint.cluster}/jobs"
+
+                        # Collect qstat details on the jobs running/queued on the cluster
+                        qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
+                            endpoint.cluster, gcc, gce, timeout=60
+                        )
+
+                        # Update database entry                        
+                        if len(db_data["task_uuids"]) > 0:
+                            db_data["task_uuids"] += "; "
+                        db_data["task_uuids"] += str(task_uuid)
+
+                        # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
+                        # NOTE: If the qstat job fails, keep going, the response will simply contain less detailed info
+                        try:
+                            for entry in qstat_result["running"]:
+                                endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
+                                qstat_key_value[endpoint_slug] = entry["Model Status"]
+                            for entry in qstat_result["queued"]:
+                                endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
+                                qstat_key_value[endpoint_slug] = "queued"
+                        except:
+                            pass
 
                 # Add a new framework dictionary entry if needed
                 # TODO: Make sure this dynamically get populated based on the cluster using ALLOWED_OPENAI_ENDPOINTS
@@ -122,7 +147,7 @@ async def get_list_endpoints(request):
                     endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
                 )
                 if len(error_message) > 0:
-                    return await get_plain_response(error_message, 500)
+                    return await get_list_response(db_data, error_message, 500)
                 
                 # Assign the status of the model
                 # NOTE: "offline" status should always take priority over the qstat result
@@ -148,10 +173,10 @@ async def get_list_endpoints(request):
 
     # Error message if something went wrong while building the endpoint list
     except Exception as e:
-        return await get_plain_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400)
+        return await get_list_response(db_data, f"Error: Could not generate list of frameworks and models from database: {e}", 400)
 
     # Return list of frameworks and models
-    return HttpResponse(json.dumps(all_endpoints), status=200)
+    return await get_list_response(db_data, all_endpoints, 200)
 
 
 # List Endpoints (GET)
@@ -313,6 +338,33 @@ async def get_plain_response(content, code):
     return HttpResponse(json.dumps(content), status=code)
 
 
+# Get response for list-endpoints URL
+async def get_list_response(db_data, content, code):
+    """Log database model (including error message if any) and return the HTTP response."""
+
+    # Update the current database data
+    db_data["response_status"] = code
+    db_data["timestamp_response"] = timezone.now()
+    if not code == 200:
+        db_data["error_message"] = content
+
+    # Create and save database entry
+    try:
+        db_log = ListEndpointsLog(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+        
+    # Return the response or the error message
+    return HttpResponse(json.dumps(content), status=code)
+
+
 # Log and get response
 async def get_response(db_data, content, code):
     """Log result or error in the current database model and return the HTTP response."""
@@ -327,11 +379,11 @@ async def get_response(db_data, content, code):
         db_log = Log(**db_data)
         await sync_to_async(db_log.save, thread_sensitive=True)()
     except IntegrityError as e:
-        message = f"Error: Could not create or save database entry: {e}"
+        message = f"Error: Could not create or save Log database entry: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
     except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the database: {e}"
+        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
         
