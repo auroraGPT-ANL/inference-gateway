@@ -149,19 +149,19 @@ async def get_list_endpoints(request):
                 if len(error_message) > 0:
                     return await get_list_response(db_data, error_message, 500)
                 
-                # Assign the status of the model
+                # Assign the status of the HPC job assigned to the model
                 # NOTE: "offline" status should always take priority over the qstat result
                 if endpoint_status["status"] == "online" and endpoint.endpoint_slug in qstat_key_value:
-                    model_status = qstat_key_value[endpoint.endpoint_slug]
+                    job_status = qstat_key_value[endpoint.endpoint_slug]
                 else:
-                    #TODO: Find a more user-friendly terms for "online"?
-                    model_status = endpoint_status["status"]
+                    job_status = "not available"
 
                 # Add model to the dictionary
                 all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
                     {
                         "name": endpoint.model,
-                        "status": model_status
+                        "endpoint_status": endpoint_status["status"],
+                        "job_status": job_status
                     }    
                 )
 
