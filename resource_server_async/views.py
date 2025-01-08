@@ -179,6 +179,70 @@ async def get_list_endpoints(request):
     return await get_list_response(db_data, all_endpoints, 200)
 
 
+# Endpoint Status (GET)
+@router.get("/status/{cluster}/{framework}/{path:model}")
+async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
+    """GET request to get a detailed status of a specific Globus Compute endpoint."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_list_response() function
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now()
+    }
+
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
+
+    # Get the requested endpoint from the database
+    endpoint_slug = slugify(" ".join([cluster, framework, model]))
+    try:
+        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+    except Endpoint.DoesNotExist:
+        return await get_list_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+    
+    # Error message if user is not allowed to see the endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_list_response(db_data, json.dumps(error_message), 400)
+    if len(allowed_globus_groups) > 0 and len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+        return await get_list_response(db_data, f"Error: User not authorized to access endpoint {endpoint_slug}", 401)
+
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+    
+    # Extract the status of the current Globus Compute endpoint
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
+    )
+    if len(error_message) > 0:
+        return await get_list_response(db_data, error_message, 500)
+                
+    #TODO: Add details from qstat endpoint if possible
+    #TODO: Add endpoint cluster/jobs to db_data
+    #TODO: Add task UUID to db_data
+    #TODO: Add number of globus workers if possible
+    status = endpoint_status["status"]
+    return await get_list_response(db_data, status, 200)
+
+
 # List Endpoints (GET)
 @router.get("/{cluster}/jobs")
 async def get_jobs(request, cluster:str):
