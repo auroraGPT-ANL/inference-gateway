@@ -49,21 +49,43 @@ def qstat_inference_function():
             return None
         return parts[-1]
 
-    def extract_models_from_file(file_path):
+    def extract_models_info_from_file(file_path):
+        """
+        This function now extracts model_name(s), framework, and cluster from the file.
+        Returns a dict with keys: 'models', 'framework', 'cluster'.
+        """
         if not os.path.exists(file_path):
-            return "N/A"
+            # We’ll return a dict with N/A if file doesn’t exist
+            return {
+                "models": "N/A",
+                "framework": "N/A",
+                "cluster": "N/A",
+            }
 
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        pattern = re.compile(r'model_name\S*\s*=\s*"([^"]+)"')
-        models = pattern.findall(content)
-        
-        if not models:
-            return "N/A"
+        # Extract all model_name= lines
+        model_pattern = re.compile(r'model_name\S*\s*=\s*"([^"]+)"')
+        all_models = model_pattern.findall(content)
+        models_str = ",".join(all_models) if all_models else "N/A"
 
-        return ",".join(models)
-    
+        # Extract framework=
+        framework_pattern = re.compile(r'framework\s*=\s*"([^"]+)"')
+        found_framework = framework_pattern.findall(content)
+        framework_str = found_framework[0] if found_framework else "N/A"
+
+        # Extract cluster=
+        cluster_pattern = re.compile(r'cluster\s*=\s*"([^"]+)"')
+        found_cluster = cluster_pattern.findall(content)
+        cluster_str = found_cluster[0] if found_cluster else "N/A"
+
+        return {
+            "models": models_str,
+            "framework": framework_str,
+            "cluster": cluster_str,
+        }
+
     def determine_model_status(submit_path):
         """
         Determine model_status by checking submit_path + '.stdout' file.
@@ -73,7 +95,7 @@ def qstat_inference_function():
         out_file = submit_path + ".stdout"
         if not os.path.exists(out_file):
             return "starting"
-        
+
         with open(out_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if "All models started successfully." in line:
@@ -119,9 +141,15 @@ def qstat_inference_function():
             submit_args = attributes.get('Submit_arguments', '')
             submit_path = extract_submit_path(submit_args)
 
-            models = "N/A"
+            # Extract models, framework, and cluster from the file
+            models_info = {
+                "models": "N/A",
+                "framework": "N/A",
+                "cluster": "N/A",
+            }
             if submit_path:
-                models = extract_models_from_file(submit_path)
+                models_info = extract_models_info_from_file(submit_path)
+
 
             node_count = attributes.get('Resource_List.nodect', 'N/A')
              # Determine model status based on the .out file
@@ -129,8 +157,10 @@ def qstat_inference_function():
             if submit_path:
                 model_status = determine_model_status(submit_path)
             job_dict = {
-                "Models Served": models,
+                "Models Served": models_info["models"],
                 "Model Status": model_status,
+                "Framework": models_info["framework"],
+                "Cluster": models_info["cluster"],
                 "Job ID": job_id,
                 "Job State": job_state,
                 "Walltime": walltime,
