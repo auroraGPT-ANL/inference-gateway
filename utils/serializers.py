@@ -78,3 +78,17 @@ class OpenAIEmbeddingsParamSerializer(serializer_utils.BaseSerializers):
     encoding_format = serializers.ChoiceField(choices=["float", "base64"], **OPT)
     dimensions = serializers.IntegerField(min_value=1, **OPT)
     user = serializer_utils.TrueCharField(**OPT)
+
+
+# OpenAI batch parameter serializer
+# https://platform.openai.com/docs/api-reference/batch/create
+class OpenAIBatchParamSerializer(serializer_utils.BaseSerializers):
+
+    # Mandatory model parameters
+    input_file_id = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+    endpoint = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+    completion_window = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+
+    # Optional model parameters
+    metadata = serializers.DictField(**OPT_NULL)
+    
