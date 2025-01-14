@@ -152,16 +152,16 @@ async def get_list_endpoints(request):
                 # Assign the status of the HPC job assigned to the model
                 # NOTE: "offline" status should always take priority over the qstat result
                 if endpoint_status["status"] == "online" and endpoint.endpoint_slug in qstat_key_value:
-                    job_status = qstat_key_value[endpoint.endpoint_slug]
+                    model_status = qstat_key_value[endpoint.endpoint_slug]
                 else:
-                    job_status = "not available"
+                    model_status = "not available"
 
                 # Add model to the dictionary
                 all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
                     {
                         "name": endpoint.model,
                         "endpoint_status": endpoint_status["status"],
-                        "job_status": job_status
+                        "model_status": model_status
                     }    
                 )
 
@@ -234,12 +234,41 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     )
     if len(error_message) > 0:
         return await get_list_response(db_data, error_message, 500)
-                
-    #TODO: Add details from qstat endpoint if possible
-    #TODO: Add endpoint cluster/jobs to db_data
-    #TODO: Add task UUID to db_data
-    #TODO: Add number of globus workers if possible
-    status = endpoint_status["status"]
+
+    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
+    model_status = {}
+    if endpoint_status["status"] == "online":
+        if cluster in ALLOWED_QSTAT_ENDPOINTS:
+
+            # Update database entry
+            db_data["endpoint_slugs"] = f"{cluster}/jobs"
+
+            # Collect qstat details on the jobs running/queued on the cluster
+            qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
+                cluster, gcc, gce, timeout=60
+            )
+            #TODO: Should we return errors if something is wrong with qstat endpoint?
+
+            # Update database entry
+            db_data["task_uuids"] = str(task_uuid)
+
+            # Extract the targetted model if within the qstat result ...
+            try:
+                for state in qstat_result:
+                    for entry in qstat_result[state]:
+                        # TODO: Is this safe enough?
+                        if entry["Framework"] == framework and model in entry["Models Served"]:
+                            model_status = entry
+                            break
+            except:
+                pass
+
+    # Build and return detailed status
+    status = {
+        "cluster": cluster,
+        "model": model_status,
+        "endpoint": endpoint_status
+    }
     return await get_list_response(db_data, status, 200)
 
 
