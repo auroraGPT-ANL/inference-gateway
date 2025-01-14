@@ -1,7 +1,8 @@
 from utils.serializers import (
     OpenAICompletionsParamSerializer, 
     OpenAIChatCompletionsParamSerializer, 
-    OpenAIEmbeddingsParamSerializer
+    OpenAIEmbeddingsParamSerializer,
+    OpenAIBatchParamSerializer
 )
 from rest_framework.exceptions import ValidationError
 import json
@@ -108,6 +109,30 @@ def validate_request_body(request, openai_endpoint):
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Validate batch body
+def validate_batch_body(request):
+    """Build data dictionary for inference batch request if user inputs are valid."""
+                
+    # Decode request body into a dictionary
+    try:
+        batch_params = json.loads(request.body.decode("utf-8"))
+    except:
+        return {"error": f"Error: Batch request body cannot be decoded."}
+
+    # Send an error if the input data is not valid
+    # TODO: Check if serializer.is_valid
+    try:
+        serializer = OpenAIBatchParamSerializer(data=batch_params)
+        _ = serializer.is_valid(raise_exception=True)
+    except ValidationError as e:
+        return {"error": f"Error: Could not validate data: {e}"}
+    except Exception as e:
+        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+
+    # Build request data if nothing wrong was caught
+    return {"batch_params": batch_params}
 
 
 # Extract group UUIDs from an allowed_globus_groups model field
