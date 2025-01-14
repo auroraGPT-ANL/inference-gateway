@@ -293,7 +293,9 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     db_data = {
         "name": atv_response.name,
         "username": atv_response.username,
-        "timestamp_receive": timezone.now()
+        "timestamp_receive": timezone.now(),
+        "endpoint_slugs": "",
+        "task_uuids": ""
     }
 
     # Gather the list of Globus Group memberships of the authenticated user
@@ -346,7 +348,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
             qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
                 cluster, gcc, gce, timeout=60
             )
-            #TODO: Should we return errors if something is wrong with qstat endpoint?
+            qstat_result = json.loads(qstat_result)
 
             # Update database entry
             db_data["task_uuids"] = str(task_uuid)
@@ -355,7 +357,6 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
             try:
                 for state in qstat_result:
                     for entry in qstat_result[state]:
-                        # TODO: Is this safe enough?
                         if entry["Framework"] == framework and model in entry["Models Served"]:
                             model_status = entry
                             break
@@ -387,13 +388,14 @@ async def get_jobs(request, cluster:str):
         "name": atv_response.name,
         "username": atv_response.username,
         "timestamp_receive": timezone.now(),
-        "sync": True # True means the server response is the Globus result, not the task UUID
+        "endpoint_slugs": "",
+        "task_uuids": ""
     }
 
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
     if len(error_message):
-        return await get_response(db_data, error_message, 400)
+        return await get_list_response(db_data, error_message, 400)
 
     
     # Return list of frameworks and models
@@ -406,17 +408,18 @@ async def get_jobs(request, cluster:str):
         gcc = globus_utils.get_compute_client_from_globus_app()
         gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
     # Collect (qstat) details on the jobs running/queued on the cluster
-    db_data["timestamp_submit"] = timezone.now()
+    db_data["endpoint_slugs"] = f"{cluster}/jobs"
     result, task_uuid, error_message, error_code = await get_qstat_details(cluster, gcc, gce, timeout=60)
     if len(error_message) > 0:
-        return await get_response(db_data, error_message, error_code)
-    db_data["task_uuid"] = task_uuid
+        return await get_list_response(db_data, error_message, error_code)
+    result = json.loads(result)
+    db_data["task_uuids"] = task_uuid
     
      # Return Globus Compute results
-    return await get_response(db_data, result, 200)
+    return await get_list_response(db_data, result, 200)
 
 
 # Inference (POST)
