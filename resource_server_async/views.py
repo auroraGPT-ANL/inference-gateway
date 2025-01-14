@@ -1,3 +1,4 @@
+import uuid
 import json
 from django.utils import timezone
 from django.utils.text import slugify
@@ -519,6 +520,61 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Return Globus Compute results
     return await get_response(db_data, result, 200)
+
+
+# Inference batch (POST)
+@router.post("/{cluster}/{framework}/v1/batches")
+async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
+    """POST request to send a batch to Globus Compute endpoints."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+        
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_response() function
+    db_data = {
+        "id": uuid.uuid4(),
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "created_at": timezone.now(),
+        "object": "batch"
+    }
+    
+    # Validate and build the inference request data
+    batch_data = validate_request_body(request)
+    if "error" in batch_data.keys():
+        !!! return await get_response(db_data, batch_data['error'], 400)
+    
+    # Strip the last forward slash of endpoint if needed
+    if batch_data["endpoint"][-1] == "/":
+        batch_data["endpoint"] = batch_data["endpoint"][:-1]
+
+    # Make sure the URL inputs point to an available endpoint 
+    error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
+    if len(error_message):
+        !!! return await get_response(db_data, error_message, 400)
+    
+    # Update database entry
+    db_data["cluster"] = cluster
+    db_data["cluster"] = cluster
+    db_data["framework"] = framework
+    db_data["endpoint"] = batch_data["endpoint"]
+    db_data["input_file_id"] = batch_data["input_file_id"]
+    db_data["completion_window"] = batch_data["completion_window"]
+    db_data["metadata"] = batch_data["metadata"]
+
+    !!! TODO: need to be able to pass database model in the get_response(, ... , Log/Batch)
+
+    ######### RETURN SOMETHING
+
 
 
 # Get plain response
