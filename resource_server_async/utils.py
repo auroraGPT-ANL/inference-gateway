@@ -144,7 +144,7 @@ def extract_group_uuids(globus_groups):
 
 
 # Get qstat details
-@asynccached(TTLCache(maxsize=1024, ttl=15))
+@asynccached(TTLCache(maxsize=1024, ttl=30))
 async def get_qstat_details(cluster, gcc, gce, timeout=60):
     """
     Collect details on all jobs running/submitted on a given cluster.
