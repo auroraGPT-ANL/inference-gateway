@@ -43,6 +43,80 @@ async def get_list_endpoints(request):
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
     
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
+
+    # Collect endpoints objects from the database
+    try:
+        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
+
+    # Prepare the list of available frameworks and models
+    all_endpoints = {"clusters": {}}
+    try:
+
+        # For each database endpoint entry ...
+        for endpoint in endpoint_list:
+
+            # Extract the list of allowed group UUIDs tied to the endpoint
+            allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+            if len(error_message) > 0:
+                log.error(error_message)
+                return HttpResponse(json.dumps(error_message), status=400)
+    
+            # If the user is allowed to see the endpoint ...
+            # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
+            if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
+
+                # Add a new cluster dictionary entry if needed
+                if not endpoint.cluster in all_endpoints["clusters"]:
+                    all_endpoints["clusters"][endpoint.cluster] = {
+                        "base_url": f"/resource_server/{endpoint.cluster}",
+                        "frameworks": {}
+                    }
+                
+                # Add a new framework dictionary entry if needed
+                if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
+                    all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
+                        "models": [],
+                        "endpoints": {
+                            "chat": f"/{endpoint.framework}/v1/chat/completions/",
+                            "completion": f"/{endpoint.framework}/v1/completions/",
+                            "embedding": f"/{endpoint.framework}/v1/embeddings/"
+                        }
+                    }
+
+                # Add model
+                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
+
+        # Sort models alphabetically
+        for cluster in all_endpoints["clusters"]:
+            for framework in all_endpoints["clusters"][cluster]["frameworks"]:
+                all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
+                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"])
+
+    # Error message if something went wrong while building the endpoint list
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400)
+
+    # Return list of frameworks and models
+    return HttpResponse(json.dumps(all_endpoints), status=200)
+
+
+# List Endpoints Detailed (GET)
+@router.get("/list-endpoints-detailed")
+async def get_list_endpoints_detailed(request):
+    """GET request to list the available frameworks and models with live status."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_list_response() function
     db_data = {
@@ -76,7 +150,8 @@ async def get_list_endpoints(request):
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
-    qstat_key_value = {} # This needs to be declare before looping over the database endpoints
+    qstat_model_status = {}
+    qstat_cluster_available = []
     try:
 
         # For each database endpoint entry ...
@@ -112,6 +187,7 @@ async def get_list_endpoints(request):
                         qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
                             endpoint.cluster, gcc, gce, timeout=60
                         )
+                        qstat_result = json.loads(qstat_result)
 
                         # Update database entry                        
                         if len(db_data["task_uuids"]) > 0:
@@ -121,12 +197,30 @@ async def get_list_endpoints(request):
                         # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
                         # NOTE: If the qstat job fails, keep going, the response will simply contain less detailed info
                         try:
-                            for entry in qstat_result["running"]:
-                                endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
-                                qstat_key_value[endpoint_slug] = entry["Model Status"]
-                            for entry in qstat_result["queued"]:
-                                endpoint_slug = slugify(" ".join([endpoint.cluster, entry["Framework"], entry["Models Served"]]))
-                                qstat_key_value[endpoint_slug] = "queued"
+
+                            # For all running and queued jobs ...
+                            for state in ["running", "queued"]:
+                                for entry in qstat_result[state]:
+
+                                    # Extract the job status
+                                    if state == "queued":
+                                        model_status = "queued"
+                                    else:
+                                        model_status = entry["Model Status"]
+                                
+                                    # For each model served ...
+                                    for model in entry["Models Served"].split(","):
+                                        if len(model) > 0:
+
+                                            # Build endpoint slug and add status to the qstat dictionary
+                                            endpoint_slug = slugify(" ".join(
+                                                [entry["Cluster"], entry["Framework"], model]
+                                            ))
+                                            qstat_model_status[endpoint_slug] = model_status
+
+                            # Add cluster to the list of clusters that have successful qstat query
+                            qstat_cluster_available.append(endpoint.cluster)
+
                         except:
                             pass
 
@@ -151,10 +245,15 @@ async def get_list_endpoints(request):
                 
                 # Assign the status of the HPC job assigned to the model
                 # NOTE: "offline" status should always take priority over the qstat result
-                if endpoint_status["status"] == "online" and endpoint.endpoint_slug in qstat_key_value:
-                    model_status = qstat_key_value[endpoint.endpoint_slug]
+                if endpoint_status["status"] == "online":
+                    if endpoint.endpoint_slug in qstat_model_status:
+                        model_status = qstat_model_status[endpoint.endpoint_slug]
+                    elif endpoint.cluster in qstat_cluster_available:
+                        model_status = "stopped"
+                    else:
+                        model_status = "status not available"
                 else:
-                    model_status = "not available"
+                    model_status = "status not available"
 
                 # Add model to the dictionary
                 all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
