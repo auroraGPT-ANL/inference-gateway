@@ -72,7 +72,8 @@ INSTALLED_APPS = [
     'resource_server',
     'resource_server_async',
     'drf_spectacular',
-    'dashboard'
+    # 'dashboard',
+    'dashboard_async'
 ]
 
 if ENABLE_BATCHES:

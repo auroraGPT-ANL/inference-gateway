@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard Analytics</title>
+  
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/2.2.1/css/dataTables.dataTables.min.css">
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #1a1a1a;
+      color: #ffffff;
+    }
+    .dashboard {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .chart-container, .table-container {
+      background: #2c2c2c;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      flex: 1 1 calc(50% - 20px);
+    }
+    .chart-container canvas {
+      max-height: 400px;
+    }
+    .table-container {
+      flex: 1 1 100%;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    table {
+      width: 100%;
+      margin-top: 20px;
+      color: #ffffff;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid #555;
+    }
+    th {
+      background-color: #333;
+    }
+    td {
+      background-color: #2c2c2c;
+    }
+    
+    /* Dark theme overrides for DataTables */
+    .dataTables_wrapper .dataTables_info,
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter,
+    .dataTables_wrapper .dataTables_processing {
+      color: #fff !important;
+    }
+    .dataTables_wrapper .dataTables_paginate .paginate_button {
+      background-color: #444 !important;
+      border: 1px solid #555 !important;
+      color: #fff !important;
+      margin: 2px;
+      padding: 4px 8px;
+    }
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+      background-color: #333 !important;
+      border: 1px solid #555 !important;
+      color: #fff !important;
+    }
+    .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+      background-color: #555 !important;
+      color: #fff !important;
+      border: 1px solid #666 !important;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Dashboard Analytics</h1>
+  <div class="dashboard">
+    <!-- 1. Total Requests Pie -->
+    <div class="chart-container">
+      <h3>Total Requests</h3>
+      <p id="totalRequestsNumber" style="font-size: 1.2rem; font-weight: bold;"></p>
+      <canvas id="totalRequestsChart"></canvas>
+    </div>
+
+    <!-- 2. Weekly Usage (Past 2 Months) -->
+    <div class="chart-container">
+      <h3>Weekly Usage (Past 2 Months)</h3>
+      <canvas id="weeklyUsage2MonthsChart"></canvas>
+    </div>
+
+    <!-- 3. Daily Usage (Past 2 Weeks) -->
+    <div class="chart-container">
+      <h3>Daily Usage (Past 2 Weeks)</h3>
+      <canvas id="dailyUsage2WeeksChart"></canvas>
+    </div>
+
+    <!-- 4. Average RPS (Today) -->
+    <div class="chart-container">
+      <h3>Average RPS (Today)</h3>
+      <p id="averageRpsToday" style="font-size: 1.2rem; font-weight: bold;"></p>
+    </div>
+
+    <!-- 5. Requests Per Model -->
+    <div class="chart-container">
+      <h3>Requests Per Model</h3>
+      <canvas id="modelRequestsChart"></canvas>
+    </div>
+
+    <!-- 6. Latency Per Model -->
+    <div class="chart-container">
+      <h3>Average Latency Per Model</h3>
+      <canvas id="latencyPerModelChart"></canvas>
+    </div>
+
+    <!-- 7. Users Per Model -->
+    <div class="chart-container">
+      <h3>Users Per Model</h3>
+      <canvas id="usersPerModelChart"></canvas>
+    </div>
+
+    <!-- 8. Requests Per User -->
+    <div class="chart-container">
+      <h3>Requests Per User</h3>
+      <canvas id="requestsPerUserChart"></canvas>
+    </div>
+
+    <!-- 9. Daily RPS (Past 7 Days) -->
+    <div class="chart-container">
+      <h3>Daily Average RPS (Past 7 Days)</h3>
+      <canvas id="dailyRps7DaysChart"></canvas>
+    </div>
+
+    <!-- 10. Model Throughput -->
+    <div class="chart-container">
+      <h3>Model Throughput (tokens/s)</h3>
+      <canvas id="modelThroughputChart"></canvas>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="table-container">
+      <h3>Logs</h3>
+      <table id="logsTable" class="display">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Username</th>
+            <th>Model</th>
+            <th>Response Status</th>
+            <th>Latency</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button id="loadMoreLogs">Load More Logs</button>
+    </div>
+
+    <!-- Endpoints Table -->
+    <div class="table-container">
+      <h3>Endpoints</h3>
+      <table id="endpointsTable" class="display">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Cluster</th>
+            <th>Framework</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- jQuery, DataTables JS -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/2.2.1/js/dataTables.min.js"></script>
+  
+  <script>
+    const metricsUrl = '/dashboard/metrics';
+    const logsUrl = '/dashboard/logs';
+    const endpointsUrl = '/dashboard/endpoints';
+    let currentPage = 0;
+    const PAGE_SIZE = 100;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadMetrics();
+      initializeLogsTable();
+      loadEndpoints();
+      document.getElementById('loadMoreLogs').addEventListener('click', loadMoreLogs);
+    });
+
+    async function fetchJson(url) {
+      const response = await fetch(url);
+      return response.json();
+    }
+
+    // Utility: parse ISO8601 durations if needed
+    // e.g., "P0DT00H00M16.837081S" -> total seconds
+    function parseISODurationToSeconds(isoString) {
+      if (!isoString) return 0;
+      const regex = /P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
+      const match = isoString.match(regex);
+      if (!match) return 0;
+
+      const days = parseInt(match[1] || '0', 10);
+      const hours = parseInt(match[2] || '0', 10);
+      const minutes = parseInt(match[3] || '0', 10);
+      const seconds = parseFloat(match[4] || '0');
+      return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+    }
+
+    // Load metrics and render charts
+    async function loadMetrics() {
+      console.log('Loading metrics...');
+      const data = await fetchJson(metricsUrl);
+
+      // 1) Total requests
+      const totalRequests = data.total_requests || 0;
+      document.getElementById('totalRequestsNumber').textContent = `Total: ${totalRequests}`;
+
+      const successful = (data.request_details && data.request_details.successful) || 0;
+      const failed = (data.request_details && data.request_details.failed) || 0;
+
+      // Pie chart: Successful vs Failed
+      new Chart(document.getElementById('totalRequestsChart'), {
+        type: 'pie',
+        data: {
+          labels: ['Successful', 'Failed'],
+          datasets: [{
+            data: [successful, failed],
+            backgroundColor: ['#28a745', '#dc3545']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed || 0;
+                  const sum = successful + failed;
+                  const pct = sum ? ((value / sum) * 100).toFixed(1) + '%' : '0%';
+                  return `${label}: ${value} (${pct})`;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // 2) Weekly Usage (Past 2 Months)
+      const weeklyData = data.weekly_usage_2_months || [];
+      new Chart(document.getElementById('weeklyUsage2MonthsChart'), {
+        type: 'line',
+        data: {
+          labels: weeklyData.map(item => new Date(item.week_start).toLocaleDateString()),
+          datasets: [{
+            label: 'Requests',
+            data: weeklyData.map(item => item.request_count),
+            borderColor: '#17a2b8',
+            backgroundColor: 'rgba(23, 162, 184, 0.2)',
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 3) Daily Usage (Past 2 Weeks)
+      const dailyData = data.daily_usage_2_weeks || [];
+      new Chart(document.getElementById('dailyUsage2WeeksChart'), {
+        type: 'bar',
+        data: {
+          labels: dailyData.map(item => new Date(item.day).toLocaleDateString()),
+          datasets: [{
+            label: 'Requests',
+            data: dailyData.map(item => item.request_count),
+            backgroundColor: '#007bff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 4) Average RPS (Today)
+      const avgRpsToday = data.average_rps_today || 0;
+      document.getElementById('averageRpsToday').textContent = avgRpsToday.toFixed(3);
+
+      // 5) Requests Per Model
+      const modelRequests = data.model_requests || [];
+      new Chart(document.getElementById('modelRequestsChart'), {
+        type: 'bar',
+        data: {
+          labels: modelRequests.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Total Requests',
+            data: modelRequests.map(item => item.total_requests),
+            backgroundColor: '#ff6384'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 6) Latency Per Model
+      const modelLatency = data.model_latency || [];
+      new Chart(document.getElementById('latencyPerModelChart'), {
+        type: 'bar',
+        data: {
+          labels: modelLatency.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Average Latency (s)',
+            data: modelLatency.map(item => parseISODurationToSeconds(item.avg_latency)),
+            backgroundColor: '#ffc107'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 7) Users Per Model
+      const usersPerModel = data.users_per_model || [];
+      new Chart(document.getElementById('usersPerModelChart'), {
+        type: 'bar',
+        data: {
+          labels: usersPerModel.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Users',
+            data: usersPerModel.map(item => item.user_count),
+            backgroundColor: '#6f42c1'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 8) Requests Per User
+      const requestsPerUser = data.requests_per_user || [];
+      new Chart(document.getElementById('requestsPerUserChart'), {
+        type: 'bar',
+        data: {
+          labels: requestsPerUser.map(item => item.name || 'Unknown'),
+          datasets: [{
+            label: 'Total Requests',
+            data: requestsPerUser.map(item => item.total_requests),
+            backgroundColor: '#fd7e14'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 9) Daily RPS (Past 7 Days)
+      const dailyRps7Days = data.daily_rps_7_days || [];
+      new Chart(document.getElementById('dailyRps7DaysChart'), {
+        type: 'bar',
+        data: {
+          labels: dailyRps7Days.map(item => new Date(item.day).toLocaleDateString()),
+          datasets: [{
+            label: 'Avg RPS',
+            data: dailyRps7Days.map(item => item.average_rps),
+            backgroundColor: '#20c997'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 10) Model Throughput (tokens/s)
+      const modelThroughput = data.model_throughput || [];
+      new Chart(document.getElementById('modelThroughputChart'), {
+        type: 'bar',
+        data: {
+          labels: modelThroughput.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Avg Throughput (tokens/s)',
+            data: modelThroughput.map(item => item.avg_throughput),
+            backgroundColor: '#17a2b8'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // Initialize logs table (DataTables)
+    function initializeLogsTable() {
+      $('#logsTable').DataTable({
+        ajax: {
+          url: `${logsUrl}?page=${currentPage}&per_page=${PAGE_SIZE}`,
+          dataSrc: '' // the array is at root level
+        },
+        columns: [
+          { data: 'name' },
+          { data: 'username' },
+          { data: 'model' },
+          { data: 'response_status' },
+          { data: 'latency' }
+        ],
+        pageLength: PAGE_SIZE,
+        searching: false,
+        ordering: false,
+        processing: true
+      });
+    }
+
+    // Load more logs
+    async function loadMoreLogs() {
+      const logsTable = $('#logsTable').DataTable();
+      logsTable.processing(true);
+      currentPage++;
+      const data = await fetchJson(`${logsUrl}?page=${currentPage}&per_page=${PAGE_SIZE}`);
+      logsTable.rows.add(data).draw();
+      logsTable.processing(false);
+    }
+
+    // Load endpoints and display in table
+    async function loadEndpoints() {
+      const data = await fetchJson(endpointsUrl);
+      if (!data || !data.endpoints) return;
+
+      const tableBody = document.querySelector('#endpointsTable tbody');
+      tableBody.innerHTML = '';
+      data.endpoints.forEach(ep => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${ep.model || ''}</td>
+          <td>${ep.cluster || ''}</td>
+          <td>${ep.framework || ''}</td>
+        `;
+        tableBody.appendChild(row);
+      });
+    }
+  </script>
+</body>
+</html>
