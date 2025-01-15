@@ -279,7 +279,7 @@ async def get_list_endpoints_detailed(request):
 
 
 # Endpoint Status (GET)
-@router.get("/status/{cluster}/{framework}/{path:model}")
+@router.get("/{cluster}/{framework}/{path:model}/status")
 async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
     """GET request to get a detailed status of a specific Globus Compute endpoint."""
 
@@ -396,10 +396,6 @@ async def get_jobs(request, cluster:str):
     error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
     if len(error_message):
         return await get_list_response(db_data, error_message, 400)
-
-    
-    # Return list of frameworks and models
-
 
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
