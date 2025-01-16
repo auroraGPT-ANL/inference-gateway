@@ -30,6 +30,13 @@ ALLOWED_QSTAT_ENDPOINTS = {
     }
 }
 
+ALLOWED_BATCH_ENDPOINTS = {
+    "sophia":{
+        "endpoint_uuid":"...",
+        "function_uuid":"..."
+    }
+}
+
 # Exception to raise in case of errors
 class ResourceServerError(Exception):
     pass
