@@ -134,7 +134,7 @@ class Batch(models.Model):
 
     # What did the user request?
     endpoint = models.CharField(max_length=250)
-    input_file_id = models.CharField(max_length=250, unique=True)
+    input_file_id = models.CharField(max_length=250)
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)

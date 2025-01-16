@@ -16,6 +16,7 @@ from resource_server_async.utils import (
     validate_url_inputs, 
     extract_prompt, 
     validate_request_body,
+    validate_batch_body,
     extract_group_uuids,
     get_qstat_details,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -429,7 +430,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
-        
+    
     # Gather the list of Globus Group memberships of the authenticated user
     try:
         user_group_uuids = atv_response.user_group_uuids
@@ -439,7 +440,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
-        "id": uuid.uuid4(),
+        "id": str(uuid.uuid4()),
         "name": atv_response.name,
         "username": atv_response.username,
         "created_at": timezone.now(),
@@ -447,10 +448,10 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     }
     
     # Validate and build the inference request data
-    batch_data = validate_request_body(request)
+    batch_data = validate_batch_body(request)
     if "error" in batch_data.keys():
         return await get_batch_response(db_data, batch_data['error'], 400)
-    
+
     # Strip the last forward slash of endpoint if needed
     if batch_data["endpoint"][-1] == "/":
         batch_data["endpoint"] = batch_data["endpoint"][:-1]
@@ -465,17 +466,17 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["endpoint"] = batch_data["endpoint"]
-    db_data["input_file_id"] = batch_data["input_file_id"]
     db_data["completion_window"] = batch_data["completion_window"]
-    db_data["metadata"] = batch_data["metadata"]
-    db_data["task_uuids"] = ""
+    db_data["metadata"] = batch_data.get("metadata", "")
 
     # Error if a batch already exists with the same input_file_id
     # TODO: More checks here to make sure we don't duplicate batches?
     try:
-        if await sync_to_async(Batch.objects.filter)(input_file_id=batch_data["input_file_id"]).exists():
-            error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by another batch."
-            return await get_batch_response(db_data, error_message, 400)
+        batch = await sync_to_async(Batch.objects.get)(input_file_id=batch_data["input_file_id"])
+        error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by another batch."
+        return await get_batch_response(db_data, error_message, 400)
+    except Batch.DoesNotExist:
+        pass # Batch can only be submitted if the input_file_id is not used by any other batches
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400)
 
@@ -523,7 +524,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     )
     if len(error_message) > 0:
         return await get_batch_response(db_data, error_message, 500)
-        
+
     # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
     if not endpoint_status["status"] == "online":
         return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
@@ -548,20 +549,22 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     for params in params_list:
         batch.add(function_id=function_uuid, args=[params])
 
-    # Submit batch to Globus Compute
+    # Submit batch to Globus Compute and assign the input_file_id to the database if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
+        db_data["input_file_id"] = batch_data["input_file_id"]
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
+        return await get_batch_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
     
     # Extract the batch and task UUIDs from submission
     try:
         db_data["globus_batch_uuid"] = batch_response["request_id"]
+        db_data["globus_task_uuids"] = ""
         for _, task_uuids in batch_response["tasks"].items():
                 db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
         db_data["globus_task_uuids"] = db_data["globus_task_uuids"][:-1]
     except Exception as e:
-        return await get_response(db_data, f"Error: Batch submitted but could not extract Globus UUIDs: {e}", 400)
+        return await get_batch_response(db_data, f"Error: Batch submitted but could not extract Globus UUIDs: {e}", 400)
 
     # TODO: Return something more OpenAI style
     response = {
@@ -569,7 +572,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         "globus_batch_uuid": db_data["globus_batch_uuid"],
         "globus_task_uuids": db_data["globus_task_uuids"]
     }
-    return await get_response(db_data, response, 200)
+    return await get_batch_response(db_data, json.dumps(response), 200)
 
 
 # Inference (POST)
@@ -753,7 +756,7 @@ async def get_batch_response(db_data, content, code):
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
     except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the database: {e}"
+        message = f"Error: Something went wrong while trying to write to the Batch database: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
         
