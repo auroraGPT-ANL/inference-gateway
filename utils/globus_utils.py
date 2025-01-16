@@ -1,11 +1,7 @@
-# Django imports
+import asyncio
 from django.conf import settings
-
-# Globus imports
 import globus_sdk
 from globus_compute_sdk import Client, Executor
-
-# Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached, LRUCache
 
 import logging
@@ -76,3 +72,50 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
         return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
     except Exception as e:
         return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+
+
+# Submit function and wait for result
+async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*28):
+    """
+    Assign endpoint UUID to the executor, submit task to the endpoint,
+    wait for the result asynchronously, and return the result or the
+    error message. Here we return the error messages instead of rasing
+    execptions in order to be able to cache function results if needed.
+    """
+
+    # Assign endpoint UUID to the executor 
+    gce.endpoint_id = endpoint_uuid
+
+    # Submit Globus Compute task and collect the future object
+    # NOTE: Do not await here, the submit* function return the future "immediately"
+    try:
+        if type(data) == type(None):
+            future = gce.submit_to_registered_function(function_uuid)
+        else:    
+            future = gce.submit_to_registered_function(function_uuid, args=[data])
+    except Exception as e:
+        return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
+
+    # Wait for the Globus Compute result using asyncio and coroutine
+    try:
+        asyncio_future = asyncio.wrap_future(future)
+        result = await asyncio.wait_for(asyncio_future, timeout=timeout)
+    except TimeoutError as e:
+        if resources_ready:
+            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
+        else:
+            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
+        return None, get_task_uuid(future), error_message, 408
+    except Exception as e:
+        return None, get_task_uuid(future), f"Error: Could not recover future result: {repr(e)}", 500
+
+    # Return result if succesful
+    return result, get_task_uuid(future), "", 200
+
+
+# Try to extract Globus task UUID from a future object
+def get_task_uuid(future):
+    try:
+        return future.task_id
+    except:
+        return None

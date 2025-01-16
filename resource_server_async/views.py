@@ -16,16 +16,16 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     extract_group_uuids,
-    ALLOWED_QSTAT_ENDPOINTS
+    ALLOWED_QSTAT_ENDPOINTS,
+    get_qstat_details
 )
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log
+from resource_server.models import Endpoint, Log, ListEndpointsLog
 
 # Async tools
 from asgiref.sync import sync_to_async
-import asyncio
 
 # Ninja API
 from ninja import NinjaAPI, Router
@@ -107,6 +107,271 @@ async def get_list_endpoints(request):
     return HttpResponse(json.dumps(all_endpoints), status=200)
 
 
+# List Endpoints Detailed (GET)
+@router.get("/list-endpoints-detailed")
+async def get_list_endpoints_detailed(request):
+    """GET request to list the available frameworks and models with live status."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_list_response() function
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "endpoint_slugs": "",
+        "task_uuids": ""
+    }
+    
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
+
+    # Collect endpoints objects from the database
+    try:
+        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not access Endpoint database entries: {e}", 400)
+    
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+
+    # Prepare the list of available frameworks and models
+    all_endpoints = {"clusters": {}}
+    qstat_model_status = {}
+    qstat_cluster_available = []
+    try:
+
+        # For each database endpoint entry ...
+        for endpoint in endpoint_list:
+
+            # Extract the list of allowed group UUIDs tied to the endpoint
+            allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+            if len(error_message) > 0:
+                return await get_list_response(db_data, json.dumps(error_message), 400)
+    
+            # If the user is allowed to see the endpoint ...
+            # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
+            if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
+
+                # If this is a new cluster for the dictionary ...
+                if not endpoint.cluster in all_endpoints["clusters"]:
+
+                    # Add new entry to the dictionary
+                    all_endpoints["clusters"][endpoint.cluster] = {
+                        "base_url": f"/resource_server/{endpoint.cluster}",
+                        "frameworks": {}
+                    }
+
+                    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
+                    if endpoint.cluster in ALLOWED_QSTAT_ENDPOINTS:
+
+                        # Update database entry
+                        if len(db_data["endpoint_slugs"]) > 0:
+                            db_data["endpoint_slugs"] += "; "
+                        db_data["endpoint_slugs"] += f"{endpoint.cluster}/jobs"
+
+                        # Collect qstat details on the jobs running/queued on the cluster
+                        qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
+                            endpoint.cluster, gcc, gce, timeout=60
+                        )
+                        qstat_result = json.loads(qstat_result)
+
+                        # Update database entry                        
+                        if len(db_data["task_uuids"]) > 0:
+                            db_data["task_uuids"] += "; "
+                        db_data["task_uuids"] += str(task_uuid)
+
+                        # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
+                        # NOTE: If the qstat job fails, keep going, the response will simply contain less detailed info
+                        try:
+
+                            # For all running and queued jobs ...
+                            for state in ["running", "queued"]:
+                                for entry in qstat_result[state]:
+
+                                    # Extract the job status
+                                    if state == "queued":
+                                        model_status = "queued"
+                                    else:
+                                        model_status = entry["Model Status"]
+                                
+                                    # For each model served ...
+                                    for model in entry["Models Served"].split(","):
+                                        if len(model) > 0:
+
+                                            # Build endpoint slug and add status to the qstat dictionary
+                                            endpoint_slug = slugify(" ".join(
+                                                [entry["Cluster"], entry["Framework"], model]
+                                            ))
+                                            qstat_model_status[endpoint_slug] = model_status
+
+                            # Add cluster to the list of clusters that have successful qstat query
+                            qstat_cluster_available.append(endpoint.cluster)
+
+                        except:
+                            pass
+
+                # Add a new framework dictionary entry if needed
+                # TODO: Make sure this dynamically get populated based on the cluster using ALLOWED_OPENAI_ENDPOINTS
+                if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
+                    all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
+                        "models": [],
+                        "endpoints": {
+                            "chat": f"/{endpoint.framework}/v1/chat/completions/",
+                            "completion": f"/{endpoint.framework}/v1/completions/",
+                            "embedding": f"/{endpoint.framework}/v1/embeddings/"
+                        }
+                    }
+
+                # Check status of the current Globus Compute endpoint
+                endpoint_status, error_message = globus_utils.get_endpoint_status(
+                    endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
+                )
+                if len(error_message) > 0:
+                    return await get_list_response(db_data, error_message, 500)
+                
+                # Assign the status of the HPC job assigned to the model
+                # NOTE: "offline" status should always take priority over the qstat result
+                if endpoint_status["status"] == "online":
+                    if endpoint.endpoint_slug in qstat_model_status:
+                        model_status = qstat_model_status[endpoint.endpoint_slug]
+                    elif endpoint.cluster in qstat_cluster_available:
+                        model_status = "stopped"
+                    else:
+                        model_status = "status not available"
+                else:
+                    model_status = "status not available"
+
+                # Add model to the dictionary
+                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
+                    {
+                        "name": endpoint.model,
+                        "endpoint_status": endpoint_status["status"],
+                        "model_status": model_status
+                    }    
+                )
+
+        # Sort models alphabetically (case insensitive)
+        for cluster in all_endpoints["clusters"]:
+            for framework in all_endpoints["clusters"][cluster]["frameworks"]:
+                all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
+                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"], key=lambda x: x["name"].lower())
+
+    # Error message if something went wrong while building the endpoint list
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not generate list of frameworks and models from database: {e}", 400)
+
+    # Return list of frameworks and models
+    return await get_list_response(db_data, all_endpoints, 200)
+
+
+# Endpoint Status (GET)
+@router.get("/{cluster}/{framework}/{path:model}/status")
+async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
+    """GET request to get a detailed status of a specific Globus Compute endpoint."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_list_response() function
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "endpoint_slugs": "",
+        "task_uuids": ""
+    }
+
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships. {e}", 400)
+
+    # Get the requested endpoint from the database
+    endpoint_slug = slugify(" ".join([cluster, framework, model]))
+    try:
+        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+    except Endpoint.DoesNotExist:
+        return await get_list_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+    
+    # Error message if user is not allowed to see the endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_list_response(db_data, json.dumps(error_message), 400)
+    if len(allowed_globus_groups) > 0 and len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+        return await get_list_response(db_data, f"Error: User not authorized to access endpoint {endpoint_slug}", 401)
+
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+    
+    # Extract the status of the current Globus Compute endpoint
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
+    )
+    if len(error_message) > 0:
+        return await get_list_response(db_data, error_message, 500)
+
+    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
+    model_status = {}
+    if endpoint_status["status"] == "online":
+        if cluster in ALLOWED_QSTAT_ENDPOINTS:
+
+            # Update database entry
+            db_data["endpoint_slugs"] = f"{cluster}/jobs"
+
+            # Collect qstat details on the jobs running/queued on the cluster
+            qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
+                cluster, gcc, gce, timeout=60
+            )
+            qstat_result = json.loads(qstat_result)
+
+            # Update database entry
+            db_data["task_uuids"] = str(task_uuid)
+
+            # Extract the targetted model if within the qstat result ...
+            try:
+                for state in qstat_result:
+                    for entry in qstat_result[state]:
+                        if entry["Framework"] == framework and model in entry["Models Served"]:
+                            model_status = entry
+                            break
+            except:
+                pass
+
+    # Build and return detailed status
+    status = {
+        "cluster": cluster,
+        "model": model_status,
+        "endpoint": endpoint_status
+    }
+    return await get_list_response(db_data, status, 200)
+
+
 # List Endpoints (GET)
 @router.get("/{cluster}/jobs")
 async def get_jobs(request, cluster:str):
@@ -123,72 +388,35 @@ async def get_jobs(request, cluster:str):
         "name": atv_response.name,
         "username": atv_response.username,
         "timestamp_receive": timezone.now(),
-        "sync": True # True means the server response is the Globus result, not the task UUID
+        "endpoint_slugs": "",
+        "task_uuids": ""
     }
 
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
     if len(error_message):
-        return await get_response(db_data, error_message, 400)
+        return await get_list_response(db_data, error_message, 400)
 
-    
-    # Return list of frameworks and models
-
-
-    # Get Globus Compute client (using the endpoint identity)
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
-        # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
         gcc = globus_utils.get_compute_client_from_globus_app()
-        # NOTE: Make sure there will only be one executor for the whole application
-        #       Do not include endpoint_id argument otherwise it will cache multiple executors
-        #       Do not await anything before after future.result in order preserve the endpoint_id
         gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
+        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
-    # Query the status of the targetted Globus Compute endpoint
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
-    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_slug=f"{cluster}/jobs"
-    endpoint_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["endpoint_uuid"]
-    function_uuid=ALLOWED_QSTAT_ENDPOINTS[cluster]["function_uuid"]
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, 
-        client=gcc, 
-        endpoint_slug=endpoint_slug
-    )
+    # Collect (qstat) details on the jobs running/queued on the cluster
+    db_data["endpoint_slugs"] = f"{cluster}/jobs"
+    result, task_uuid, error_message, error_code = await get_qstat_details(cluster, gcc, gce, timeout=60)
     if len(error_message) > 0:
-        return await get_response(db_data, error_message, 500)
-        
-    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-    if not endpoint_status["status"] == "online":
-        return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
-    resources_ready = int(endpoint_status["details"]["managers"]) > 0
+        return await get_list_response(db_data, error_message, error_code)
+    result = json.loads(result)
+    db_data["task_uuids"] = task_uuid
     
-    # Start a Globus Compute task
-    try:
-        db_data["timestamp_submit"] = timezone.now()
-        gce.endpoint_id = endpoint_uuid
-        # NOTE: Do not await here, the submit* function return the future "immediately"
-        future = gce.submit_to_registered_function(function_uuid)
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
-    
-    # Wait for the Globus Compute result using asyncio and coroutine
-    try:
-        asyncio_future = asyncio.wrap_future(future)
-        result = await asyncio.wait_for(asyncio_future, timeout=60*28)
-        db_data["task_uuid"] = future.task_id
-    except TimeoutError as e:
-        if resources_ready:
-            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
-        else:
-            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
-        return await get_response(db_data, error_message, 408)
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could not recover future result: {repr(e)}", 500)
      # Return Globus Compute results
-    return await get_response(db_data, result, 200)
+    return await get_list_response(db_data, result, 200)
+
 
 # Inference (POST)
 @router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
@@ -258,24 +486,19 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
 
-    # Get Globus Compute client (using the endpoint identity)
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
-        # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
         gcc = globus_utils.get_compute_client_from_globus_app()
-        # NOTE: Make sure there will only be one executor for the whole application
-        #       Do not include endpoint_id argument otherwise it will cache multiple executors
-        #       Do not await anything before after future.result in order preserve the endpoint_id
         gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
+        return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
     # Query the status of the targetted Globus Compute endpoint
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
-    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
+    # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
     endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint.endpoint_uuid, 
-        client=gcc, 
-        endpoint_slug=endpoint_slug
+        endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
         return await get_response(db_data, error_message, 500)
@@ -285,37 +508,51 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
-    # Start a Globus Compute task
-    try:
-        db_data["timestamp_submit"] = timezone.now()
-        gce.endpoint_id = endpoint.endpoint_uuid
-        # NOTE: Do not await here, the submit* function return the future "immediately"
-        future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could not start the Globus Compute task: {e}", 500)
-    
-    # Wait for the Globus Compute result using asyncio and coroutine
-    try:
-        asyncio_future = asyncio.wrap_future(future)
-        result = await asyncio.wait_for(asyncio_future, timeout=60*28)
-        db_data["task_uuid"] = future.task_id
-    except TimeoutError as e:
-        if resources_ready:
-            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
-        else:
-            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
-        return await get_response(db_data, error_message, 408)
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could not recover future result: {repr(e)}", 500)
+    # Submit task and wait for result
+    db_data["timestamp_submit"] = timezone.now()
+    result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
+        gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
+    )
+    if len(error_message) > 0:
+        return await get_response(db_data, error_message, error_code)
+    db_data["task_uuid"] = task_uuid
 
     # Return Globus Compute results
     return await get_response(db_data, result, 200)
+
 
 # Get plain response
 async def get_plain_response(content, code):
     """Log error (if any) and return HTTP json.dumps response without writting to the database."""
     if code >= 300:
         log.error(content)
+    return HttpResponse(json.dumps(content), status=code)
+
+
+# Get response for list-endpoints URL
+async def get_list_response(db_data, content, code):
+    """Log database model (including error message if any) and return the HTTP response."""
+
+    # Update the current database data
+    db_data["response_status"] = code
+    db_data["timestamp_response"] = timezone.now()
+    if not code == 200:
+        db_data["error_message"] = content
+
+    # Create and save database entry
+    try:
+        db_log = ListEndpointsLog(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+        
+    # Return the response or the error message
     return HttpResponse(json.dumps(content), status=code)
 
 
@@ -333,11 +570,11 @@ async def get_response(db_data, content, code):
         db_log = Log(**db_data)
         await sync_to_async(db_log.save, thread_sensitive=True)()
     except IntegrityError as e:
-        message = f"Error: Could not create or save database entry: {e}"
+        message = f"Error: Could not create or save Log database entry: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
     except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the database: {e}"
+        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
         

@@ -70,10 +70,10 @@ class Log(models.Model):
     # If False, the view returns the compute task UUID
     sync = models.BooleanField()
 
-    # Time when the HTTP request was received (before the auth checks)
+    # Time when the HTTP request was received (after the auth checks)
     timestamp_receive = models.DateTimeField(null=True, blank=False)
 
-    # Time when the Globus compute request was submitted (after the auth checks)
+    # Time when the Globus compute request was submitted
     timestamp_submit = models.DateTimeField(null=True, blank=False)
 
     # Time when the response was sent back to the user
@@ -89,3 +89,33 @@ class Log(models.Model):
     def __str__(self):
         return f"<{self.username} - {self.timestamp_receive} - {self.endpoint_slug}>"
     
+
+# Log of list-endpoints requests, which may include Globus Compute qstat tasks
+class ListEndpointsLog(models.Model):
+    # NOTE: all lists are in sync with each other in terms of indices
+
+    # User who triggered a Globus task
+    name = models.CharField(max_length=100)
+    username = models.CharField(max_length=100)
+
+    # List (string separated by ";") of endpoint slugs targetted by the user
+    endpoint_slugs = models.TextField(default="", blank=True)
+
+    # List (string separated by ";") of Globus Compute task UUIDs triggered by the user
+    task_uuids = models.TextField(default="", blank=True)
+
+    # Time when the HTTP request was received (after the auth checks)
+    timestamp_receive = models.DateTimeField(null=True, blank=False)
+
+    # Time when the response was sent back to the user
+    timestamp_response = models.DateTimeField(null=True, blank=True)
+
+    # Response status code sent back to the user
+    response_status = models.IntegerField(null=True)
+
+    # Error message if any
+    error_message = models.TextField(default="", blank=True)
+
+    # String function
+    def __str__(self):
+        return f"<{self.username} - {self.timestamp_receive} - {self.response_status}>"

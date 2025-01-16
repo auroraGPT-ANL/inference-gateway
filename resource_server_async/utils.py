@@ -7,6 +7,10 @@ from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
 
+from asyncache import cached as asynccached
+from cachetools import TTLCache
+from utils.globus_utils import submit_and_get_result, get_endpoint_status
+
 # Constants
 ALLOWED_FRAMEWORKS = {
     "polaris": ["llama-cpp", "vllm"],
@@ -137,3 +141,44 @@ def extract_group_uuids(globus_groups):
     
     # Return the list of group UUIDs
     return group_uuids, ""
+
+
+# Get qstat details
+@asynccached(TTLCache(maxsize=1024, ttl=30))
+async def get_qstat_details(cluster, gcc, gce, timeout=60):
+    """
+    Collect details on all jobs running/submitted on a given cluster.
+    Here return the error message instead of raising exceptions to 
+    make sure the outcome gets cached.
+    Returns result, task_uuid, error_message, error_code
+    """
+
+    # Gather the qstat endpoint info
+    if cluster in ALLOWED_QSTAT_ENDPOINTS:
+        endpoint_slug = f"{cluster}/jobs"
+        endpoint_uuid = ALLOWED_QSTAT_ENDPOINTS[cluster]["endpoint_uuid"]
+        function_uuid = ALLOWED_QSTAT_ENDPOINTS[cluster]["function_uuid"]
+    else:
+        return None, None, f"Error: no qstat endpoint exists for cluster {cluster}.", None
+    
+    # Get the status of the qstat endpoint
+    # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
+    endpoint_status, error_message = get_endpoint_status(
+        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
+    )
+    if len(error_message) > 0:
+        return None, None, error_message, None
+        
+    # Return error message if endpoint is not online
+    if not endpoint_status["status"] == "online":
+        return None, None, f"Error: Endpoint {endpoint_slug} is offline.", None
+    
+    # Submit task and wait for result
+    result, task_uuid, error_message, error_code = await submit_and_get_result(
+        gce, endpoint_uuid, function_uuid, True, timeout=timeout
+    )
+    if len(error_message) > 0:
+        return None, task_uuid, error_message, error_code
+
+    # Return qstat result without error_message
+    return result, task_uuid, "", 200
