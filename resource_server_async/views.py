@@ -420,6 +420,158 @@ async def get_jobs(request, cluster:str):
     return await get_list_response(db_data, result, 200)
 
 
+# Inference batch (POST)
+@router.post("/{cluster}/{framework}/v1/batches")
+async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
+    """POST request to send a batch to Globus Compute endpoints."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+        
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_response() function
+    db_data = {
+        "id": uuid.uuid4(),
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "created_at": timezone.now(),
+        "object": "batch"
+    }
+    
+    # Validate and build the inference request data
+    batch_data = validate_request_body(request)
+    if "error" in batch_data.keys():
+        return await get_batch_response(db_data, batch_data['error'], 400)
+    
+    # Strip the last forward slash of endpoint if needed
+    if batch_data["endpoint"][-1] == "/":
+        batch_data["endpoint"] = batch_data["endpoint"][:-1]
+
+    # Make sure the URL inputs point to an available endpoint 
+    error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
+    if len(error_message):
+        return await get_batch_response(db_data, error_message, 400)
+    
+    # Update database entry
+    db_data["cluster"] = cluster
+    db_data["framework"] = framework
+    db_data["model"] = batch_data["model"]
+    db_data["endpoint"] = batch_data["endpoint"]
+    db_data["input_file_id"] = batch_data["input_file_id"]
+    db_data["completion_window"] = batch_data["completion_window"]
+    db_data["metadata"] = batch_data["metadata"]
+    db_data["task_uuids"] = ""
+
+    # Error if a batch already exists with the same input_file_id
+    # TODO: More checks here to make sure we don't duplicate batches?
+    try:
+        if await sync_to_async(Batch.objects.filter)(input_file_id=batch_data["input_file_id"]).exists():
+            error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by another batch."
+            return await get_batch_response(db_data, error_message, 400)
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400)
+
+    # Build the requested endpoint slug
+    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
+    
+    # Pull the targetted endpoint UUID and function UUID from the database
+    try:
+        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+    except Endpoint.DoesNotExist:
+        return await get_batch_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+    
+    # Extract the list of allowed group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_batch_response(db_data, error_message, 401)
+    
+    # Block access if the user is not a member of at least one of the required groups
+    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
+        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+            return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
+
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
+
+    # Make sure the cluster has a batch endpoint
+    if not cluster in ALLOWED_BATCH_ENDPOINTS:
+        return await get_batch_response(db_data, f"Cluster {cluster} does not currently have a batch endpoint.", 501)
+
+    # Query the status of the Globus Compute batch endpoint
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
+    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
+    endpoint_slug = f"{cluster}/batch"
+    endpoint_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["endpoint_uuid"]
+    function_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["function_uuid"]
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint.endpoint_uuid, 
+        client=gcc, 
+        endpoint_slug=endpoint_slug
+    )
+    if len(error_message) > 0:
+        return await get_batch_response(db_data, error_message, 500)
+        
+    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
+    if not endpoint_status["status"] == "online":
+        return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
+
+    # TODO: extract inputs from input_file_id database entry
+    # TODO: create database model for InputBatchFile
+
+    # Temp: This should be replace with proper inputs from database and from request
+    params_list = [
+        {
+            "input_file_path": "/path/to/file",
+            "framework": framework,
+            "model": batch_data["model"]
+        }
+    ]
+
+    # Prepare the batch job
+    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
+    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
+    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
+    batch = gcc.create_batch()
+    for params in params_list:
+        batch.add(function_id=function_uuid, args=[params])
+
+    # Submit batch to Globus Compute
+    try:
+        batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
+    
+    # Extract the batch and task UUIDs from submission
+    try:
+        db_data["globus_batch_uuid"] = batch_response["request_id"]
+        for _, task_uuids in batch_response["tasks"].items():
+                db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
+        db_data["globus_task_uuids"] = db_data["globus_task_uuids"][:-1]
+    except Exception as e:
+        return await get_response(db_data, f"Error: Batch submitted but could not extract Globus UUIDs: {e}", 400)
+
+    # TODO: Return something more OpenAI style
+    response = {
+        "request_id": db_data["id"],
+        "globus_batch_uuid": db_data["globus_batch_uuid"],
+        "globus_task_uuids": db_data["globus_task_uuids"]
+    }
+    return await get_response(db_data, response, 200)
+
+
 # Inference (POST)
 @router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
 async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
@@ -521,158 +673,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Return Globus Compute results
     return await get_response(db_data, result, 200)
-
-
-# Inference batch (POST)
-@router.post("/{cluster}/{framework}/v1/batches")
-async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
-    """POST request to send a batch to Globus Compute endpoints."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-        
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships. {e}", 400)
-    
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_response() function
-    db_data = {
-        "id": uuid.uuid4(),
-        "name": atv_response.name,
-        "username": atv_response.username,
-        "created_at": timezone.now(),
-        "object": "batch"
-    }
-    
-    # Validate and build the inference request data
-    batch_data = validate_request_body(request)
-    if "error" in batch_data.keys():
-        return await get_batch_response(db_data, batch_data['error'], 400)
-    
-    # Strip the last forward slash of endpoint if needed
-    if batch_data["endpoint"][-1] == "/":
-        batch_data["endpoint"] = batch_data["endpoint"][:-1]
-
-    # Make sure the URL inputs point to an available endpoint 
-    error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
-    if len(error_message):
-        return await get_batch_response(db_data, error_message, 400)
-    
-    # Update database entry
-    db_data["cluster"] = cluster
-    db_data["framework"] = framework
-    db_data["model"] = batch_data["model"]
-    db_data["endpoint"] = batch_data["endpoint"]
-    db_data["input_file_id"] = batch_data["input_file_id"]
-    db_data["completion_window"] = batch_data["completion_window"]
-    db_data["metadata"] = batch_data["metadata"]
-    db_data["task_uuids"] = ""
-
-    # Error if a batch already exists with the same input_file_id
-    # TODO: More checks here to make sure we don't duplicate batches?
-    try:
-        if await sync_to_async(Batch.objects.filter)(input_file_id=batch_data["input_file_id"]).exists():
-            error_message = f"Error: Input file ID {batch_data["input_file_id"]} already used by another batch."
-            return await get_batch_response(db_data, error_message, 400)
-    except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400)
-
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
-    
-    # Pull the targetted endpoint UUID and function UUID from the database
-    try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-    except Endpoint.DoesNotExist:
-        return await get_batch_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
-    except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
-    
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        return await get_batch_response(db_data, error_message, 401)
-    
-    # Block access if the user is not a member of at least one of the required groups
-    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
-
-    # Get Globus Compute client (using the endpoint identity)
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-    except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
-
-    # Make sure the cluster has a batch endpoint
-    if not cluster in ALLOWED_BATCH_ENDPOINTS:
-        return await get_batch_response(db_data, f"Cluster {cluster} does not currently have a batch endpoint.", 501)
-
-    # Query the status of the Globus Compute batch endpoint
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
-    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_slug = f"{cluster}/batch"
-    endpoint_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["endpoint_uuid"]
-    function_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["function_uuid"]
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint.endpoint_uuid, 
-        client=gcc, 
-        endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return await get_batch_response(db_data, error_message, 500)
-        
-    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-    if not endpoint_status["status"] == "online":
-        return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
-
-    # TODO: extract inputs from input_file_id database entry
-    # TODO: create database model for InputBatchFile
-
-    # Temp: This should be replace with proper inputs from database and from request
-    params_list = [
-        {
-            "input_file_path": "/path/to/file",
-            "framework": framework,
-            "model": batch_data["model"]
-        }
-    ]
-
-    # Prepare the batch job
-    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
-    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
-    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
-    batch = gcc.create_batch()
-    for params in params_list:
-        batch.add(function_id=function_uuid, args=[params])
-
-    # Submit batch to Globus Compute
-    try:
-        batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
-    except Exception as e:
-        return await get_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
-    
-    # Extract the batch and task UUIDs from submission
-    try:
-        db_data["globus_batch_uuid"] = batch_response["request_id"]
-        for _, task_uuids in batch_response["tasks"].items():
-                db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
-        db_data["globus_task_uuids"] = db_data["globus_task_uuids"][:-1]
-    except Exception as e:
-        return await get_response(db_data, f"Error: Batch submitted but could not extract Globus UUIDs: {e}", 400)
-
-    # TODO: Return something more OpenAI style
-    response = {
-        "request_id": db_data["id"],
-        "globus_batch_uuid": db_data["globus_batch_uuid"],
-        "globus_task_uuids": db_data["globus_task_uuids"]
-    }
-    return await get_response(db_data, response, 200)
 
 
 # Get plain response
