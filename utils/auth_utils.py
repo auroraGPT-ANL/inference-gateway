@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 class AuthUtilsError(Exception):
     pass
 
+# Authorized identity providers
+AUTHORIZED_IDP = ["anl.gov", "alcf.anl.gov"] 
+
 # Data structure returned by the access token validation function
 @dataclass
 class atv_response:
@@ -164,6 +167,15 @@ def validate_access_token(request):
     expires_in = introspection["exp"] - time.time()
     if expires_in <= 0:
         return atv_response(is_valid=False, error_message="Error: Access token expired.", error_code=401)
+    
+    # Make sure the authentication was made by an authorized identity provider
+    try:
+        if not introspection["username"].split("@")[-1] in AUTHORIZED_IDP:
+            error_message = f"Error: Permission denided. Authentication must come from {AUTHORIZED_IDP}."
+            return atv_response(is_valid=False, error_message=error_message, error_code=403)
+    except Exception as e:
+        error_message = f"Error: Something went wrong when parsing identity provider from username: {e}"
+        return atv_response(is_valid=False, error_message=error_message, error_code=400)
 
     # Make sure the authenticated user comes from an allowed domain
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
