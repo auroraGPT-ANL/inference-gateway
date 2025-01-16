@@ -134,12 +134,16 @@ class Batch(models.Model):
 
     # What did the user request?
     endpoint = models.CharField(max_length=250)
-    input_file_id = models.CharField(max_length=250) # actually a file path
+    input_file_id = models.CharField(max_length=250, unique=True)
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
     metadata = models.JSONField(default=dict)
     completion_window = models.CharField(max_length=100)
+
+    # List of Globus task UUIDs tied to the batch (string separated with ,)
+    globus_batch_uuid = models.CharField(max_length=100)
+    globus_task_uuids = models.TextField(null=True)
 
     # What is the status of the batch?
     object = models.CharField(max_length=100, default="batch")

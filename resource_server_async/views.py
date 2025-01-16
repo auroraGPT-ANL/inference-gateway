@@ -571,6 +571,16 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["input_file_id"] = batch_data["input_file_id"]
     db_data["completion_window"] = batch_data["completion_window"]
     db_data["metadata"] = batch_data["metadata"]
+    db_data["task_uuids"] = ""
+
+    # Error if a batch already exists with the same input_file_id
+    # TODO: More checks here to make sure we don't duplicate batches?
+    try:
+        if await sync_to_async(Batch.objects.filter)(input_file_id=batch_data["input_file_id"]).exists():
+            error_message = f"Error: Input file ID {batch_data["input_file_id"]} already used by another batch."
+            return await get_batch_response(db_data, error_message, 400)
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400)
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
@@ -621,18 +631,22 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if not endpoint_status["status"] == "online":
         return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
 
-    # TODO here: read file_id object from database (error if not existent), maybe do this up top
+    # TODO: extract inputs from input_file_id database entry
+    # TODO: create database model for InputBatchFile
 
     # Temp: This should be replace with proper inputs from database and from request
     params_list = [
         {
-            "input_file_id": batch_data["input_file_id"],
+            "input_file_path": "/path/to/file",
             "framework": framework,
             "model": batch_data["model"]
         }
     ]
 
     # Prepare the batch job
+    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
+    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
+    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
     batch = gcc.create_batch()
     for params in params_list:
         batch.add(function_id=function_uuid, args=[params])
@@ -642,14 +656,23 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
     except Exception as e:
         return await get_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
+    
+    # Extract the batch and task UUIDs from submission
+    try:
+        db_data["globus_batch_uuid"] = batch_response["request_id"]
+        for _, task_uuids in batch_response["tasks"].items():
+                db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
+        db_data["globus_task_uuids"] = db_data["globus_task_uuids"][:-1]
+    except Exception as e:
+        return await get_response(db_data, f"Error: Batch submitted but could not extract Globus UUIDs: {e}", 400)
 
-    #!!! TODO: need to be able to pass database model in the get_response(, ... , Log/Batch)
-    # NOTE: No need to check endpoint status (for endpoint-slug from database), just check batch endpoint status
-    # TODO: MAKE SURE TO NOT RUN EXISTING SAME INPUTS
-    # TODO: For now, DO ONE TASK PER BATCH 
-
-    ######### RETURN SOMETHING
-
+    # TODO: Return something more OpenAI style
+    response = {
+        "request_id": db_data["id"],
+        "globus_batch_uuid": db_data["globus_batch_uuid"],
+        "globus_task_uuids": db_data["globus_task_uuids"]
+    }
+    return await get_response(db_data, response, 200)
 
 
 # Get plain response
