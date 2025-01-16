@@ -17,13 +17,14 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     extract_group_uuids,
+    get_qstat_details,
     ALLOWED_QSTAT_ENDPOINTS,
-    get_qstat_details
+    ALLOWED_BATCH_ENDPOINTS
 )
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log, ListEndpointsLog
+from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch
 
 # Async tools
 from asgiref.sync import sync_to_async
@@ -551,7 +552,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Validate and build the inference request data
     batch_data = validate_request_body(request)
     if "error" in batch_data.keys():
-        !!! return await get_response(db_data, batch_data['error'], 400)
+        return await get_batch_response(db_data, batch_data['error'], 400)
     
     # Strip the last forward slash of endpoint if needed
     if batch_data["endpoint"][-1] == "/":
@@ -560,18 +561,92 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
     if len(error_message):
-        !!! return await get_response(db_data, error_message, 400)
+        return await get_batch_response(db_data, error_message, 400)
     
     # Update database entry
     db_data["cluster"] = cluster
-    db_data["cluster"] = cluster
     db_data["framework"] = framework
+    db_data["model"] = batch_data["model"]
     db_data["endpoint"] = batch_data["endpoint"]
     db_data["input_file_id"] = batch_data["input_file_id"]
     db_data["completion_window"] = batch_data["completion_window"]
     db_data["metadata"] = batch_data["metadata"]
 
-    !!! TODO: need to be able to pass database model in the get_response(, ... , Log/Batch)
+    # Build the requested endpoint slug
+    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
+    
+    # Pull the targetted endpoint UUID and function UUID from the database
+    try:
+        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+    except Endpoint.DoesNotExist:
+        return await get_batch_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+    
+    # Extract the list of allowed group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        return await get_batch_response(db_data, error_message, 401)
+    
+    # Block access if the user is not a member of at least one of the required groups
+    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
+        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+            return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
+
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500)
+
+    # Make sure the cluster has a batch endpoint
+    if not cluster in ALLOWED_BATCH_ENDPOINTS:
+        return await get_batch_response(db_data, f"Cluster {cluster} does not currently have a batch endpoint.", 501)
+
+    # Query the status of the Globus Compute batch endpoint
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
+    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
+    endpoint_slug = f"{cluster}/batch"
+    endpoint_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["endpoint_uuid"]
+    function_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["function_uuid"]
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint.endpoint_uuid, 
+        client=gcc, 
+        endpoint_slug=endpoint_slug
+    )
+    if len(error_message) > 0:
+        return await get_batch_response(db_data, error_message, 500)
+        
+    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
+    if not endpoint_status["status"] == "online":
+        return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
+
+    # TODO here: read file_id object from database (error if not existent), maybe do this up top
+
+    # Temp: This should be replace with proper inputs from database and from request
+    params_list = [
+        {
+            "input_file_id": batch_data["input_file_id"],
+            "framework": framework,
+            "model": batch_data["model"]
+        }
+    ]
+
+    # Prepare the batch job
+    batch = gcc.create_batch()
+    for params in params_list:
+        batch.add(function_id=function_uuid, args=[params])
+
+    # Submit batch to Globus Compute
+    try:
+        batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500)
+
+    #!!! TODO: need to be able to pass database model in the get_response(, ... , Log/Batch)
+    # NOTE: No need to check endpoint status (for endpoint-slug from database), just check batch endpoint status
+    # TODO: MAKE SURE TO NOT RUN EXISTING SAME INPUTS
+    # TODO: For now, DO ONE TASK PER BATCH 
 
     ######### RETURN SOMETHING
 
@@ -631,6 +706,31 @@ async def get_response(db_data, content, code):
         return HttpResponse(json.dumps(message), status=400)
     except Exception as e:
         message = f"Error: Something went wrong while trying to write to the Log database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+        
+    # Return the response or the error message
+    if code == 200:
+        return HttpResponse(content, status=code)
+    else:
+        log.error(content)
+        return HttpResponse(json.dumps(content), status=code)
+
+
+# Log and get batch response
+async def get_batch_response(db_data, content, code):
+    """Log result or error in the current Batch database model and return the HTTP response."""
+    
+    # Create and save database entry
+    try:
+        db_log = Batch(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        message = f"Error: Could not create or save database entry: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the database: {e}"
         log.error(message)
         return HttpResponse(json.dumps(message), status=400)
         
