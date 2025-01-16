@@ -87,6 +87,7 @@ class OpenAIBatchParamSerializer(serializer_utils.BaseSerializers):
     # Mandatory model parameters
     input_file_id = serializer_utils.TrueCharField(allow_blank=False, **MAND)
     endpoint = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+    model = serializer_utils.TrueCharField(allow_blank=False, **MAND)
     completion_window = serializer_utils.TrueCharField(allow_blank=False, **MAND)
 
     # Optional model parameters
