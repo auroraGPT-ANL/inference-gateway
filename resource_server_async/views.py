@@ -568,11 +568,74 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # TODO: Return something more OpenAI style
     response = {
-        "request_id": db_data["id"],
+        "id": db_data["id"],
         "globus_batch_uuid": db_data["globus_batch_uuid"],
         "globus_task_uuids": db_data["globus_task_uuids"]
     }
     return await get_batch_response(db_data, json.dumps(response), 200)
+
+
+# Inference batch status (GET)
+@router.get("/v1/batches/{batch_id}")
+async def get_batch_status(request, batch_id: str, *args, **kwargs):
+    """POST request to query status of an existing batch job."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # Recover batch object in the database
+    try:
+        batch = await sync_to_async(Batch.objects.get)(id=batch_id)
+    except Batch.DoesNotExist:
+        return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400)
+
+    # Make sure user has permission to access this batch_id
+    try:
+        if not atv_response.username == batch.username:
+            return await get_plain_response(f"Error: Permission denied to Batch {batch_id}.", 403)
+    except Exception as e:
+        return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
+    
+    # Recover list of Globus task UUIDs tied to the batch
+    try:
+        task_uuids = batch.globus_task_uuids.split(",")
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not extract list of task UUIDs for Batch {batch_id}", 400)
+
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not get the Globus Compute client: {e}", 500)
+
+    # Get batch status from Globus
+    try:
+        status_response = gcc.get_batch_result(task_uuids)
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not recover batch status: {e}", 500)
+    
+    # Assign the batch status based on the Globus response
+    try:
+        pending_list = []
+        status_list = []
+        for _, status in status_response.items():
+            pending_list.append(status["pending"])
+            status_list.append(status["status"])
+        if pending_list.count(True) > 0:
+            batch_status = "in_progress"
+        elif status_list.count("success") == len(status_list):
+            batch_status = "completed"
+        else:
+            batch_status = "failed"
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not parse gcc.get_batch_result response : {e}", 400)
+
+    # Return status of the batch job
+    return await get_plain_response(batch_status, 200)
 
 
 # Inference (POST)
