@@ -157,3 +157,9 @@ def check_globus_policies(introspection):
 # Mock check_globus_groups function
 def check_globus_groups(my_groups):
     return True, ""
+
+
+# Mock check_session_info function
+def check_session_info(introspection):
+    return True, "mock_username", ""
+

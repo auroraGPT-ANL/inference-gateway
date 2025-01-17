@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 """
 
 from pathlib import Path
+import json
 import os
 from dotenv import load_dotenv
 from inference_gateway.utils import textfield_to_strlist
@@ -52,6 +53,11 @@ GLOBUS_POLICIES = ",".join(GLOBUS_POLICIES)
 # Extract allowed Globus groups that will determine which individuals get access
 GLOBUS_GROUPS = textfield_to_strlist(os.getenv("GLOBUS_GROUPS", ""))
 NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
+
+# Extract allowed identity providers
+AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
+AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDPS.keys())
+AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDPS.values())
 
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]

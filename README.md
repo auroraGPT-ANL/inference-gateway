@@ -39,15 +39,30 @@ GLOBUS_APPLICATION_SECRET="<Globus-vLLM-API-client-secret>"
 POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
 POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
 DEBUG=False
-GLOBUS_GROUPS="<globus-group-uuid>"
-GLOBUS_POLICIES="<globus-policy-uuid>"
+GLOBUS_GROUPS="
+<globus-group-uuid-1>
+<globus-group-uuid-2>
+...
+"
+GLOBUS_POLICIES="
+<globus-policy-uuid-1>
+<globus-policy-uuid-2>
+...
+"
+AUTHORIZED_IDPS='
+{
+    "<identity-provider-name-1>" : "<identity-provider-uuid-1>",
+    "<identity-provider-name-2>" : "<identity-provider-uuid-2>"
+}
+'
+
 PGHOST="localhost"
 PGPORT=5432
 PGDATABASE="<Postgres DB Name>"
 PGUSER="<Postgres User Name>"
 ```
 
-The official Inference Group and Policy UUIDs for `GLOBUS_GROUPS` and `GLOBUS_POLICIES` are 1e56984c-d5ae-11ee-8844-b93550bcf92a and 41689588-6a11-4ce9-aa24-f196ca7bf774, respectively.
+`GLOBUS_POLICIES` should be High Assurance policies to enforce a check on the identity provider used to authenticate. `AUTHORIZED_IDPS` are additional manual authorization checks that can be enforced in the API directly.
 
 ### Local Database
 
