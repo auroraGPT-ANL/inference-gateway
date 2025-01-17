@@ -18,10 +18,12 @@ class AuthUtilsError(Exception):
     pass
 
 # Authorized identity providers
-AUTHORIZED_IDP_UUIDS = [
-    "5c05e97d-eb43-4a2a-8eaa-eb8fb95cb444", # Argonne National Laboratory
-    "e8e23b57-ccc0-4516-8724-1dac74b9f49a" # Argonne LCF
-]
+AUTHORIZED_IDP = {
+    "Argonne National Laboratory": "5c05e97d-eb43-4a2a-8eaa-eb8fb95cb444",
+    "Argonne LCF": "e8e23b57-ccc0-4516-8724-1dac74b9f49a"
+}
+AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDP.keys())
+AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDP.values())
  
 
 # Data structure returned by the access token validation function
@@ -158,7 +160,6 @@ def check_session_info(introspection):
 
                 # Extract the username tied to the authorized identity provider
                 for identity_set in introspection["identity_set_detail"]:
-                    print(identity_set)
                     if auth["idp"] == identity_set["identity_provider"]:
                         auth_username = identity_set["username"]
 
@@ -170,7 +171,7 @@ def check_session_info(introspection):
         return False, None, f"Error: Could not inspect session info: {e}"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, "Error: Permission denied. Identity provider not permitted"
+    return False, None, f"Error: Permission denied. Authenticate with {AUTHORIZED_IDP_NAMES}"
 
 
 # Validate access token sent by user
