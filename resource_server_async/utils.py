@@ -32,8 +32,8 @@ ALLOWED_QSTAT_ENDPOINTS = {
 
 ALLOWED_BATCH_ENDPOINTS = {
     "sophia":{
-        "endpoint_uuid":"...",
-        "function_uuid":"..."
+        "endpoint_uuid": "...",
+        "function_uuid": "..."
     }
 }
 
@@ -139,7 +139,7 @@ def validate_batch_body(request):
         return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
 
     # Build request data if nothing wrong was caught
-    return {"batch_params": batch_params}
+    return batch_params
 
 
 # Extract group UUIDs from an allowed_globus_groups model field

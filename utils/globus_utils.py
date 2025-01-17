@@ -119,3 +119,30 @@ def get_task_uuid(future):
         return future.task_id
     except:
         return None
+    
+
+# Get batch status
+@cached(cache=TTLCache(maxsize=1024, ttl=30))
+def get_batch_status(task_uuids_comma_separated):
+    """
+    Get status and results (if available) of all Globus tasks 
+    associated with a batch object.
+    """
+
+    # Recover list of Globus task UUIDs tied to the batch
+    try:
+        task_uuids = task_uuids_comma_separated.split(",")
+    except Exception as e:
+        return None, f"Error: Could not extract list of batch task UUIDs", 400
+
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        gcc = get_compute_client_from_globus_app()
+    except Exception as e:
+        return None, f"Error: Could not get the Globus Compute client: {e}", 500
+
+    # Get batch status from Globus and return the response
+    try:
+        return gcc.get_batch_result(task_uuids), "", 200
+    except Exception as e:
+        return None, f"Error: Could not recover batch status: {e}", 500
