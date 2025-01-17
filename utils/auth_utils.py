@@ -121,7 +121,7 @@ def check_globus_policies(introspection):
     # Return False if the user failed to meet one of the policies 
     for policies in introspection["policy_evaluations"].values():
         if policies.get("evaluation",False) == False:
-            return False, "One of the Globus policies blocked the access to the service."
+            return False, "Error: Permission denied from Globus policies."
 
     # Return True if the user met all of the policies requirements
     return True, ""
@@ -171,7 +171,7 @@ def check_session_info(introspection):
         return False, None, f"Error: Could not inspect session info: {e}"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Authenticate with {AUTHORIZED_IDP_NAMES}"
+    return False, None, f"Error: Permission denied. Must authenticate with {AUTHORIZED_IDP_NAMES}"
 
 
 # Validate access token sent by user
@@ -212,6 +212,7 @@ def validate_access_token(request):
         return atv_response(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user comes from an allowed domain
+    # Those must be a high-assurance policies
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
         successful, error_message = check_globus_policies(introspection)
         if not successful:
