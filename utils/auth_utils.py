@@ -16,14 +16,6 @@ log = logging.getLogger(__name__)
 # Exception to raise in case of errors
 class AuthUtilsError(Exception):
     pass
-
-# Authorized identity providers
-AUTHORIZED_IDP = {
-    "Argonne National Laboratory": "5c05e97d-eb43-4a2a-8eaa-eb8fb95cb444",
-    "Argonne LCF": "e8e23b57-ccc0-4516-8724-1dac74b9f49a"
-}
-AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDP.keys())
-AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDP.values())
  
 
 # Data structure returned by the access token validation function
@@ -154,9 +146,9 @@ def check_session_info(introspection):
     # Try to check if an authentication came from authorized provider
     try:
 
-        # If there is an authorized authentication ...
+        # If there is an authorized authentication (or if no AUTHORIZED_IDP_UUIDS was provided) ...
         for _, auth in introspection["session_info"]["authentications"].items():
-            if auth["idp"] in AUTHORIZED_IDP_UUIDS:
+            if auth["idp"] in settings.AUTHORIZED_IDP_UUIDS or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
 
                 # Extract the username tied to the authorized identity provider
                 for identity_set in introspection["identity_set_detail"]:
@@ -171,7 +163,7 @@ def check_session_info(introspection):
         return False, None, f"Error: Could not inspect session info: {e}"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {AUTHORIZED_IDP_NAMES}"
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_NAMES}"
 
 
 # Validate access token sent by user
