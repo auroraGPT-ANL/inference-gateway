@@ -12,6 +12,7 @@ import asyncio
 import utils.auth_utils as auth_utils
 import utils.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
+auth_utils.check_session_info = mock_utils.check_session_info
 auth_utils.get_globus_client = mock_utils.get_globus_client
 auth_utils.check_globus_policies = mock_utils.check_globus_policies
 auth_utils.check_globus_groups = mock_utils.check_globus_groups
