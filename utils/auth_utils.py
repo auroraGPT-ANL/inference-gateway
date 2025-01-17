@@ -18,7 +18,11 @@ class AuthUtilsError(Exception):
     pass
 
 # Authorized identity providers
-AUTHORIZED_IDP = ["anl.gov", "alcf.anl.gov"] 
+AUTHORIZED_IDP_UUIDS = [
+    "5c05e97d-eb43-4a2a-8eaa-eb8fb95cb444", # Argonne National Laboratory
+    "e8e23b57-ccc0-4516-8724-1dac74b9f49a" # Argonne LCF
+]
+ 
 
 # Data structure returned by the access token validation function
 @dataclass
@@ -59,6 +63,7 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     introspect_body = {"token": bearer_token}
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
         introspect_body["authentication_policies"] = settings.GLOBUS_POLICIES
+    introspect_body["include"] = "session_info,identity_set_detail"
 
     # Introspect the token through the Globus Auth API (including policy evaluation)
     try: 
@@ -134,6 +139,38 @@ def check_globus_groups(user_groups):
     # Deny access if authenticated user is not part of any of the allowed Globus Groups
     else:
         return False, f"Error: User is not a member of an allowed Globus Group."
+    
+
+# Check Session Info
+def check_session_info(introspection):
+    """
+        Look into the session_info field of the token introspection
+        and check whether the authentication was made through one 
+        of the authorized identity providers.
+    """
+
+    # Try to check if an authentication came from authorized provider
+    try:
+
+        # If there is an authorized authentication ...
+        for _, auth in introspection["session_info"]["authentications"].items():
+            if auth["idp"] in AUTHORIZED_IDP_UUIDS:
+
+                # Extract the username tied to the authorized identity provider
+                for identity_set in introspection["identity_set_detail"]:
+                    print(identity_set)
+                    if auth["idp"] == identity_set["identity_provider"]:
+                        auth_username = identity_set["username"]
+
+                # Return successful check along with username
+                return True, auth_username, ""
+            
+    # Revoke access if something went wrong during the check
+    except Exception as e:
+        return False, None, f"Error: Could not inspect session info: {e}"
+    
+    # Revoke access if authentication did not come from authorized provider
+    return False, None, "Error: Permission denied. Identity provider not permitted"
 
 
 # Validate access token sent by user
@@ -169,36 +206,32 @@ def validate_access_token(request):
         return atv_response(is_valid=False, error_message="Error: Access token expired.", error_code=401)
     
     # Make sure the authentication was made by an authorized identity provider
-    try:
-        if not introspection["username"].split("@")[-1] in AUTHORIZED_IDP:
-            error_message = f"Error: Permission denided. Authentication must come from {AUTHORIZED_IDP}."
-            return atv_response(is_valid=False, error_message=error_message, error_code=403)
-    except Exception as e:
-        error_message = f"Error: Something went wrong when parsing identity provider from username: {e}"
-        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+    successful, auth_username, error_message = check_session_info(introspection)
+    if not successful:
+        return atv_response(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user comes from an allowed domain
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
         successful, error_message = check_globus_policies(introspection)
         if not successful:
-            return atv_response(is_valid=False, error_message=error_message, error_code=401)
+            return atv_response(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
         successful, error_message = check_globus_groups(user_groups)
         if not successful:
-            return atv_response(is_valid=False, error_message=error_message, error_code=401)
+            return atv_response(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the user's identity can be recorded
-    if len(introspection["name"]) == 0 or len(introspection["username"]) == 0:
-        return atv_response(is_valid=False, error_message="Error: Name and username could not be recovered.", error_code=400)
+    if len(introspection["name"]) == 0 or len(auth_username) == 0:
+        return atv_response(is_valid=False, error_message="Error: Name and usernames could not be recovered.", error_code=400)
 
     # Return valid token response
     log.info(f"{introspection['name']} requesting {introspection['scope']}")
     return atv_response(
         is_valid=True,
         name=introspection["name"],
-        username=introspection["username"],
+        username=auth_username,
         user_group_uuids=user_groups
     )
 
