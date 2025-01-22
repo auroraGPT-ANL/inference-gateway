@@ -17,6 +17,7 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
+    validate_file_body,
     extract_group_uuids,
     get_qstat_details,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -25,7 +26,7 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch
+from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, File
 
 # Async tools
 from asgiref.sync import sync_to_async
@@ -421,6 +422,45 @@ async def get_jobs(request, cluster:str):
     return await get_list_response(db_data, result, 200)
 
 
+# Import file path (POST)
+# TODO: Should we check if the input file path already exists in the database?
+@router.post("/v1/files")
+async def post_batch_file(request, *args, **kwargs):
+    """POST request to import input file path for running batches."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+    
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_response() function
+    db_data = {
+        "input_file_id": str(uuid.uuid4()),
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "created_at": timezone.now(),
+    }
+
+    # Validate and build the file input request data
+    file_data = validate_file_body(request)
+    if "error" in file_data.keys():
+        return await get_batch_response(db_data, file_data['error'], 400, db_Model=File)
+        
+    # Update database entry
+    db_data["input_file_path"] = file_data["input_file_path"]
+
+    # Create file entry in the database and return the file UUID to the user
+    response = {
+        "id": db_data["input_file_id"],
+        "object": "file",
+        "created_at": int(db_data["created_at"].timestamp()),
+        "filename": db_data["input_file_path"],
+        "purpose": "",
+    }
+    return await get_batch_response(db_data, json.dumps(response), 200, db_Model=File)
+
+
 # Inference batch (POST)
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
@@ -444,7 +484,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         "name": atv_response.name,
         "username": atv_response.username,
         "created_at": timezone.now(),
-        "object": "batch"
     }
     
     # Validate and build the inference request data
@@ -466,8 +505,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["endpoint"] = batch_data["endpoint"]
-    db_data["completion_window"] = batch_data["completion_window"]
-    db_data["metadata"] = batch_data.get("metadata", "")
 
     # Error if a batch already exists with the same input_file_id
     # TODO: More checks here to make sure we don't duplicate batches?
