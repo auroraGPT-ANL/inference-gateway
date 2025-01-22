@@ -424,6 +424,7 @@ async def get_jobs(request, cluster:str):
 
 # Import file path (POST)
 # TODO: Should we check if the input file path already exists in the database?
+# TODO: Use primary identity username to claim ownership on files and batches
 @router.post("/v1/files")
 async def post_batch_file(request, *args, **kwargs):
     """POST request to import input file path for running batches."""
@@ -462,6 +463,7 @@ async def post_batch_file(request, *args, **kwargs):
 
 
 # Inference batch (POST)
+# TODO: Use primary identity username to claim ownership on files and batches
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
@@ -505,22 +507,18 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["endpoint"] = batch_data["endpoint"]
+    db_data["input_file_id"] = batch_data["input_file_id"]
+    db_data["completion_window"] = batch_data["completion_window"]
+    db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
-    # Error if a batch already exists with the same input_file_id
-    # TODO: More checks here to make sure we don't duplicate batches?
-    try:
-        batch = await sync_to_async(Batch.objects.get)(input_file_id=batch_data["input_file_id"])
-        error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by another batch."
-        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
-    except Batch.DoesNotExist:
-        pass # Batch can only be submitted if the input_file_id is not used by any other batches
-    except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400, db_Model=Batch)
+    # Make sure the cluster has a batch endpoint
+    if not cluster in ALLOWED_BATCH_ENDPOINTS:
+        return await get_batch_response(db_data, f"Cluster {cluster} does not have a batch endpoint.", 501, db_Model=Batch)
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
     
-    # Pull the targetted endpoint UUID and function UUID from the database
+    # Pull the targetted endpoint UUID and function UUID from the database (to check if user is permitted to run this model)
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
     except Endpoint.DoesNotExist:
@@ -538,15 +536,26 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401, db_Model=Batch)
 
+    # Error if an ongoing batch already exists with the same input_file_id
+    # TODO: More checks here to make sure we don't duplicate batches?
+    #       Do we allow multiple batches on the same file on different clusters?
+    #       Do we allow re-run of the same batch if previous ones are completed?
+    try:
+        async for batch in Batch.objects.filter(input_file_id=batch_data["input_file_id"]):
+            print(batch.input_file_id, batch.username, batch.status)
+            if not batch.status in ["failed", "completed"]:
+                error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by ongoing batch {batch.id}."
+                return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    except Batch.DoesNotExist:
+        pass # Batch can be submitted if the input_file_id is not used by any other batches
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400, db_Model=Batch)
+
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500, db_Model=Batch)
-
-    # Make sure the cluster has a batch endpoint
-    if not cluster in ALLOWED_BATCH_ENDPOINTS:
-        return await get_batch_response(db_data, f"Cluster {cluster} does not have a batch endpoint.", 501, db_Model=Batch)
 
     # Query the status of the Globus Compute batch endpoint
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
@@ -562,34 +571,56 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if len(error_message) > 0:
         return await get_batch_response(db_data, error_message, 500, db_Model=Batch)
 
-    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
+    # Error if the endpoint is not online
     if not endpoint_status["status"] == "online":
         return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503, db_Model=Batch)
+    
+    # Recover file database entry
+    try:
+        file = await sync_to_async(File.objects.get)(input_file_id=batch_data["input_file_id"])
+    except Batch.DoesNotExist:
+        error_message = f"Error: Input file ID {batch_data['input_file_id']} does not exist."
+        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    except Exception as e:
+        error_message = f"Error: Could not extract Input file ID {batch_data['input_file_id']} from database: {e}"
+        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
 
-    # TODO: extract inputs from input_file_id database entry
-    # TODO: create database model for InputBatchFile
+    # Recover file path and check if the user owns the batch job
+    try:
+        input_file_path = file.input_file_path
+        if not file.username == atv_response.username:
+            error_message = f"Error: Permission denied to File {batch_data['input_file_id']}."
+            return await get_batch_response(db_data, error_message, 403, db_Model=Batch)
+    except Exception as e:
+        error_message = f"Error: Something went accessing file.username or file.input_file_path: {e}"
+        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
 
-    # Temp: This should be replace with proper inputs from database and from request
+    # Prepare input parameter for the compute tasks
+    # NOTE: This is already in list format in case we submit multiple tasks per batch
+    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
+    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
+    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
     params_list =[
         {
-            "input_file_path": "/path/to/file",
+            "batch_id": db_data["id"],
+            "input_file_path": input_file_path,
             "framework": framework,
             "model": batch_data["model"]
         }
     ]
 
     # Prepare the batch job
-    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
-    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
-    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
-    batch = gcc.create_batch()
-    for params in params_list:
-        batch.add(function_id=function_uuid, args=[params])
+    try:
+        batch = gcc.create_batch()
+        for params in params_list:
+            batch.add(function_id=function_uuid, args=[params])
+    except Exception as e:
+        return await get_batch_response(db_data, f"Error: Could not create Globus Compute batch: {e}", 500, db_Model=Batch)
 
     # Submit batch to Globus Compute and assign the input_file_id to the database if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
-        db_data["input_file_id"] = batch_data["input_file_id"]
+        db_data["status"] = "submitted"
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500, db_Model=Batch)
     
@@ -608,16 +639,43 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Batch submitted but no task UUID recovered: {e}", 400, db_Model=Batch)
 
-    # TODO: Return something more OpenAI style
+    # Create batch entry in the database and return response to the user
+    # TODO: Make serializer for batch object
+    db_data["status"] = "pending"
     response = {
         "id": db_data["id"],
-        "globus_batch_uuid": db_data["globus_batch_uuid"],
-        "globus_task_uuids": db_data["globus_task_uuids"]
+        "object": "batch",
+        "endpoint": db_data["endpoint"],
+        "errors": None,
+        "input_file_id": db_data["input_file_id"],
+        "completion_window": db_data["completion_window"],
+        "status": db_data["status"],
+        "output_file_id": None,
+        "error_file_id": None,
+        "created_at": int(db_data["created_at"].timestamp()),
+        "in_progress_at": None,
+        "expires_at": None,
+        "finalizing_at": None,
+        "completed_at": None,
+        "failed_at": None,
+        "expired_at": None,
+        "cancelling_at": None,
+        "cancelled_at": None,
+        "request_counts": {
+            "total": 0,
+            "completed": 0,
+            "failed": 0
+        },
+        "metadata": {
+            "customer_id": db_data["username"],
+            "batch_description": "",
+        }
     }
     return await get_batch_response(db_data, json.dumps(response), 200, db_Model=Batch)
 
 
 # Inference batch status (GET)
+# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches/{batch_id}")
 async def get_batch_status(request, batch_id: str, *args, **kwargs):
     """GET request to query status of an existing batch job."""
@@ -680,6 +738,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
 
 # Inference batch result (GET)
+# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches/{batch_id}/result")
 async def get_batch_result(request, batch_id: str, *args, **kwargs):
     """GET request to recover result from an existing batch job."""
