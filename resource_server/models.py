@@ -142,7 +142,7 @@ class Batch(models.Model):
     model = models.CharField(max_length=250)
     # OpenAI extra fields
     #metadata = models.JSONField(default=dict)
-    #completion_window = models.CharField(max_length=100)
+    completion_window = models.CharField(max_length=100)
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)
