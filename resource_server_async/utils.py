@@ -2,7 +2,8 @@ from utils.serializers import (
     OpenAICompletionsParamSerializer, 
     OpenAIChatCompletionsParamSerializer, 
     OpenAIEmbeddingsParamSerializer,
-    OpenAIBatchParamSerializer
+    OpenAIBatchParamSerializer,
+    OpenAIFileUploadParamSerializer
 )
 from rest_framework.exceptions import ValidationError
 import json
@@ -83,6 +84,7 @@ def extract_prompt(model_params):
 
 
 # Validate request body
+# TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
         
@@ -121,17 +123,28 @@ def validate_request_body(request, openai_endpoint):
 # Validate batch body
 def validate_batch_body(request):
     """Build data dictionary for inference batch request if user inputs are valid."""
+    return validate_body(request, OpenAIBatchParamSerializer)
+
+
+# Validate file body
+def validate_file_body(request):
+    """Build data dictionary for inference file path import request if user inputs are valid."""
+    return validate_body(request, OpenAIFileUploadParamSerializer)
+
+
+# Validate body
+def validate_body(request, serializer_class):
+    """Build data dictionary from user inputs if valid from given parameter serializer."""
                 
     # Decode request body into a dictionary
     try:
-        batch_params = json.loads(request.body.decode("utf-8"))
+        params = json.loads(request.body.decode("utf-8"))
     except:
-        return {"error": f"Error: Batch request body cannot be decoded."}
+        return {"error": f"Error: Request body cannot be decoded."}
 
     # Send an error if the input data is not valid
-    # TODO: Check if serializer.is_valid
     try:
-        serializer = OpenAIBatchParamSerializer(data=batch_params)
+        serializer = serializer_class(data=params)
         _ = serializer.is_valid(raise_exception=True)
     except ValidationError as e:
         return {"error": f"Error: Could not validate data: {e}"}
@@ -139,7 +152,7 @@ def validate_batch_body(request):
         return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
 
     # Build request data if nothing wrong was caught
-    return batch_params
+    return params
 
 
 # Extract group UUIDs from an allowed_globus_groups model field
