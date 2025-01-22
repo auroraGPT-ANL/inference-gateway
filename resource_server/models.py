@@ -70,6 +70,7 @@ class Log(models.Model):
     # Whether the request is synchronous
     # If True, the view waited for the compute results
     # If False, the view returns the compute task UUID
+    # TODO: This is not needed anymore
     sync = models.BooleanField()
 
     # Time when the HTTP request was received (after the auth checks)
@@ -123,6 +124,7 @@ class ListEndpointsLog(models.Model):
         return f"<{self.username} - {self.timestamp_receive} - {self.response_status}>"
 
 
+# Log for batch requests
 class Batch(models.Model):
 
     # Unique UUID assigned to the batch request
@@ -138,29 +140,53 @@ class Batch(models.Model):
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
-    metadata = models.JSONField(default=dict)
-    completion_window = models.CharField(max_length=100)
+    # OpenAI extra fields
+    #metadata = models.JSONField(default=dict)
+    #completion_window = models.CharField(max_length=100)
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)
     globus_task_uuids = models.TextField(null=True)
+    result = models.TextField(blank=True)
 
     # What is the status of the batch?
-    object = models.CharField(max_length=100, default="batch")
-    errors = models.JSONField(default=dict)
     status = models.CharField(max_length=250, default="pending")
-    output_file_id = models.CharField(max_length=250, blank=True)
-    error_file_id = models.CharField(max_length=250, blank=True)
     created_at = models.DateTimeField(default=now)
     in_progress_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
-    finalizing_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     failed_at = models.DateTimeField(null=True, blank=True)
-    expired_at = models.DateTimeField(null=True, blank=True)
-    cancelling_at = models.DateTimeField(null=True, blank=True)
-    cancelled_at = models.DateTimeField(null=True, blank=True)
-    request_counts = models.JSONField(default=dict)
+    # OpenAI extra fields
+    #output_file_id = models.CharField(max_length=250, blank=True)
+    #error_file_id = models.CharField(max_length=250, blank=True)
+    #expires_at = models.DateTimeField(null=True, blank=True)
+    #finalizing_at = models.DateTimeField(null=True, blank=True)
+    #object = models.CharField(max_length=100, default="batch")
+    #errors = models.JSONField(default=dict)
+    #expired_at = models.DateTimeField(null=True, blank=True)
+    #cancelling_at = models.DateTimeField(null=True, blank=True)
+    #cancelled_at = models.DateTimeField(null=True, blank=True)
+    #request_counts = models.JSONField(default=dict)
+
+    # String function
+    def __str__(self):
+        return f"Batch - <{self.username} - {self.created_at}>"
+
+
+# Log for file path imports
+class File(models.Model):
+
+    # Unique UUID assigned to the input file path request
+    input_file_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Input file path on the HPC resource
+    input_file_path = models.TextField(blank=False, null=False)
+    
+    # Who submitted the batch?
+    name = models.CharField(max_length=100)
+    username = models.CharField(max_length=100)
+
+    # Timestamp
+    created_at = models.DateTimeField(default=now)
 
     # String function
     def __str__(self):
