@@ -542,7 +542,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     #       Do we allow re-run of the same batch if previous ones are completed?
     try:
         async for batch in Batch.objects.filter(input_file_id=batch_data["input_file_id"]):
-            print(batch.input_file_id, batch.username, batch.status)
             if not batch.status in ["failed", "completed"]:
                 error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by ongoing batch {batch.id}."
                 return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
