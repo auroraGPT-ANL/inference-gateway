@@ -364,7 +364,18 @@
             "endpoint_uuid": "c8e147c8-5a53-438d-a286-d625560a252a",
             "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
         }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 29,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-deepseek-aideepseek-r1",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "deepseek-ai/DeepSeek-R1",
+            "api_port": 8000,
+            "endpoint_uuid": "712bd6f6-7f1c-45cd-9672-81d579faf4db",
+            "function_uuid": "3073ed77-6a17-4e85-826a-e1dca5309e01"
+        }
     }
-
-
 ]
