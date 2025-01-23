@@ -119,8 +119,8 @@ def chunked_vllm_inference_function(parameters):
     input_file = model_params.get('input_file')
     final_output_dir = model_params.get('output_file_path', '/lus/eagle/projects/argonne_tpc/inference-service-batch-results/')
     chunk_size = model_params.get('chunk_size', 20000)
-    username = parameters.get('username', 'anonymous')
-    final_output_dir = os.path.join(final_output_dir, username)
+    batch_id = parameters.get('batch_id','12345')
+    final_output_dir = os.path.join(final_output_dir, batch_id)
     if not model_name:
         raise ValueError("Missing parameter 'model' in model_params.")
     if not input_file:
@@ -129,8 +129,8 @@ def chunked_vllm_inference_function(parameters):
     # Construct unique final output + progress file paths
     base = os.path.splitext(os.path.basename(input_file))[0]
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-    final_output_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{username}_{timestamp_str}.results.jsonl")
-    progress_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{username}_{timestamp_str}.progress.json")
+    final_output_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{timestamp_str}.results.jsonl")
+    progress_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{timestamp_str}.progress.json")
 
     # 2) Validate input file
     if not os.path.isfile(input_file):
