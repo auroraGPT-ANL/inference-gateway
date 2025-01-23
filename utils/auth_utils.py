@@ -113,7 +113,14 @@ def check_globus_policies(introspection):
     # Return False if the user failed to meet one of the policies 
     for policies in introspection["policy_evaluations"].values():
         if policies.get("evaluation",False) == False:
-            return False, "Error: Permission denied from Globus policies."
+            error_message = "Error: Permission denied from internal policies. "
+            error_message += "This is likely due to a high-assurance timeout. "
+            error_message += "Please try to re-authenticate with the following command: "
+            error_message += "'python3 inference_auth_token.py authenticate --force'. "
+            error_message += "If this is due to an unauthorized identity provider, "
+            error_message += "please logout by visiting https://app.globus.org/logout, "
+            error_message += f"and re-authenticate with {settings.AUTHORIZED_IDP_NAMES}."
+            return False, error_message
 
     # Return True if the user met all of the policies requirements
     return True, ""
