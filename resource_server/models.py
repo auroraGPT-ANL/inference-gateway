@@ -181,11 +181,11 @@ class File(models.Model):
     # Input file path on the HPC resource
     input_file_path = models.TextField(blank=False, null=False)
     
-    # Who submitted the batch?
+    # Info on who submited the file path
     name = models.CharField(max_length=100)
     username = models.CharField(max_length=100)
 
-    # Timestamp
+    # Timestamps
     created_at = models.DateTimeField(default=now)
 
     # String function
