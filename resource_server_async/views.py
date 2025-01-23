@@ -764,13 +764,13 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     except Exception as e:
         return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
         
-    # Return error if results are not ready yet
-    if not batch.status == "completed":
-        return await get_plain_response("Error: Batch not completed yet. Results not ready.", 400)
-    
     # Return error if batch failed
     if batch.status == "failed":
         return await get_plain_response("Error: Batch failed.", 400)
+
+    # Return error if results are not ready yet
+    if not batch.status == "completed":
+        return await get_plain_response("Error: Batch not completed yet. Results not ready.", 400)
 
     # Return result if already in the database
     if len (batch.result) > 0:
