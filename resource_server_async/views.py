@@ -721,6 +721,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
         elif status_list.count("success") == len(status_list):
             batch_status = "completed"
         else:
+            #TODO: Figure out how to be resilient and restart failed jobs?
             batch_status = "failed"
     except Exception as e:
         return await get_plain_response(f"Error: Could not parse gcc.get_batch_result response: {e}", 400)
