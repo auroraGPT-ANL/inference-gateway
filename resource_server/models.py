@@ -135,14 +135,15 @@ class Batch(models.Model):
     username = models.CharField(max_length=100)
 
     # What did the user request?
-    endpoint = models.CharField(max_length=250)
-    input_file = models.CharField(max_length=250)
+    input_file = models.CharField(max_length=500)
+    output_file = models.CharField(max_length=500, blank=True)
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
     # OpenAI extra fields
     #metadata = models.JSONField(default=dict)
-    completion_window = models.CharField(max_length=100)
+    #completion_window = models.CharField(max_length=100)
+    #endpoint = models.CharField(max_length=250)
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)

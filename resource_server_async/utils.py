@@ -2,8 +2,8 @@ from utils.serializers import (
     OpenAICompletionsParamSerializer, 
     OpenAIChatCompletionsParamSerializer, 
     OpenAIEmbeddingsParamSerializer,
-    OpenAIBatchParamSerializer,
-    OpenAIFileUploadParamSerializer
+    BatchParamSerializer,
+    #OpenAIFileUploadParamSerializer
 )
 from rest_framework.exceptions import ValidationError
 import json
@@ -123,13 +123,13 @@ def validate_request_body(request, openai_endpoint):
 # Validate batch body
 def validate_batch_body(request):
     """Build data dictionary for inference batch request if user inputs are valid."""
-    return validate_body(request, OpenAIBatchParamSerializer)
+    return validate_body(request, BatchParamSerializer)
 
 
 # Validate file body
-def validate_file_body(request):
-    """Build data dictionary for inference file path import request if user inputs are valid."""
-    return validate_body(request, OpenAIFileUploadParamSerializer)
+#def validate_file_body(request):
+#    """Build data dictionary for inference file path import request if user inputs are valid."""
+#    return validate_body(request, OpenAIFileUploadParamSerializer)
 
 
 # Validate body

@@ -506,9 +506,8 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["cluster"] = cluster
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
-    db_data["endpoint"] = batch_data["endpoint"]
     db_data["input_file"] = batch_data["input_file"]
-    db_data["completion_window"] = batch_data["completion_window"]
+    db_data["output_file"] = batch_data.get("output_file", "")
     db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
     # Make sure the cluster has a batch endpoint
@@ -641,10 +640,8 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     response = {
         "batch_id": db_data["batch_id"],
         "object": "batch",
-        "endpoint": db_data["endpoint"],
         "errors": None,
         "input_file": db_data["input_file"],
-        "completion_window": db_data["completion_window"],
         "status": db_data["status"],
         "output_file_id": None,
         "error_file_id": None,
