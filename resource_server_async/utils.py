@@ -43,7 +43,23 @@ class ResourceServerError(Exception):
     pass
 
 
+# Validate cluster and framework
+def validate_cluster_framework(cluster: str, framework: str):
+
+    # Error message if cluster not available
+    if not cluster in ALLOWED_CLUSTERS:
+        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
+    
+    # Error message if framework not available
+    if not framework in ALLOWED_FRAMEWORKS[cluster]:
+        return f"Error: {framework} framework not supported. Currently supporting {ALLOWED_FRAMEWORKS[cluster]}."
+
+    # No error message if the inputs are valid
+    return ""
+
+
 # Validate URL inputs
+# TODO: Incorporate re-usable validate_cluster_framework function
 def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
     """Validate user inputs from POST requests."""
 

@@ -14,6 +14,7 @@ from utils.auth_utils import validate_access_token
 import utils.globus_utils as globus_utils
 from resource_server_async.utils import (
     validate_url_inputs, 
+    validate_cluster_framework,
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
@@ -494,11 +495,12 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         return await get_batch_response(db_data, batch_data['error'], 400, db_Model=Batch)
 
     # Strip the last forward slash of endpoint if needed
-    if batch_data["endpoint"][-1] == "/":
-        batch_data["endpoint"] = batch_data["endpoint"][:-1]
+    #if batch_data["endpoint"][-1] == "/":
+    #    batch_data["endpoint"] = batch_data["endpoint"][:-1]
 
     # Make sure the URL inputs point to an available endpoint 
-    error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
+    #error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
+    error_message = validate_cluster_framework(cluster, framework)
     if len(error_message):
         return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
     
