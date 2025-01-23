@@ -771,6 +771,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     # Return error if results are not ready yet
     if not batch.status == "completed":
         return await get_plain_response("Error: Batch not completed yet. Results not ready.", 400)
+    # TODO: Implement re-usable batch_check_status function to be able to query latest status here (without code duplication)
 
     # Return result if already in the database
     if len (batch.result) > 0:
