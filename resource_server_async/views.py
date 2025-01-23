@@ -507,7 +507,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["input_file"] = batch_data["input_file"]
-    db_data["output_file"] = batch_data.get("output_file", "")
+    db_data["output_file_path"] = batch_data.get("output_file_path", "")
     db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
     # Make sure the cluster has a batch endpoint
@@ -595,14 +595,17 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Prepare input parameter for the compute tasks
     # NOTE: This is already in list format in case we submit multiple tasks per batch
-    params_list =[
+    params_list = [
         {
+            "model_params": {
+                "input_file": batch_data["input_file"],
+                "model": batch_data["model"]
+            },
             "batch_id": db_data["batch_id"],
-            "input_file": batch_data["input_file"],
-            "framework": framework,
-            "model": batch_data["model"]
         }
     ]
+    if "output_file_path" in batch_data:
+        params_list[0]["model_params"]["output_file_path"] = batch_data["output_file_path"]
 
     # Prepare the batch job
     try:
@@ -639,30 +642,8 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["status"] = "pending"
     response = {
         "batch_id": db_data["batch_id"],
-        "object": "batch",
-        "errors": None,
         "input_file": db_data["input_file"],
-        "status": db_data["status"],
-        "output_file_id": None,
-        "error_file_id": None,
-        "created_at": int(db_data["created_at"].timestamp()),
-        "in_progress_at": None,
-        "expires_at": None,
-        "finalizing_at": None,
-        "completed_at": None,
-        "failed_at": None,
-        "expired_at": None,
-        "cancelling_at": None,
-        "cancelled_at": None,
-        "request_counts": {
-            "total": 0,
-            "completed": 0,
-            "failed": 0
-        },
-        "metadata": {
-            "customer_id": db_data["username"],
-            "batch_description": "",
-        }
+        "status": db_data["status"]
     }
     return await get_batch_response(db_data, json.dumps(response), 200, db_Model=Batch)
 
