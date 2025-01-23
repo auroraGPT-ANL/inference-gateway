@@ -675,8 +675,8 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     except Exception as e:
         return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
     
-    # Skip all of the Globus task status check if the batch is already completed
-    if batch.status == "completed":
+    # Skip all of the Globus task status check if the batch already completed or failed
+    if batch.status in ["completed", "failed"]:
         return await get_plain_response(batch.status, 200)
     
     # Get the Globus batch status response
@@ -684,20 +684,33 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     if len(error_message) > 0:
         return await get_plain_response(error_message, 500, code)
     
-    # Assign the batch status based on the Globus response
+    # Parse Globus batch status response
     try:
+
+        # Gather pending and satus state for each Globus task
         pending_list = []
         status_list = []
         for _, status in status_response.items():
             pending_list.append(status["pending"])
             status_list.append(status["status"])
+
+        # Update batch status and timestamp if still in progress
         if pending_list.count(True) > 0:
             batch_status = "in_progress"
+            batch.in_progress_at = timezone.now()
+
+        # Update batch status and timestamp if completed
         elif status_list.count("success") == len(status_list):
             batch_status = "completed"
+            batch.completed_at = timezone.now()
+
+        # Update batch status and timestamp if failed
         else:
             #TODO: Figure out how to be resilient and restart failed jobs?
             batch_status = "failed"
+            batch.failed_at = timezone.now()
+
+    # Error if something went wrong while parsing the batch status response
     except Exception as e:
         return await get_plain_response(f"Error: Could not parse gcc.get_batch_result response: {e}", 400)
     
@@ -706,7 +719,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
         batch.status = batch_status
         await update_database(db_object=batch)
     except Exception as e:
-        return await get_plain_response(f"Error: Could not update batch {batch_id} status in database: {e}", 400)
+        return await get_plain_response(f"Error: Could not update batch {batch_id} in database: {e}", 400)
 
     # Return status of the batch job
     return await get_plain_response(batch_status, 200)
