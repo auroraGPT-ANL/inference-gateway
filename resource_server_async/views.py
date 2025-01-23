@@ -544,7 +544,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     try:
         async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
             if not batch.status in ["failed", "completed"]:
-                error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.id}."
+                error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
     except Batch.DoesNotExist:
         pass # Batch can be submitted if the input_file is not used by any other batches
@@ -663,7 +663,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
     # Recover batch object in the database
     try:
-        batch = await sync_to_async(Batch.objects.get)(id=batch_id)
+        batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
     except Batch.DoesNotExist:
         return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
     except Exception as e:
@@ -740,7 +740,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Recover batch object in the database
     try:
-        batch = await sync_to_async(Batch.objects.get)(id=batch_id)
+        batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
     except Batch.DoesNotExist:
         return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
     except Exception as e:
