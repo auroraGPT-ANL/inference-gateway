@@ -518,7 +518,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
     
-    # Pull the targetted endpoint UUID and function UUID from the database (to check if user is permitted to run this model)
+    # Pull the targetted endpoint from database to check if user is permitted to run this model
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
     except Endpoint.DoesNotExist:
