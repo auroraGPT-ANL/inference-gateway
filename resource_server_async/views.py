@@ -802,6 +802,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
         return await get_plain_response(f"Error: Could not update batch {batch_id} result in database: {e}", 400)
 
     # Return status of the batch job
+    #TODO: Implement response structure that is not just result (look at OpenAI)
     return await get_plain_response(result, 200)
 
 
