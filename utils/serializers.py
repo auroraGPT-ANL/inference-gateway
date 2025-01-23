@@ -85,7 +85,7 @@ class OpenAIEmbeddingsParamSerializer(serializer_utils.BaseSerializers):
 class OpenAIBatchParamSerializer(serializer_utils.BaseSerializers):
 
     # Mandatory model parameters
-    input_file_id = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+    input_file = serializer_utils.TrueCharField(allow_blank=False, **MAND)
     endpoint = serializer_utils.TrueCharField(allow_blank=False, **MAND)
     model = serializer_utils.TrueCharField(allow_blank=False, **MAND)
     completion_window = serializer_utils.TrueCharField(allow_blank=False, **MAND)
@@ -96,7 +96,7 @@ class OpenAIBatchParamSerializer(serializer_utils.BaseSerializers):
 
 # OpenAI file upload parameter serializer
 # TODO: Should be OpenAI compliant https://platform.openai.com/docs/api-reference/files/create
-class OpenAIFileUploadParamSerializer(serializer_utils.BaseSerializers):
-
-    # Mandatory model parameters
-    input_file_path = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+#class OpenAIFileUploadParamSerializer(serializer_utils.BaseSerializers):
+#
+#    # Mandatory model parameters
+#    input_file_path = serializer_utils.TrueCharField(allow_blank=False, **MAND)

@@ -128,7 +128,7 @@ class ListEndpointsLog(models.Model):
 class Batch(models.Model):
 
     # Unique UUID assigned to the batch request
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     # Who submitted the batch?
     name = models.CharField(max_length=100)
@@ -136,7 +136,7 @@ class Batch(models.Model):
 
     # What did the user request?
     endpoint = models.CharField(max_length=250)
-    input_file_id = models.CharField(max_length=250)
+    input_file = models.CharField(max_length=250)
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
@@ -173,21 +173,21 @@ class Batch(models.Model):
 
 
 # Log for file path imports
-class File(models.Model):
-
-    # Unique UUID assigned to the input file path request
-    input_file_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Input file path on the HPC resource
-    input_file_path = models.TextField(blank=False, null=False)
-    
-    # Info on who submited the file path
-    name = models.CharField(max_length=100)
-    username = models.CharField(max_length=100)
-
-    # Timestamps
-    created_at = models.DateTimeField(default=now)
-
-    # String function
-    def __str__(self):
-        return f"Batch - <{self.username} - {self.created_at}>"
+#class File(models.Model):
+#
+#    # Unique UUID assigned to the input file path request
+#    input_file_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+#
+#    # Input file path on the HPC resource
+#    input_file_path = models.TextField(blank=False, null=False)
+#    
+#    # Info on who submited the file path
+#    name = models.CharField(max_length=100)
+#    username = models.CharField(max_length=100)
+#
+#    # Timestamps
+#    created_at = models.DateTimeField(default=now)
+#
+#    # String function
+#    def __str__(self):
+#        return f"Batch - <{self.username} - {self.created_at}>"

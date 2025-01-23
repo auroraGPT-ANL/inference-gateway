@@ -17,7 +17,7 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
-    validate_file_body,
+    #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -26,7 +26,7 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, File
+from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch#, File
 
 # Async tools
 from asgiref.sync import sync_to_async
@@ -425,41 +425,41 @@ async def get_jobs(request, cluster:str):
 # Import file path (POST)
 # TODO: Should we check if the input file path already exists in the database?
 # TODO: Use primary identity username to claim ownership on files and batches
-@router.post("/v1/files")
-async def post_batch_file(request, *args, **kwargs):
-    """POST request to import input file path for running batches."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_response() function
-    db_data = {
-        "input_file_id": str(uuid.uuid4()),
-        "name": atv_response.name,
-        "username": atv_response.username,
-        "created_at": timezone.now(),
-    }
-
-    # Validate and build the file input request data
-    file_data = validate_file_body(request)
-    if "error" in file_data.keys():
-        return await get_batch_response(db_data, file_data['error'], 400, db_Model=File)
-        
-    # Update database entry
-    db_data["input_file_path"] = file_data["input_file_path"]
-
-    # Create file entry in the database and return the file UUID to the user
-    response = {
-        "id": db_data["input_file_id"],
-        "object": "file",
-        "created_at": int(db_data["created_at"].timestamp()),
-        "filename": db_data["input_file_path"],
-        "purpose": "",
-    }
-    return await get_batch_response(db_data, json.dumps(response), 200, db_Model=File)
+#@router.post("/v1/files")
+#async def post_batch_file(request, *args, **kwargs):
+#    """POST request to import input file path for running batches."""
+#
+#    # Check if request is authenticated
+#    atv_response = validate_access_token(request)
+#    if not atv_response.is_valid:
+#        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+#    
+#    # Start the data dictionary for the database entry
+#    # The actual database entry creation is performed in the get_response() function
+#    db_data = {
+#        "input_file_id": str(uuid.uuid4()),
+#        "name": atv_response.name,
+#        "username": atv_response.username,
+#        "created_at": timezone.now(),
+#    }
+#
+#    # Validate and build the file input request data
+#    file_data = validate_file_body(request)
+#    if "error" in file_data.keys():
+#        return await get_batch_response(db_data, file_data['error'], 400, db_Model=File)
+#        
+#    # Update database entry
+#    db_data["input_file_path"] = file_data["input_file_path"]
+#
+#    # Create file entry in the database and return the file UUID to the user
+#    response = {
+#        "id": db_data["input_file_id"],
+#        "object": "file",
+#        "created_at": int(db_data["created_at"].timestamp()),
+#        "filename": db_data["input_file_path"],
+#        "purpose": "",
+#    }
+#    return await get_batch_response(db_data, json.dumps(response), 200, db_Model=File)
 
 
 # Inference batch (POST)
@@ -482,7 +482,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
-        "id": str(uuid.uuid4()),
+        "batch_id": str(uuid.uuid4()),
         "name": atv_response.name,
         "username": atv_response.username,
         "created_at": timezone.now(),
@@ -507,7 +507,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["endpoint"] = batch_data["endpoint"]
-    db_data["input_file_id"] = batch_data["input_file_id"]
+    db_data["input_file"] = batch_data["input_file"]
     db_data["completion_window"] = batch_data["completion_window"]
     db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
@@ -536,17 +536,17 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401, db_Model=Batch)
 
-    # Error if an ongoing batch already exists with the same input_file_id
+    # Error if an ongoing batch already exists with the same input_file
     # TODO: More checks here to make sure we don't duplicate batches?
     #       Do we allow multiple batches on the same file on different clusters?
     #       Do we allow re-run of the same batch if previous ones are completed?
     try:
-        async for batch in Batch.objects.filter(input_file_id=batch_data["input_file_id"]):
+        async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
             if not batch.status in ["failed", "completed"]:
-                error_message = f"Error: Input file ID {batch_data['input_file_id']} already used by ongoing batch {batch.id}."
+                error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.id}."
                 return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
     except Batch.DoesNotExist:
-        pass # Batch can be submitted if the input_file_id is not used by any other batches
+        pass # Batch can be submitted if the input_file is not used by any other batches
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400, db_Model=Batch)
 
@@ -575,34 +575,31 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503, db_Model=Batch)
     
     # Recover file database entry
-    try:
-        file = await sync_to_async(File.objects.get)(input_file_id=batch_data["input_file_id"])
-    except Batch.DoesNotExist:
-        error_message = f"Error: Input file ID {batch_data['input_file_id']} does not exist."
-        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
-    except Exception as e:
-        error_message = f"Error: Could not extract Input file ID {batch_data['input_file_id']} from database: {e}"
-        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #try:
+    #    file = await sync_to_async(File.objects.get)(input_file_id=batch_data["input_file_id"])
+    #except Batch.DoesNotExist:
+    #    error_message = f"Error: Input file ID {batch_data['input_file_id']} does not exist."
+    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #except Exception as e:
+    #    error_message = f"Error: Could not extract Input file ID {batch_data['input_file_id']} from database: {e}"
+    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
 
     # Recover file path and check if the user owns the batch job
-    try:
-        input_file_path = file.input_file_path
-        if not file.username == atv_response.username:
-            error_message = f"Error: Permission denied to File {batch_data['input_file_id']}."
-            return await get_batch_response(db_data, error_message, 403, db_Model=Batch)
-    except Exception as e:
-        error_message = f"Error: Something went accessing file.username or file.input_file_path: {e}"
-        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #try:
+    #    input_file_path = file.input_file_path
+    #    if not file.username == atv_response.username:
+    #        error_message = f"Error: Permission denied to File {batch_data['input_file_id']}."
+    #        return await get_batch_response(db_data, error_message, 403, db_Model=Batch)
+    #except Exception as e:
+    #    error_message = f"Error: Something went accessing file.username or file.input_file_path: {e}"
+    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
 
     # Prepare input parameter for the compute tasks
     # NOTE: This is already in list format in case we submit multiple tasks per batch
-    # TODO: Maybe send the db_data["id"] to the compute function to organize and keep track of output folders/files?
-    #       This is likely needed to make sure we don't loose results if Globus get rid of them after 3 days
-    #       We will have a Django cron job to gather results, but we need to have multiple safety nets
     params_list =[
         {
-            "batch_id": db_data["id"],
-            "input_file_path": input_file_path,
+            "batch_id": db_data["batch_id"],
+            "input_file": batch_data["input_file"],
             "framework": framework,
             "model": batch_data["model"]
         }
@@ -616,7 +613,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not create Globus Compute batch: {e}", 500, db_Model=Batch)
 
-    # Submit batch to Globus Compute and assign the input_file_id to the database if submission is successful
+    # Submit batch to Globus Compute and update batch status if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
         db_data["status"] = "submitted"
@@ -642,11 +639,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # TODO: Make serializer for batch object
     db_data["status"] = "pending"
     response = {
-        "id": db_data["id"],
+        "batch_id": db_data["batch_id"],
         "object": "batch",
         "endpoint": db_data["endpoint"],
         "errors": None,
-        "input_file_id": db_data["input_file_id"],
+        "input_file": db_data["input_file"],
         "completion_window": db_data["completion_window"],
         "status": db_data["status"],
         "output_file_id": None,
