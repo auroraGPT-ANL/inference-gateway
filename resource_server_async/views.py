@@ -623,7 +623,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500, db_Model=Batch)
     
-    # Extract the batch UUID from submission
+    # Extract the Globus batch UUID from submission
     try:
         db_data["globus_batch_uuid"] = batch_response["request_id"]
     except Exception as e:
