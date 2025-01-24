@@ -684,7 +684,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     # Get the Globus batch status response
     status_response, error_message, code = globus_utils.get_batch_status(batch.globus_task_uuids)
     if len(error_message) > 0:
-        return await get_plain_response(error_message, 500, code)
+        return await get_plain_response(error_message, code)
     
     # Parse Globus batch status response
     try:
