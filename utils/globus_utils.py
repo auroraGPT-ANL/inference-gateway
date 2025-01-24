@@ -143,6 +143,20 @@ def get_batch_status(task_uuids_comma_separated):
 
     # Get batch status from Globus and return the response
     try:
-        return gcc.get_batch_result(task_uuids), "", 200
+
+        # TODO: Switch back to this when Globus added a fix for the Exceptions
+        #return gcc.get_batch_result(task_uuids), "", 200 
+        
+        # TODO: Remove what's below once we can use the above line
+        response = {}
+        for task_uuid in task_uuids:
+            task = gcc.get_task(task_uuid)
+            response[task_uuid] = {
+                "pending": task["pending"],
+                "status": task["status"],
+                "result": task.get("result", None)
+            }
+        return response, "", 200
+    
     except Exception as e:
         return None, f"Error: Could not recover batch status: {e}", 500
