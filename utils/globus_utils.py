@@ -2,6 +2,7 @@ import asyncio
 from django.conf import settings
 import globus_sdk
 from globus_compute_sdk import Client, Executor
+from globus_compute_sdk.errors import TaskExecutionFailed
 from cachetools import TTLCache, cached, LRUCache
 
 import logging
@@ -126,7 +127,8 @@ def get_task_uuid(future):
 def get_batch_status(task_uuids_comma_separated):
     """
     Get status and results (if available) of all Globus tasks 
-    associated with a batch object.
+    associated with a batch object. Return error message instead
+    of rasing exeptions so that the response can be cached.
     """
 
     # Recover list of Globus task UUIDs tied to the batch
@@ -158,5 +160,10 @@ def get_batch_status(task_uuids_comma_separated):
             }
         return response, "", 200
     
+    # Error is the function execution failed
+    except TaskExecutionFailed as e:
+        return None, f"Error: TaskExecutionFailed: {e}", 400
+
+    # Other errors that could be un-related to the task execution (e.g. Globus connection)
     except Exception as e:
         return None, f"Error: Could not recover batch status: {e}", 500

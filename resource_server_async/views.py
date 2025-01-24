@@ -683,10 +683,20 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     
     # Get the Globus batch status response
     status_response, error_message, code = globus_utils.get_batch_status(batch.globus_task_uuids)
-    # TODO: For now, if something goes wrong (Globus API down, function crashed), batch.status is not updated
-    #       If we mark it as failed here, we won't know whether it's because of the function or Globus connection
-    #       Find a way to manage this
+
+    # If there is an error when recovering Globus tasks status/results ...
     if len(error_message) > 0:
+
+        # Mark the batch as failed if the function execution failed
+        if "TaskExecutionFailed" in error_message:
+            try:
+                batch.status = "failed"
+                batch.error = error_message
+                await update_database(db_object=batch)
+            except Exception as e:
+                return await get_plain_response(f"Error: Could not update batch status in database: {e}", 400)
+            
+        # Return error message
         return await get_plain_response(error_message, code)
     
     # Parse Globus batch status response
@@ -712,6 +722,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
         # Update batch status and timestamp if failed
         else:
             #TODO: Figure out how to be resilient and restart failed jobs?
+            #TODO: How to recover error message?
             batch_status = "failed"
             batch.failed_at = timezone.now()
 
