@@ -149,6 +149,7 @@ class Batch(models.Model):
     globus_batch_uuid = models.CharField(max_length=100)
     globus_task_uuids = models.TextField(null=True)
     result = models.TextField(blank=True)
+    error = models.TextField(blank=True)
 
     # What is the status of the batch?
     status = models.CharField(max_length=250, default="pending")
