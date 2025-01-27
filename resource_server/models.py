@@ -23,11 +23,13 @@ class Endpoint(models.Model):
     # Model name (e.g. cpp_meta-Llama3-8b-instruct)
     model = models.CharField(max_length=100)
 
-    # Globus Compute endpoint UUID
+    # Globus Compute single-request UUIDs
     endpoint_uuid = models.CharField(max_length=100)
-
-    # Globus Compute function UUID
     function_uuid = models.CharField(max_length=100)
+
+    # Globus Compute batch-request UUIDs
+    batch_endpoint_uuid = models.CharField(max_length=100, default="", blank=True)
+    batch_function_uuid = models.CharField(max_length=100, default="", blank=True)
 
     # API port (for distinct models running on the same node)
     api_port = models.IntegerField(default=8000)

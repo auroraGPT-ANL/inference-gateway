@@ -21,8 +21,7 @@ from resource_server_async.utils import (
     #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
-    ALLOWED_QSTAT_ENDPOINTS,
-    ALLOWED_BATCH_ENDPOINTS
+    ALLOWED_QSTAT_ENDPOINTS
 )
 log.info("Utils functions loaded.")
 
@@ -512,10 +511,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["output_file_path"] = batch_data.get("output_file_path", "")
     db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
-    # Make sure the cluster has a batch endpoint
-    if not cluster in ALLOWED_BATCH_ENDPOINTS:
-        return await get_batch_response(db_data, f"Cluster {cluster} does not have a batch endpoint.", 501, db_Model=Batch)
-
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
     
@@ -536,6 +531,10 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401, db_Model=Batch)
+        
+    # Make sure the endpoint has batch UUIDs
+    if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
+        return await get_batch_response(db_data, f"Endpoint {endpoint_slug} does not have batch enabled.", 501, db_Model=Batch)
 
     # Error if an ongoing batch already exists with the same input_file
     # TODO: More checks here to make sure we don't duplicate batches?
@@ -560,13 +559,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Query the status of the Globus Compute batch endpoint
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
     # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_slug = f"{cluster}/batch"
-    endpoint_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["endpoint_uuid"]
-    function_uuid = ALLOWED_BATCH_ENDPOINTS[cluster]["function_uuid"]
+    endpoint_slug = f"{endpoint_slug}/batch"
+    endpoint_uuid = endpoint.batch_endpoint_uuid
+    function_uuid = endpoint.batch_function_uuid
     endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint.endpoint_uuid, 
-        client=gcc, 
-        endpoint_slug=endpoint_slug
+        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
         return await get_batch_response(db_data, error_message, 500, db_Model=Batch)
