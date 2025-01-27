@@ -1,7 +1,9 @@
 from utils.serializers import (
     OpenAICompletionsParamSerializer, 
     OpenAIChatCompletionsParamSerializer, 
-    OpenAIEmbeddingsParamSerializer
+    OpenAIEmbeddingsParamSerializer,
+    BatchParamSerializer,
+    #OpenAIFileUploadParamSerializer
 )
 from rest_framework.exceptions import ValidationError
 import json
@@ -34,7 +36,23 @@ class ResourceServerError(Exception):
     pass
 
 
+# Validate cluster and framework
+def validate_cluster_framework(cluster: str, framework: str):
+
+    # Error message if cluster not available
+    if not cluster in ALLOWED_CLUSTERS:
+        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
+    
+    # Error message if framework not available
+    if not framework in ALLOWED_FRAMEWORKS[cluster]:
+        return f"Error: {framework} framework not supported. Currently supporting {ALLOWED_FRAMEWORKS[cluster]}."
+
+    # No error message if the inputs are valid
+    return ""
+
+
 # Validate URL inputs
+# TODO: Incorporate re-usable validate_cluster_framework function
 def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
     """Validate user inputs from POST requests."""
 
@@ -75,6 +93,7 @@ def extract_prompt(model_params):
 
 
 # Validate request body
+# TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
         
@@ -108,6 +127,41 @@ def validate_request_body(request, openai_endpoint):
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Validate batch body
+def validate_batch_body(request):
+    """Build data dictionary for inference batch request if user inputs are valid."""
+    return validate_body(request, BatchParamSerializer)
+
+
+# Validate file body
+#def validate_file_body(request):
+#    """Build data dictionary for inference file path import request if user inputs are valid."""
+#    return validate_body(request, OpenAIFileUploadParamSerializer)
+
+
+# Validate body
+def validate_body(request, serializer_class):
+    """Build data dictionary from user inputs if valid from given parameter serializer."""
+                
+    # Decode request body into a dictionary
+    try:
+        params = json.loads(request.body.decode("utf-8"))
+    except:
+        return {"error": f"Error: Request body cannot be decoded."}
+
+    # Send an error if the input data is not valid
+    try:
+        serializer = serializer_class(data=params)
+        _ = serializer.is_valid(raise_exception=True)
+    except ValidationError as e:
+        return {"error": f"Error: Could not validate data: {e}"}
+    except Exception as e:
+        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+
+    # Build request data if nothing wrong was caught
+    return params
 
 
 # Extract group UUIDs from an allowed_globus_groups model field

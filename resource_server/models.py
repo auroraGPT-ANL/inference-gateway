@@ -1,5 +1,7 @@
 from django.db import models
 from django.utils.text import slugify
+import uuid
+from django.utils.timezone import now
 
 # Details of a given Globus Compute endpoint
 class Endpoint(models.Model):
@@ -21,11 +23,13 @@ class Endpoint(models.Model):
     # Model name (e.g. cpp_meta-Llama3-8b-instruct)
     model = models.CharField(max_length=100)
 
-    # Globus Compute endpoint UUID
+    # Globus Compute single-request UUIDs
     endpoint_uuid = models.CharField(max_length=100)
-
-    # Globus Compute function UUID
     function_uuid = models.CharField(max_length=100)
+
+    # Globus Compute batch-request UUIDs
+    batch_endpoint_uuid = models.CharField(max_length=100, default="", blank=True)
+    batch_function_uuid = models.CharField(max_length=100, default="", blank=True)
 
     # API port (for distinct models running on the same node)
     api_port = models.IntegerField(default=8000)
@@ -68,6 +72,7 @@ class Log(models.Model):
     # Whether the request is synchronous
     # If True, the view waited for the compute results
     # If False, the view returns the compute task UUID
+    # TODO: This is not needed anymore
     sync = models.BooleanField()
 
     # Time when the HTTP request was received (after the auth checks)
@@ -119,3 +124,74 @@ class ListEndpointsLog(models.Model):
     # String function
     def __str__(self):
         return f"<{self.username} - {self.timestamp_receive} - {self.response_status}>"
+
+
+# Log for batch requests
+class Batch(models.Model):
+
+    # Unique UUID assigned to the batch request
+    batch_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Who submitted the batch?
+    name = models.CharField(max_length=100)
+    username = models.CharField(max_length=100)
+
+    # What did the user request?
+    input_file = models.CharField(max_length=500)
+    output_file_path = models.CharField(max_length=500, blank=True)
+    cluster = models.CharField(max_length=100)
+    framework = models.CharField(max_length=100)
+    model = models.CharField(max_length=250)
+    # OpenAI extra fields
+    #metadata = models.JSONField(default=dict)
+    #completion_window = models.CharField(max_length=100)
+    #endpoint = models.CharField(max_length=250)
+
+    # List of Globus task UUIDs tied to the batch (string separated with ,)
+    globus_batch_uuid = models.CharField(max_length=100)
+    globus_task_uuids = models.TextField(null=True)
+    result = models.TextField(blank=True)
+    error = models.TextField(blank=True)
+
+    # What is the status of the batch?
+    status = models.CharField(max_length=250, default="pending")
+    created_at = models.DateTimeField(default=now)
+    in_progress_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    # OpenAI extra fields
+    #output_file_id = models.CharField(max_length=250, blank=True)
+    #error_file_id = models.CharField(max_length=250, blank=True)
+    #expires_at = models.DateTimeField(null=True, blank=True)
+    #finalizing_at = models.DateTimeField(null=True, blank=True)
+    #object = models.CharField(max_length=100, default="batch")
+    #errors = models.JSONField(default=dict)
+    #expired_at = models.DateTimeField(null=True, blank=True)
+    #cancelling_at = models.DateTimeField(null=True, blank=True)
+    #cancelled_at = models.DateTimeField(null=True, blank=True)
+    #request_counts = models.JSONField(default=dict)
+
+    # String function
+    def __str__(self):
+        return f"Batch - <{self.username} - {self.created_at}>"
+
+
+# Log for file path imports
+#class File(models.Model):
+#
+#    # Unique UUID assigned to the input file path request
+#    input_file_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+#
+#    # Input file path on the HPC resource
+#    input_file_path = models.TextField(blank=False, null=False)
+#    
+#    # Info on who submited the file path
+#    name = models.CharField(max_length=100)
+#    username = models.CharField(max_length=100)
+#
+#    # Timestamps
+#    created_at = models.DateTimeField(default=now)
+#
+#    # String function
+#    def __str__(self):
+#        return f"Batch - <{self.username} - {self.created_at}>"
