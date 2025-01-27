@@ -32,9 +32,10 @@ ALLOWED_QSTAT_ENDPOINTS = {
 }
 
 ALLOWED_BATCH_ENDPOINTS = {
+    #TODO: Add this in the database
     "sophia":{
-        "endpoint_uuid": "...",
-        "function_uuid": "..."
+        "endpoint_uuid":"177b2ebc-e126-47d5-b753-6070cdbcae81",
+        "function_uuid":"1fca9d21-c88c-45a7-a4ba-40dfebc68107"
     }
 }
 
