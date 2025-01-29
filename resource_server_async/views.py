@@ -651,7 +651,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 # List of batches (GET)
 # TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches")
-async def get_batch_status(request, filters: BatchListFilter = Query(...), *args, **kwargs):
+async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
     """GET request to list all batches linked to the authenticated user."""
 
     # Check if request is authenticated
