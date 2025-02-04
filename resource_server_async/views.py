@@ -21,7 +21,8 @@ from resource_server_async.utils import (
     #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
-    ALLOWED_QSTAT_ENDPOINTS
+    ALLOWED_QSTAT_ENDPOINTS,
+    BatchListFilter,
 )
 log.info("Utils functions loaded.")
 
@@ -32,7 +33,7 @@ from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch#, File
 from asgiref.sync import sync_to_async
 
 # Ninja API
-from ninja import NinjaAPI, Router
+from ninja import NinjaAPI, Router, Query
 api = NinjaAPI(urls_namespace='resource_server_async_api')
 router = Router()
 
@@ -645,6 +646,51 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         "status": db_data["status"]
     }
     return await get_batch_response(db_data, json.dumps(response), 200, db_Model=Batch)
+
+
+# List of batches (GET)
+# TODO: Use primary identity username to claim ownership on files and batches
+@router.get("/v1/batches")
+async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
+    """GET request to list all batches linked to the authenticated user."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # Declare the list of batches to be returned to the user
+    batch_list = []
+    try:
+
+        # Build database filters based on username and optional batch status
+        filter_params = {"username": atv_response.username}
+        if isinstance(filters.status, str):
+            filter_params["status"] = filters.status.value
+
+        # Add each filtered batch to the list
+        async for batch in Batch.objects.filter(**filter_params):
+            batch_list.append(
+                {
+                    "batch_id": str(batch.batch_id),
+                    "cluster": batch.cluster,
+                    "framework": batch.framework,
+                    "input_file": batch.input_file,
+                    "created_at": str(batch.created_at),
+                    "status": batch.status
+                }
+            )
+
+    # Will return empty list if no batch object was found
+    except Batch.DoesNotExist:
+        pass
+
+    # Error message if something went wrong
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not filter Batch database entries: {e}", 400)
+
+    # Return list of batches
+    return await get_plain_response(batch_list, 200)
 
 
 # Inference batch status (GET)

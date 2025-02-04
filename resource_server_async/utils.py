@@ -1,3 +1,6 @@
+from ninja import FilterSchema
+from typing import Optional
+from enum import Enum
 from utils.serializers import (
     OpenAICompletionsParamSerializer, 
     OpenAIChatCompletionsParamSerializer, 
@@ -30,6 +33,16 @@ ALLOWED_QSTAT_ENDPOINTS = {
         "function_uuid":"9e600a13-4c5a-4c6d-a6d2-6036c0eed0be"
     }
 }
+
+
+# Batch list filter
+class BatchStatusEnum(str, Enum):
+    in_progress = 'in_progress'
+    failed = 'failed'
+    completed = 'completed'
+class BatchListFilter(FilterSchema):
+    status: BatchStatusEnum = None
+
 
 # Exception to raise in case of errors
 class ResourceServerError(Exception):
