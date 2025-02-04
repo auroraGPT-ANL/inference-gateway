@@ -425,7 +425,7 @@
         "model": "resource_server.endpoint",
         "pk": 30,
         "fields": {
-            "endpoint_slug": "sophia-vllm-allenaillama-3.1-tulu-3-405b",
+            "endpoint_slug": "sophia-vllm-allenaillama-31-tulu-3-405b",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "allenai/Llama-3.1-Tulu-3-405B",
