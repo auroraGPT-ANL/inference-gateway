@@ -1,5 +1,6 @@
 from ninja import FilterSchema
 from django.utils import timezone
+from django.db import IntegrityError
 from enum import Enum
 from utils.serializers import (
     OpenAICompletionsParamSerializer, 
@@ -11,7 +12,7 @@ from utils.serializers import (
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
-
+from asgiref.sync import sync_to_async
 from asyncache import cached as asynccached
 from cachetools import TTLCache
 from utils.globus_utils import submit_and_get_result, get_endpoint_status, get_batch_status
