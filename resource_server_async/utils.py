@@ -294,13 +294,6 @@ async def update_batch_status_result(batch):
     # Collect latest batch status
     try:
 
-        # Gather satus states for each Globus task
-        #pending_list = []
-        #status_list = []
-        #for status in status_response.values():
-        #    pending_list.append(status["pending"])
-        #    status_list.append(status["status"])
-
         # In progress
         if pending_list.count(True) > 0:
             batch_status = "in_progress"
@@ -334,8 +327,6 @@ async def update_batch_status_result(batch):
         # Parse Globus batch status response to extract result
         try:
             result_list = [status["result"] for status in status_response_values]
-            #for status in status_response.values():
-            #    result_list.append(status["result"])
             batch_result = ",".join(result_list) + ","
             batch_result = batch_result[:-1]
 
