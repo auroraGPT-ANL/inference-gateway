@@ -21,7 +21,7 @@ from resource_server_async.utils import (
     #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
-    update_batch_status,
+    update_batch_status_result,
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
@@ -674,7 +674,7 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
         async for batch in Batch.objects.filter(**filter_params):
 
             # Get a status update for the batch (this will update the database if needed)
-            batch_status, error_message, code = await update_batch_status(batch)
+            batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
             if len(error_message) > 0:
                 return await get_plain_response(error_message, code)
 
@@ -730,7 +730,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
         return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
     
     # Get a status update for the batch (this will update the database if needed)
-    batch_status, error_message, code = await update_batch_status(batch)
+    batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
     if len(error_message) > 0:
         return await get_plain_response(error_message, code)
 
@@ -766,7 +766,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
         return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
 
     # Get a status update for the batch (this will update the database if needed)
-    batch_status, error_message, code = await update_batch_status(batch)
+    batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
     if len(error_message) > 0:
         return await get_plain_response(error_message, code)
 
@@ -778,37 +778,8 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     if not batch_status == "completed":
         return await get_plain_response("Error: Batch not completed yet. Results not ready.", 400)
 
-    # Return result if already in the database
-    if len (batch.result) > 0:
-        return await get_plain_response(batch.result, 200)
-
-    # Get the Globus batch status response
-    status_response, error_message, code = globus_utils.get_batch_status(batch.globus_task_uuids)
-    if len(error_message) > 0:
-        return await get_plain_response(error_message, 500, code)
-    
-    # Collect results from each task
-    try:
-        result_list = []
-        for _, status in status_response.items():
-            if status["pending"] or not status["status"] == "success":
-                return await get_plain_response("Error: Internal inconsistency in batch status report.", 400, code)
-            result_list.append(status["result"])
-        result = ",".join(result_list) + ","
-        result = result[:-1]
-    except Exception as e:
-        return await get_plain_response(f"Error: Could not parse gcc.get_batch_result response : {e}", 400)
-    
-    # Update batch result in the database
-    try:
-        batch.result = result
-        await update_database(db_object=batch)
-    except Exception as e:
-        return await get_plain_response(f"Error: Could not update batch {batch_id} result in database: {e}", 400)
-
     # Return status of the batch job
-    #TODO: Implement response structure that is not just result (look at OpenAI)
-    return await get_plain_response(result, 200)
+    return await get_plain_response(batch_result, 200)
 
 
 # Inference (POST)

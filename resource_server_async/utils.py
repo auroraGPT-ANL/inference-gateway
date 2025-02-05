@@ -252,18 +252,18 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     return result, task_uuid, "", 200
 
 
-# Update batch status
-async def update_batch_status(batch):
+# Update batch status result
+async def update_batch_status_result(batch):
     """
     From a database Batch object, query batch status from Globus
-    if necessary, update the "status" field in the database, and
-    return the batch status (string).
-    Returns: status, "", 200 or "", error_message, error_code
+    if necessary, update the "status" and "result" fields in the
+    database, and return the batch details.
+    Returns: status, result, "", 200 OR "", "", error_message, error_code
     """
 
     # Skip all of the Globus task status check if the batch already completed or failed
     if batch.status in ["completed", "failed"]:
-        return batch.status, "", 200
+        return batch.status, batch.result, "", 200
 
     # Get the Globus batch status response
     status_response, error_message, code = get_batch_status(batch.globus_task_uuids)
@@ -278,51 +278,80 @@ async def update_batch_status(batch):
                 batch.error = error_message
                 await update_database(db_object=batch)
             except Exception as e:
-                return "", f"Error: Could not update batch status in database: {e}", 400
+                return "", "", f"Error: Could not update batch status in database: {e}", 400
             
         # Return error message
-        return "", error_message, code
+        return "", "", error_message, code
     
     # Parse Globus batch status response
     try:
+        status_response_values = list(status_response.values())
+        pending_list = [status["pending"] for status in status_response_values]
+        status_list = [status["status"] for status in status_response_values]
+    except Exception as e:
+        return "", "", f"Error: Could not parse get_batch_status response for status: {e}", 400
+    
+    # Collect latest batch status
+    try:
 
-        # Gather pending and satus state for each Globus task
-        pending_list = []
-        status_list = []
-        for _, status in status_response.items():
-            pending_list.append(status["pending"])
-            status_list.append(status["status"])
+        # Gather satus states for each Globus task
+        #pending_list = []
+        #status_list = []
+        #for status in status_response.values():
+        #    pending_list.append(status["pending"])
+        #    status_list.append(status["status"])
 
-        # Update batch status and timestamp if still in progress
+        # In progress
         if pending_list.count(True) > 0:
             batch_status = "in_progress"
             batch.in_progress_at = timezone.now()
 
-        # Update batch status and timestamp if completed
+        # Completed
         elif status_list.count("success") == len(status_list):
             batch_status = "completed"
             batch.completed_at = timezone.now()
 
-        # Update batch status and timestamp if failed
+        # Failed
+        #TODO: Figure out how to be resilient and restart failed jobs?
         else:
-            #TODO: Figure out how to be resilient and restart failed jobs?
-            #TODO: How to recover error message?
             batch_status = "failed"
             batch.failed_at = timezone.now()
 
     # Error if something went wrong while parsing the batch status response
     except Exception as e:
-        return "", f"Error: Could not parse gcc.get_batch_result response: {e}", 400
+        return "", "", f"Error: Could not define batch status: {e}", 400
     
     # Update batch status in the database
     try:
         batch.status = batch_status
         await update_database(db_object=batch)
     except Exception as e:
-        return "", f"Error: Could not update batch {batch.batch_id} in database: {e}", 400
+        return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
     
+    # If batch result is available ...
+    if batch_status == "completed":
+
+        # Parse Globus batch status response to extract result
+        try:
+            result_list = [status["result"] for status in status_response_values]
+            #for status in status_response.values():
+            #    result_list.append(status["result"])
+            batch_result = ",".join(result_list) + ","
+            batch_result = batch_result[:-1]
+
+        # Error if something went wrong while parsing the batch status response
+        except Exception as e:
+            return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
+
+        # Update batch result in the database
+        try:
+            batch.result = batch_result
+            await update_database(db_object=batch)
+        except Exception as e:
+            return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
+
     # Return the new status if nothing went wrong
-    return batch_status, "", 200
+    return batch.status, batch.result, "", 200
 
 
 # Update database
