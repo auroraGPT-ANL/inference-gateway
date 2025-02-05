@@ -1,5 +1,6 @@
 from ninja import FilterSchema
-from typing import Optional
+from django.utils import timezone
+from django.db import IntegrityError
 from enum import Enum
 from utils.serializers import (
     OpenAICompletionsParamSerializer, 
@@ -11,10 +12,10 @@ from utils.serializers import (
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
-
+from asgiref.sync import sync_to_async
 from asyncache import cached as asynccached
 from cachetools import TTLCache
-from utils.globus_utils import submit_and_get_result, get_endpoint_status
+from utils.globus_utils import submit_and_get_result, get_endpoint_status, get_batch_status
 
 # Constants
 ALLOWED_FRAMEWORKS = {
@@ -249,3 +250,116 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
 
     # Return qstat result without error_message
     return result, task_uuid, "", 200
+
+
+# Update batch status result
+async def update_batch_status_result(batch):
+    """
+    From a database Batch object, query batch status from Globus
+    if necessary, update the "status" and "result" fields in the
+    database, and return the batch details.
+    Returns: status, result, "", 200 OR "", "", error_message, error_code
+    """
+
+    # Skip all of the Globus task status check if the batch already completed or failed
+    if batch.status in ["completed", "failed"]:
+        return batch.status, batch.result, "", 200
+
+    # Get the Globus batch status response
+    status_response, error_message, code = get_batch_status(batch.globus_task_uuids)
+
+    # If there is an error when recovering Globus tasks status/results ...
+    if len(error_message) > 0:
+
+        # Mark the batch as failed if the function execution failed
+        if "TaskExecutionFailed" in error_message:
+            try:
+                batch.status = "failed"
+                batch.error = error_message
+                await update_database(db_object=batch)
+            except Exception as e:
+                return "", "", f"Error: Could not update batch status in database: {e}", 400
+            
+        # Return error message
+        return "", "", error_message, code
+    
+    # Parse Globus batch status response
+    try:
+        status_response_values = list(status_response.values())
+        pending_list = [status["pending"] for status in status_response_values]
+        status_list = [status["status"] for status in status_response_values]
+    except Exception as e:
+        return "", "", f"Error: Could not parse get_batch_status response for status: {e}", 400
+    
+    # Collect latest batch status
+    try:
+
+        # In progress
+        if pending_list.count(True) > 0:
+            batch_status = "in_progress"
+            batch.in_progress_at = timezone.now()
+
+        # Completed
+        elif status_list.count("success") == len(status_list):
+            batch_status = "completed"
+            batch.completed_at = timezone.now()
+
+        # Failed
+        #TODO: Figure out how to be resilient and restart failed jobs?
+        else:
+            batch_status = "failed"
+            batch.failed_at = timezone.now()
+
+    # Error if something went wrong while parsing the batch status response
+    except Exception as e:
+        return "", "", f"Error: Could not define batch status: {e}", 400
+    
+    # Update batch status in the database
+    try:
+        batch.status = batch_status
+        await update_database(db_object=batch)
+    except Exception as e:
+        return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
+    
+    # If batch result is available ...
+    if batch_status == "completed":
+
+        # Parse Globus batch status response to extract result
+        try:
+            result_list = [status["result"] for status in status_response_values]
+            batch_result = ",".join(result_list) + ","
+            batch_result = batch_result[:-1]
+
+        # Error if something went wrong while parsing the batch status response
+        except Exception as e:
+            return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
+
+        # Update batch result in the database
+        try:
+            batch.result = batch_result
+            await update_database(db_object=batch)
+        except Exception as e:
+            return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
+
+    # Return the new status if nothing went wrong
+    return batch.status, batch.result, "", 200
+
+
+# Update database
+async def update_database(db_Model=None, db_data=None, db_object=None):
+    """Create new entry in the database or save the modification of existing entry."""
+
+    # Create new database object if needed
+    try:
+        if isinstance(db_object, type(None)):
+            db_object = db_Model(**db_data)
+    except Exception as e:
+        raise Exception(f"Could not create database model from db_data: {e}")
+
+    # Save database entry
+    try:
+        await sync_to_async(db_object.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
+    except Exception as e:
+        raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
