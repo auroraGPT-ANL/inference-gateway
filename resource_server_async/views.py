@@ -665,21 +665,21 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
     batch_list = []
     try:
 
-        # Build database filters based on username and optional batch status
-        filter_params = {"username": atv_response.username}
-        if isinstance(filters.status, str):
-            filter_params["status"] = filters.status.value
-
-        # For each filtered batch object owned by the user ...
-        async for batch in Batch.objects.filter(**filter_params):
+        # For each batch object owned by the user ...
+        async for batch in Batch.objects.filter(username=atv_response.username):
 
             # Get a status update for the batch (this will update the database if needed)
             batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
             if len(error_message) > 0:
                 return await get_plain_response(error_message, code)
+            
+            # If no optional status filter was provided ...
+            # or if the status filter matches the current batch status ...
+            if isinstance(filters.status, type(None)) or \
+                (isinstance(filters.status, str) and filters.status == batch_status):
 
-            # Add the batch details to the list
-            batch_list.append(
+                # Add the batch details to the list
+                batch_list.append(
                 {
                     "batch_id": str(batch.batch_id),
                     "cluster": batch.cluster,
