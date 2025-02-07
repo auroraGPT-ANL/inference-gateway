@@ -135,7 +135,7 @@ def get_batch_status(task_uuids_comma_separated):
     try:
         task_uuids = task_uuids_comma_separated.split(",")
     except Exception as e:
-        return None, f"Error: Could not extract list of batch task UUIDs", 400
+        return None, f"Error: Could not extract list of batch task UUIDs: {e}", 400
 
     # Get Globus Compute client (using the endpoint identity)
     try:
