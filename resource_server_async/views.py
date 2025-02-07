@@ -1,3 +1,4 @@
+from django.conf import settings
 import uuid
 import json
 from django.utils import timezone
@@ -482,6 +483,17 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
     
+    # Reject request if the allowed quota per user would be exceeded
+    try:
+        number_of_active_batches = 0
+        async for batch in Batch.objects.filter(username=atv_response.username, status="in_progress"):
+            number_of_active_batches += 1
+        if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
+            error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
+            return await get_plain_response(error_message, 400)
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not query active batches owned by user: {e}", 400)
+    
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
@@ -490,11 +502,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         "username": atv_response.username,
         "created_at": timezone.now(),
     }
-    
+
     # Validate and build the inference request data
     batch_data = validate_batch_body(request)
     if "error" in batch_data.keys():
-        return await get_batch_response(db_data, batch_data['error'], 400, db_Model=Batch)
+        return await get_plain_response(batch_data['error'], 400)
 
     # Strip the last forward slash of endpoint if needed
     #if batch_data["endpoint"][-1] == "/":
@@ -504,7 +516,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     #error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
     error_message = validate_cluster_framework(cluster, framework)
     if len(error_message):
-        return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+        return await get_plain_response(error_message, 400)
     
     # Update database entry
     db_data["cluster"] = cluster
@@ -521,43 +533,42 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
     except Endpoint.DoesNotExist:
-        return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} does not exist.", 400, db_Model=Batch)
+        return await get_plain_response(f"Error: Endpoint {endpoint_slug} does not exist.", 400)
     except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not extract endpoint: {e}", 400, db_Model=Batch)
+        return await get_plain_response(f"Error: Could not extract endpoint: {e}", 400)
     
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
-        return await get_batch_response(db_data, error_message, 401, db_Model=Batch)
+        return await get_plain_response(error_message, 401)
     
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_batch_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401, db_Model=Batch)
+            return await get_plain_response(f"Permission denied to endpoint {endpoint_slug}.", 401)
         
     # Make sure the endpoint has batch UUIDs
     if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
-        return await get_batch_response(db_data, f"Endpoint {endpoint_slug} does not have batch enabled.", 501, db_Model=Batch)
+        return await get_plain_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501)
 
     # Error if an ongoing batch already exists with the same input_file
     # TODO: More checks here to make sure we don't duplicate batches?
     #       Do we allow multiple batches on the same file on different clusters?
-    #       Do we allow re-run of the same batch if previous ones are completed?
     try:
         async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
             if not batch.status in ["failed", "completed"]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
-                return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+                return await get_plain_response(error_message, 400)
     except Batch.DoesNotExist:
         pass # Batch can be submitted if the input_file is not used by any other batches
     except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not filter Batch database entries: {e}", 400, db_Model=Batch)
+        return await get_plain_response(f"Error: Could not filter Batch database entries: {e}", 400)
 
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
     except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not get the Globus Compute client: {e}", 500, db_Model=Batch)
+        return await get_plain_response(f"Error: Could not get the Globus Compute client: {e}", 500)
 
     # Query the status of the Globus Compute batch endpoint
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
@@ -569,31 +580,31 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
-        return await get_batch_response(db_data, error_message, 500, db_Model=Batch)
+        return await get_plain_response(error_message, 500)
 
     # Error if the endpoint is not online
     if not endpoint_status["status"] == "online":
-        return await get_batch_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503, db_Model=Batch)
+        return await get_plain_response(f"Error: Endpoint {endpoint_slug} is offline.", 503)
     
     # Recover file database entry
     #try:
     #    file = await sync_to_async(File.objects.get)(input_file_id=batch_data["input_file_id"])
     #except Batch.DoesNotExist:
     #    error_message = f"Error: Input file ID {batch_data['input_file_id']} does not exist."
-    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #    return await get_plain_response(error_message, 400)
     #except Exception as e:
     #    error_message = f"Error: Could not extract Input file ID {batch_data['input_file_id']} from database: {e}"
-    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #    return await get_plain_response(error_message, 400)
 
     # Recover file path and check if the user owns the batch job
     #try:
     #    input_file_path = file.input_file_path
     #    if not file.username == atv_response.username:
     #        error_message = f"Error: Permission denied to File {batch_data['input_file_id']}."
-    #        return await get_batch_response(db_data, error_message, 403, db_Model=Batch)
+    #        return await get_plain_response(error_message, 403)
     #except Exception as e:
     #    error_message = f"Error: Something went accessing file.username or file.input_file_path: {e}"
-    #    return await get_batch_response(db_data, error_message, 400, db_Model=Batch)
+    #    return await get_plain_response(error_message, 400)
 
     # Prepare input parameter for the compute tasks
     # NOTE: This is already in list format in case we submit multiple tasks per batch
@@ -615,14 +626,14 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         for params in params_list:
             batch.add(function_id=function_uuid, args=[params])
     except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not create Globus Compute batch: {e}", 500, db_Model=Batch)
+        return await get_plain_response(f"Error: Could not create Globus Compute batch: {e}", 500)
 
     # Submit batch to Globus Compute and update batch status if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
-        db_data["status"] = "submitted"
+        db_data["status"] = "in_progress"
     except Exception as e:
-        return await get_batch_response(db_data, f"Error: Could not submit the Globus Compute batch: {e}", 500, db_Model=Batch)
+        return await get_plain_response(f"Error: Could not submit the Globus Compute batch: {e}", 500)
     
     # Extract the Globus batch UUID from submission
     try:
@@ -641,7 +652,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Create batch entry in the database and return response to the user
     # TODO: Make serializer for batch object
-    db_data["status"] = "pending"
+    db_data["status"] = "in_progress"
     response = {
         "batch_id": db_data["batch_id"],
         "input_file": db_data["input_file"],
@@ -665,21 +676,21 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
     batch_list = []
     try:
 
-        # Build database filters based on username and optional batch status
-        filter_params = {"username": atv_response.username}
-        if isinstance(filters.status, str):
-            filter_params["status"] = filters.status.value
-
-        # For each filtered batch object owned by the user ...
-        async for batch in Batch.objects.filter(**filter_params):
+        # For each batch object owned by the user ...
+        async for batch in Batch.objects.filter(username=atv_response.username):
 
             # Get a status update for the batch (this will update the database if needed)
             batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
             if len(error_message) > 0:
                 return await get_plain_response(error_message, code)
+            
+            # If no optional status filter was provided ...
+            # or if the status filter matches the current batch status ...
+            if isinstance(filters.status, type(None)) or \
+                (isinstance(filters.status, str) and filters.status == batch_status):
 
-            # Add the batch details to the list
-            batch_list.append(
+                # Add the batch details to the list
+                batch_list.append(
                 {
                     "batch_id": str(batch.batch_id),
                     "cluster": batch.cluster,
