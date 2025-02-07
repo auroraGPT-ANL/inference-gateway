@@ -60,6 +60,8 @@ PGHOST="localhost"
 PGPORT=5432
 PGDATABASE="<Postgres DB Name>"
 PGUSER="<Postgres User Name>"
+
+MAX_BATCHES_PER_USER=1
 ```
 
 `GLOBUS_POLICIES` should be High Assurance policies to enforce a check on the identity provider used to authenticate. `AUTHORIZED_IDPS` are additional manual authorization checks that can be enforced in the API directly.
