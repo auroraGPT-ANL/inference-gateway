@@ -120,7 +120,7 @@ def chunked_vllm_inference_function(parameters):
     final_output_dir = model_params.get('output_file_path', '/lus/eagle/projects/argonne_tpc/inference-service-batch-results/')
     chunk_size = model_params.get('chunk_size', 20000)
     batch_id = parameters.get('batch_id',f"batch_{uuid.uuid4().hex[:6]}")
-    username = model_params.get('username', 'anonymous')
+    username = parameters.get('username', 'anonymous')
     if not model_name:
         raise ValueError("Missing parameter 'model' in model_params.")
     if not input_file:
@@ -299,7 +299,7 @@ COMPUTE_FUNCTION_ID = gcc.register_function(chunked_vllm_inference_function)
 print("Registered Function ID:", COMPUTE_FUNCTION_ID)
 
 # Write function UUID to a file
-with open("chunked_vllm_inference_function_tp_8.txt", "w") as f:
+with open("vllm_inference_function_batch_single_node.txt", "w") as f:
     f.write(COMPUTE_FUNCTION_ID + "\n")
 
 

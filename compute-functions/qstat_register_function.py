@@ -148,10 +148,10 @@ def qstat_inference_function():
 
         for job_id in job_ids:
             job_dict = {}
-            job_state = attributes.get('job_state', 'N/A')
 
             full_info = run_command(f"TZ='America/Chicago' qstat -xf {job_id}")
             attributes = parse_qstat_xf_output(full_info)
+            job_state = attributes.get('job_state', 'N/A')
             submit_path = extract_submit_path(attributes.get('Submit_arguments', ''))
 
             if submit_path:
@@ -187,7 +187,7 @@ def qstat_inference_function():
                 job_dict["Job State"] = job_state
                 job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
                 job_dict["Job Comments"] = attributes.get('comment', 'N/A')
-                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')ß
+                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
                 other_jobs.append(job_dict)
         # Create the final JSON structure
         final_output = {
