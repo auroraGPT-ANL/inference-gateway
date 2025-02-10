@@ -175,6 +175,7 @@
     </div>
 
     <!-- Endpoints Table -->
+
     <div class="table-container">
       <h3>Endpoints</h3>
       <table id="endpointsTable" class="display">
@@ -235,12 +236,13 @@
 
       // 1) Total requests
       const totalRequests = data.total_requests || 0;
-      document.getElementById('totalRequestsNumber').textContent = `Total: ${totalRequests}`;
+      const successful = data.request_details?.successful || 0;
+      const failed = data.request_details?.failed || 0;
+      
+      document.getElementById('totalRequestsNumber').textContent = 
+        `Total: ${totalRequests} (${data.total_users || 0} users)`;
 
-      const successful = (data.request_details && data.request_details.successful) || 0;
-      const failed = (data.request_details && data.request_details.failed) || 0;
-
-      // Pie chart: Successful vs Failed
+      // Update pie chart to use materialized view data
       new Chart(document.getElementById('totalRequestsChart'), {
         type: 'pie',
         data: {
@@ -269,7 +271,7 @@
         }
       });
 
-      // 2) Weekly Usage (Past 2 Months)
+      // 2) Weekly Usage - Updated to use mv_weekly_usage data
       const weeklyData = data.weekly_usage_2_months || [];
       new Chart(document.getElementById('weeklyUsage2MonthsChart'), {
         type: 'line',

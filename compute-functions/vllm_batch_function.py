@@ -7,7 +7,7 @@ def chunked_vllm_inference_function(parameters):
     import time
     import json
 
-    def run_chunk_inference(lines_buffer, model_name, final_output_file, token_pattern, chunk_index):
+    def run_chunk_inference(lines_buffer, model_name, base_name, batch_id, final_output_file, token_pattern, chunk_index):
         """
         1) Write lines_buffer to a temp chunk file
         2) Call vLLM run_batch on that file (subprocess)
@@ -22,11 +22,11 @@ def chunked_vllm_inference_function(parameters):
 
         # Create a unique chunk ID
         unique_id = uuid.uuid4().hex[:6]
-        chunk_id = f"chunk_{chunk_index}_{unique_id}"
+        chunk_id = f"chunk_{chunk_index}_{unique_id}_{base_name}"
 
-        chunk_input_file = f"/tmp/{chunk_id}.input.jsonl"
-        chunk_output_file = f"/tmp/{chunk_id}.output.jsonl"
-        chunk_log_file = f"/tmp/{chunk_id}.log"  # capture stdout/stderr
+        chunk_input_file = f"/tmp/{batch_id}_{chunk_id}.input.jsonl"
+        chunk_output_file = f"/tmp/{batch_id}_{chunk_id}.output.jsonl"
+        chunk_log_file = f"/tmp/{batch_id}_{chunk_id}.log"  # capture stdout/stderr
 
         # Write chunk input
         with open(chunk_input_file, "w") as cf:
@@ -41,14 +41,14 @@ def chunked_vllm_inference_function(parameters):
             "-i", chunk_input_file,
             "-o", chunk_output_file,
             "--model", model_name,
-            "--tensor-parallel-size", "4",
+            "--tensor-parallel-size", "8",
             "--gpu-memory-utilization", "0.98",
             "--enable-chunked-prefill",
-            "--max-model-len", "24464",
+            "--max-model-len", "16384",
             "--disable-log-requests",
             "--multi-step-stream-outputs", "False",
             "--trust-remote-code",
-            "--max-num-seqs", "64"
+            "--max-num-seqs", "128"
         ]
 
         # Capture vLLM stdout/stderr in a log file
@@ -119,18 +119,27 @@ def chunked_vllm_inference_function(parameters):
     input_file = model_params.get('input_file')
     final_output_dir = model_params.get('output_file_path', '/lus/eagle/projects/argonne_tpc/inference-service-batch-results/')
     chunk_size = model_params.get('chunk_size', 20000)
+    batch_id = parameters.get('batch_id',f"batch_{uuid.uuid4().hex[:6]}")
     username = parameters.get('username', 'anonymous')
-    final_output_dir = os.path.join(final_output_dir, username)
     if not model_name:
         raise ValueError("Missing parameter 'model' in model_params.")
     if not input_file:
         raise ValueError("Missing parameter 'input_file' in model_params.")
 
     # Construct unique final output + progress file paths
-    base = os.path.splitext(os.path.basename(input_file))[0]
+    base_name = os.path.splitext(os.path.basename(input_file))[0]
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-    final_output_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{username}_{timestamp_str}.results.jsonl")
-    progress_file = os.path.join(final_output_dir, f"{base}_{model_name.split('/')[-1]}_{username}_{timestamp_str}.progress.json")
+    final_output_dir = os.path.join(final_output_dir, f"{base_name}_{model_name.split('/')[-1]}_{batch_id}")
+    final_output_file = os.path.join(final_output_dir, f"{base_name}_{timestamp_str}.results.jsonl")
+    progress_file = os.path.join(final_output_dir, f"{base_name}_{timestamp_str}.progress.json")
+    home_dir = os.path.expanduser('~')
+    pbs_job_id = os.environ.get('PBS_JOBID')
+    # split model_name by '/' if it exists and take the last element
+    status_file = os.path.join(home_dir, "batch_jobs", f"{model_name.split('/')[-1]}_{batch_id}_{username}_{pbs_job_id}.status")
+    # Create the status file directory and file if it doesn't exist
+    os.makedirs(os.path.dirname(status_file), exist_ok=True)
+    with open(status_file, "w") as sf:
+        sf.write(f"Batch job {batch_id} started successfully.\n")
 
     # 2) Validate input file
     if not os.path.isfile(input_file):
@@ -197,7 +206,7 @@ def chunked_vllm_inference_function(parameters):
                 # process chunk
                 chunk_start_time = time.time()
                 chunk_tokens, chunk_responses = run_chunk_inference(
-                    lines_buffer, model_name,
+                    lines_buffer, model_name,base_name, batch_id,
                     final_output_file, token_pattern, chunk_index
                 )
                 chunk_end_time = time.time()
@@ -232,7 +241,7 @@ def chunked_vllm_inference_function(parameters):
         if lines_buffer:
             chunk_start_time = time.time()
             chunk_tokens, chunk_responses = run_chunk_inference(
-                lines_buffer, model_name,
+                lines_buffer, model_name, base_name, batch_id,
                 final_output_file, token_pattern, chunk_index
             )
             chunk_end_time = time.time()
@@ -290,7 +299,7 @@ COMPUTE_FUNCTION_ID = gcc.register_function(chunked_vllm_inference_function)
 print("Registered Function ID:", COMPUTE_FUNCTION_ID)
 
 # Write function UUID to a file
-with open("chunked_vllm_inference_function.txt", "w") as f:
+with open("vllm_inference_function_batch_single_node.txt", "w") as f:
     f.write(COMPUTE_FUNCTION_ID + "\n")
 
 

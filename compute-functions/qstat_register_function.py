@@ -49,22 +49,22 @@ def qstat_inference_function():
             return None
         return parts[-1]
 
-    def extract_models_info_from_file(file_path):
+    def extract_models_info_from_file(file_path, job_dict):
         """
         This function now extracts model_name(s), framework, and cluster from the file.
         Returns a dict with keys: 'models', 'framework', 'cluster'.
         """
+        models_str = 'N/A'
+        framework_str = 'N/A'
+        cluster_str = 'N/A'
         if not os.path.exists(file_path):
             # We’ll return a dict with N/A if file doesn’t exist
-            return {
-                "models": "N/A",
-                "framework": "N/A",
-                "cluster": "N/A",
-            }
-
+            job_dict["Models"] = models_str
+            job_dict["Framework"] = framework_str
+            job_dict["Cluster"] = cluster_str
+            return job_dict
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
         # Extract all model_name= lines
         model_pattern = re.compile(r'model_name\S*\s*=\s*"([^"]+)"')
         all_models = model_pattern.findall(content)
@@ -80,13 +80,12 @@ def qstat_inference_function():
         found_cluster = cluster_pattern.findall(content)
         cluster_str = found_cluster[0] if found_cluster else "N/A"
 
-        return {
-            "models": models_str,
-            "framework": framework_str,
-            "cluster": cluster_str,
-        }
+        job_dict["Models"] = models_str
+        job_dict["Framework"] = framework_str
+        job_dict["Cluster"] = cluster_str
+        return job_dict
 
-    def determine_model_status(submit_path):
+    def determine_model_status(submit_path, job_dict):
         """
         Determine model_status by checking submit_path + '.stdout' file.
         If file does not exist or line not found, model_status = 'starting'
@@ -94,14 +93,35 @@ def qstat_inference_function():
         """
         out_file = submit_path + ".stdout"
         if not os.path.exists(out_file):
-            return "starting"
+            job_dict["Model Status"] = "starting"
+            return job_dict
 
         with open(out_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if "All models started successfully." in line:
-                    return "running"
-        return "starting"
-
+                    job_dict["Model Status"] = "running"
+                    return job_dict
+        job_dict["Model Status"] = "starting"
+        return job_dict
+    
+    def determine_batch_job_status(job_id, job_dict):
+        home_dir = os.path.expanduser('~')
+        batch_jobs_path = os.path.join(home_dir, "batch_jobs")
+        # Get all files in the batch_jobs directory
+        batch_jobs_files = os.listdir(batch_jobs_path)
+        job_dict["Model Status"] = "starting"
+        # Check if any file name contains the job id from batch_jobs_files
+        for file in batch_jobs_files:
+            if job_id in file:
+                # split the file name by underscore and fetch model_name, batch_id, username, pbs_job_id
+                model_name, batch_id, username, pbs_job_id = file.split("_")
+                job_dict["Models"] = model_name
+                job_dict["Batch ID"] = batch_id
+                job_dict["Username"] = username
+                job_dict["Model Status"] = "running"
+                return job_dict
+        return job_dict
+    
     def run_qstat():
         user = os.environ.get('USER')
         if not user:
@@ -127,59 +147,48 @@ def qstat_inference_function():
         other_jobs = []
 
         for job_id in job_ids:
+            job_dict = {}
+
             full_info = run_command(f"TZ='America/Chicago' qstat -xf {job_id}")
             attributes = parse_qstat_xf_output(full_info)
-
             job_state = attributes.get('job_state', 'N/A')
-            walltime = 'N/A'
+            submit_path = extract_submit_path(attributes.get('Submit_arguments', ''))
+
+            if submit_path:
+                job_dict = extract_models_info_from_file(submit_path, job_dict)
             if job_state == 'R':
+                if "batch_job" in job_dict["Models"]:
+                    job_dict = determine_batch_job_status(job_id, job_dict)  
+                else:
+                    job_dict = determine_model_status(submit_path, job_dict)
                 walltime = attributes.get('resources_used.walltime', 'N/A')
-
-            exec_host = attributes.get('exec_host', 'N/A')
-            comment = attributes.get('comment', 'N/A')
-
-            submit_args = attributes.get('Submit_arguments', '')
-            submit_path = extract_submit_path(submit_args)
-
-            # Extract models, framework, and cluster from the file
-            models_info = {
-                "models": "N/A",
-                "framework": "N/A",
-                "cluster": "N/A",
-            }
-            if submit_path:
-                models_info = extract_models_info_from_file(submit_path)
-
-
-            node_count = attributes.get('Resource_List.nodect', 'N/A')
-             # Determine model status based on the .out file
-            model_status = "starting"
-            if submit_path:
-                model_status = determine_model_status(submit_path)
-            job_dict = {
-                "Models Served": models_info["models"],
-                "Model Status": model_status,
-                "Framework": models_info["framework"],
-                "Cluster": models_info["cluster"],
-                "Job ID": job_id,
-                "Job State": job_state,
-                "Walltime": walltime,
-                "Host Name": exec_host,
-                "Job Comments": comment,
-                "Nodes Reserved": node_count
-            }
-
-            if job_state == 'R':
+                job_dict["Walltime"] = walltime
+                job_dict["Job ID"] = job_id
+                job_dict["Job State"] = job_state
+                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
+                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
+                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
                 running_jobs.append(job_dict)
             elif job_state == 'Q':
+                job_dict["Model Status"] = 'queued'
                 estimated_start = attributes.get('estimated.start_time', 'N/A')
                 if estimated_start != 'N/A':
                     estimated_start += " (Chicago time)"
-                job_dict["estimated_start_time"] = estimated_start
+                job_dict["Estimated Start Time"] = estimated_start
+                job_dict["Job ID"] = job_id
+                job_dict["Job State"] = job_state
+                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
+                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
+                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
                 queued_jobs.append(job_dict)
             else:
+                job_dict["Model Status"] = 'other'
+                job_dict["Job ID"] = job_id
+                job_dict["Job State"] = job_state
+                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
+                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
+                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
                 other_jobs.append(job_dict)
-
         # Create the final JSON structure
         final_output = {
             "running": running_jobs,

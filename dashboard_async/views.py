@@ -1,5 +1,3 @@
-# dashboard_api.py (example filename)
-
 from datetime import timedelta
 from django.db.models import Count, Avg, F, Q, Subquery, OuterRef, Value, CharField
 from django.db.models.functions import TruncWeek, TruncDay
@@ -18,138 +16,95 @@ router = Router()
 THROUGHPUT_PATTERN = re.compile(r'[\"\']throughput_tokens_per_second[\"\']\s*:\s*([\d\.]+)')
 
 def fetch_metrics():
-    """Fetch metrics synchronously."""
+    """Fetch metrics synchronously using materialized views."""
+    from django.db import connection
 
-    # 1) Basic metrics
-    total_requests = Log.objects.count()
-    successful_requests = Log.objects.filter(Q(response_status=200) | Q(response_status__isnull=True)).count()
-    failed_requests = total_requests - successful_requests
-    total_users = Log.objects.values("username").distinct().count()
-    user_details = list(Log.objects.values("name", "username").distinct())
+    # 1) Overall stats from mv_overall_stats
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_overall_stats")
+        row = cursor.fetchone()
+        total_requests, successful_requests, failed_requests, total_users = row
 
-    # 2) Annotate logs with model information
-    endpoint_models = Endpoint.objects.filter(endpoint_slug=OuterRef("endpoint_slug")).values("model")[:1]
-    logs_with_annotations = Log.objects.annotate(
-        model=Subquery(endpoint_models, output_field=CharField()),
-    )
+    # 2) User details from mv_user_details
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT name, username FROM mv_user_details")
+        user_details = [{"name": row[0], "username": row[1]} for row in cursor.fetchall()]
 
-    # Filter out logs with no/empty model
-    logs_with_model = logs_with_annotations.filter(model__isnull=False).exclude(model="")
+    # 3) Model-specific metrics from mv_model_requests
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_model_requests")
+        model_requests = [
+            {
+                "model": row[0],
+                "total_requests": row[1],
+                "successful_requests": row[2],
+                "failed_requests": row[3]
+            }
+            for row in cursor.fetchall()
+        ]
 
-    # 3) Model-specific metrics
-    model_requests = list(
-        logs_with_model.values("model").annotate(
-            total_requests=Count("id"),
-            successful_requests=Count(
-                "id", filter=Q(response_status=200) | Q(response_status__isnull=True)
-            ),
-            failed_requests=Count(
-                "id", filter=~Q(response_status=200) & Q(response_status__isnull=False)
-            ),
-        )
-    )
+    # 4) Model latency from mv_model_latency
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_model_latency")
+        model_latency = [
+            {"model": row[0], "avg_latency": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    model_latency = list(
-        logs_with_model.filter(Q(response_status=200) | Q(response_status__isnull=True))
-        .values("model")
-        .annotate(avg_latency=Avg(F("timestamp_response") - F("timestamp_receive")))
-    )
+    # 5) Users per model from mv_users_per_model
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_users_per_model")
+        users_per_model = [
+            {"model": row[0], "user_count": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    users_per_model = list(
-        logs_with_model.values("model").annotate(
-            user_count=Count("username", distinct=True)
-        )
-    )
+    # 6) Weekly usage from mv_weekly_usage
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_weekly_usage")
+        weekly_usage = [
+            {"week_start": row[0], "request_count": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    # 4) Requests per user
-    requests_per_user = list(
-        logs_with_annotations.values("name").annotate(
-            total_requests=Count("id"),
-            successful_requests=Count(
-                "id", filter=Q(response_status=200) | Q(response_status__isnull=True)
-            ),
-            failed_requests=Count(
-                "id", filter=~Q(response_status=200) & Q(response_status__isnull=False)
-            ),
-        )
-    )
+    # 7) Daily usage from mv_daily_usage_2_weeks
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_daily_usage_2_weeks")
+        daily_usage_2_weeks = [
+            {"day": row[0], "request_count": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    # 5) Weekly usage (past 2 months)
-    two_months_ago = now() - timedelta(days=60)
-    weekly_usage_2_months = list(
-        Log.objects.filter(timestamp_receive__gte=two_months_ago)
-        .annotate(week_start=TruncWeek("timestamp_receive"))
-        .values("week_start")
-        .annotate(request_count=Count("id"))
-        .order_by("week_start")
-    )
+    # 8) Model throughput from mv_model_throughput
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_model_throughput")
+        model_throughput = [
+            {"model": row[0], "avg_throughput": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    # 6) Daily usage (past 2 weeks)
-    two_weeks_ago = now() - timedelta(days=14)
-    daily_usage_2_weeks = list(
-        Log.objects.filter(timestamp_receive__gte=two_weeks_ago)
-        .annotate(day=TruncDay("timestamp_receive"))
-        .values("day")
-        .annotate(request_count=Count("id"))
-        .order_by("day")
-    )
-
-    # 7) Running average RPS for today
+    # Calculate today's RPS (still needs real-time data)
     day_start = now().replace(hour=0, minute=0, second=0, microsecond=0)
     requests_today = Log.objects.filter(timestamp_receive__gte=day_start).count()
     time_since_day_start = (now() - day_start).total_seconds()
     average_rps_today = requests_today / time_since_day_start if time_since_day_start > 0 else 0
 
-    # 8) Daily average RPS (past 7 days)
-    seven_days_ago = now() - timedelta(days=7)
-    daily_counts_7_days = list(
-        Log.objects.filter(timestamp_receive__gte=seven_days_ago)
-        .annotate(day=TruncDay("timestamp_receive"))
-        .values("day")
-        .annotate(request_count=Count("id"))
-        .order_by("day")
-    )
-
+    # Calculate daily RPS for past 7 days
     daily_rps_7_days = []
-    for day_info in daily_counts_7_days:
+    for day_info in daily_usage_2_weeks:
         day_dt = day_info["day"]
         req_count = day_info["request_count"]
 
         if day_dt.date() == now().date():
-            # partial day
             partial_seconds = (now() - day_start).total_seconds()
             avg_rps = req_count / partial_seconds if partial_seconds > 0 else 0
         else:
-            # full day
             avg_rps = req_count / 86400.0
 
         daily_rps_7_days.append({
             "day": day_dt.isoformat(),
             "average_rps": avg_rps
         })
-
-    # 9) Average throughput per model from "throughput_tokens_per_second"
-    logs_with_throughput = list(
-        logs_with_model.filter(result__icontains="throughput_tokens_per_second")
-        .values("model", "result")
-    )
-
-    model_to_throughputs = {}
-    for entry in logs_with_throughput:
-        model_val = entry["model"]
-        text_result = entry["result"] or ""
-        match = THROUGHPUT_PATTERN.search(text_result)
-        if match:
-            try:
-                thpt = float(match.group(1))
-                model_to_throughputs.setdefault(model_val, []).append(thpt)
-            except ValueError:
-                pass
-
-    model_throughput = []
-    for m, thpt_list in model_to_throughputs.items():
-        avg_thpt = sum(thpt_list) / len(thpt_list)
-        model_throughput.append({"model": m, "avg_throughput": avg_thpt})
 
     return {
         "total_requests": total_requests,
@@ -159,17 +114,12 @@ def fetch_metrics():
         },
         "total_users": total_users,
         "user_details": user_details,
-
         "model_requests": model_requests,
         "model_latency": model_latency,
         "users_per_model": users_per_model,
-        "requests_per_user": requests_per_user,
-
-        "weekly_usage_2_months": weekly_usage_2_months,
+        "weekly_usage_2_months": weekly_usage,
         "daily_usage_2_weeks": daily_usage_2_weeks,
         "average_rps_today": average_rps_today,
-
-        # New fields
         "daily_rps_7_days": daily_rps_7_days,
         "model_throughput": model_throughput,
     }
