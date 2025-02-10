@@ -8,7 +8,7 @@ On the VM, as the `webportal` user, set a crontab with the following command:
 ```bash
 crontab -e
 ```
-and include the following line to execute the update command every day at 00:00:
+and include the following line to execute the update command every minute:
 ```bash
-0 0 * * * /home/webportal/inference-gateway/cron_jobs/update_batch_status.sh
+*/1 * * * * /home/webportal/inference-gateway/cron_jobs/update_batch_status.sh
 ```
