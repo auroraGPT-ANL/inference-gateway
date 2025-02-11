@@ -156,6 +156,24 @@
       <canvas id="modelThroughputChart"></canvas>
     </div>
 
+    <!-- Add this for a detailed data table -->
+    <div class="table-container">
+        <h3>User Request Details</h3>
+        <table id="userRequestsTable" class="display">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Username</th>
+              <th>Total Requests</th>
+              <th>Successful</th>
+              <th>Failed</th>
+              <th>Success Rate</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
     <!-- Logs Table -->
     <div class="table-container">
       <h3>Logs</h3>
@@ -384,24 +402,88 @@
 
       // 8) Requests Per User
       const requestsPerUser = data.requests_per_user || [];
+      
+      // Sort users by total requests (descending) and take top 40
+      const topUsers = [...requestsPerUser]
+          .sort((a, b) => b.total_requests - a.total_requests)
+          .slice(0, 20);
+
       new Chart(document.getElementById('requestsPerUserChart'), {
         type: 'bar',
         data: {
-          labels: requestsPerUser.map(item => item.name || 'Unknown'),
-          datasets: [{
-            label: 'Total Requests',
-            data: requestsPerUser.map(item => item.total_requests),
-            backgroundColor: '#fd7e14'
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: { beginAtZero: true }
-          }
-        }
-      });
+                labels: topUsers.map(user => user.name || user.username || 'Unknown'),
+                datasets: [
+                    {
+                        label: 'Successful Requests',
+                        data: topUsers.map(user => user.successful_requests),
+                        backgroundColor: '#28a745',
+                        stack: 'Stack 0',
+                    },
+                    {
+                        label: 'Failed Requests',
+                        data: topUsers.map(user => user.failed_requests),
+                        backgroundColor: '#dc3545',
+                        stack: 'Stack 0',
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 20 Users by Request Volume'
+                    }
+                }
+            }
+        });
+        // Populate the data table
+        const tableBody = document.querySelector('#userRequestsTable tbody');
+        tableBody.innerHTML = ''; // Clear existing rows
+
+        requestsPerUser
+            .sort((a, b) => b.total_requests - a.total_requests)
+            .forEach(user => {
+                const successRate = (user.successful_requests / user.total_requests * 100).toFixed(1);
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${user.name || 'N/A'}</td>
+                    <td>${user.username}</td>
+                    <td>${user.total_requests}</td>
+                    <td>${user.successful_requests}</td>
+                    <td>${user.failed_requests}</td>
+                    <td>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar ${successRate >= 90 ? 'bg-success' : successRate >= 75 ? 'bg-warning' : 'bg-danger'}" 
+                                 role="progressbar" 
+                                 style="width: ${successRate}%"
+                                 aria-valuenow="${successRate}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                                ${successRate}%
+                            </div>
+                        </div>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+    
 
       // 9) Daily RPS (Past 7 Days)
       const dailyRps7Days = data.daily_rps_7_days || [];
