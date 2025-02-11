@@ -1,7 +1,7 @@
 __pycache__/
 .DS_Store
 .env
-update_batch_status.sh
+cron_logs.txt
 
 # VS code
 .vscode/
