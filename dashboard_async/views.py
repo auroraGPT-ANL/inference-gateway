@@ -83,6 +83,20 @@ def fetch_metrics():
             for row in cursor.fetchall()
         ]
 
+    # 9) Requests per user from mv_requests_per_user
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM mv_requests_per_user")
+        requests_per_user = [
+            {
+                "name": row[0],
+                "username": row[1],
+                "total_requests": row[2],
+                "successful_requests": row[3],
+                "failed_requests": row[4]
+            }
+            for row in cursor.fetchall()
+        ]
+    
     # Calculate today's RPS (still needs real-time data)
     day_start = now().replace(hour=0, minute=0, second=0, microsecond=0)
     requests_today = Log.objects.filter(timestamp_receive__gte=day_start).count()
@@ -122,6 +136,7 @@ def fetch_metrics():
         "average_rps_today": average_rps_today,
         "daily_rps_7_days": daily_rps_7_days,
         "model_throughput": model_throughput,
+        "requests_per_user": requests_per_user,
     }
 
 
