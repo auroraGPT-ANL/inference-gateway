@@ -417,7 +417,7 @@ async def cross_check_status(batch):
                 nb_queued_batches += 1
         
         # Set status to "running" if an HPC job is running for the targetted batch
-        if batch.batch_id in running_batch_ids:
+        if str(batch.batch_id) in running_batch_ids:
             return "running"
             
         # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
