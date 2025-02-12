@@ -404,13 +404,17 @@ async def cross_check_status(batch):
     try:
 
         # Collect batch ids that are running
-        running_batch_ids = [running.get("Batch ID", "") for running in qstat_result["running"]]
-        running_batch_ids = [x for x in running_batch_ids if not x == "" ]
+        running_batch_ids = []
+        for running in qstat_result["running"]:
+            if "Batch ID" in running:
+                running_batch_ids.append(running["Batch ID"])
         nb_running_batches = len(running_batch_ids)
 
-        # Collect the number of batch in the HPC queue
-        queued_models = [queued["Models"] for queued in qstat_result["queued"]]
-        nb_queued_batches = queued_models.count("batch_job")
+        # Collect the number of batches in the HPC queue
+        nb_queued_batches = 0
+        for queued in qstat_result["queued"]:
+            if queued["Models"] == "batch_job":
+                nb_queued_batches += 1
         
         # Set status to "running" if an HPC job is running for the targetted batch
         if batch.batch_id in running_batch_ids:
