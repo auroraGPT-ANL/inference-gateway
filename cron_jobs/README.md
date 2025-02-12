@@ -13,6 +13,11 @@ and include the following line to execute the update command every minute:
 */1 * * * * /home/webportal/inference-gateway/cron_jobs/update_batch_status.sh
 ```
 
+Make sure you set execution permission:
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/update_batch_status.sh
+```
+
 ### Dashboard
 
 This is to periodically update the materialized views for the dashboard.
@@ -24,4 +29,9 @@ crontab -e
 and include the following line to execute the update command every 4 hours:
 ```bash
 0 */4 * * * /home/webportal/inference-gateway/cron_jobs/refresh_materialized_views.sh
+```
+
+Make sure you set execution permission:
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/refresh_materialized_views.sh
 ```
