@@ -24,8 +24,12 @@
         },
         "reservation": {
             "type": "string",
-            "maxLength": 20
+            "maxLength": 20,
+            "default": ""
         }
     },
+    "required": [
+        "endpoint_slug"
+    ],
     "additionalProperties": false
 }
