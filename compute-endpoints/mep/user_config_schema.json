@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "endpoint_slug": {
+            "enum": [
+                "sophia-infinity-nv-embed-v2",
+                "sophia-vllm-auroragpt-endpoint",
+                "sophia-vllm-deepseek-r1",
+                "sophia-vllm-deepseek-v3",
+                "sophia-vllm-llama3-mistral-multi-endpoint",
+                "sophia-vllm-llama3.1-405b-instruct",
+                "sophia-vllm-llama3.1-multi-endpoint",
+                "sophia-vllm-llama3.2-90B-vision-instruct",
+                "sophia-vllm-llama3.3-70b-instruct",
+                "sophia-vllm-mistral-large-instruct-2407",
+                "sophia-vllm-mixtral-8-22b-instruct",
+                "sophia-vllm-nemotron-4-340B-instruct",
+                "sophia-vllm-qwen-1M-multi-endpoint",
+                "sophia-vllm-qwen-multi-endpoint",
+                "sophia-vllm-qwen-qwq-32b-preview",
+                "sophia-vllm-qwen2-vl-72B-instruct"
+            ]
+        },
+        "reservation": {
+            "type": "string",
+            "maxLength": 20
+        }
+    },
+    "additionalProperties": false
+}

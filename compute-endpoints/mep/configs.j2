@@ -1,0 +1,101 @@
+{% set configs =
+{
+    "sophia-infinity-nv-embed-v2": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["12d8339d-28eb-412b-ae37-d7b612f3f44d"]
+    },
+
+    "sophia-vllm-auroragpt-endpoint": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-deepseek-r1": {
+        "max_retries_on_system_failure": 1,
+        "nodes_per_block": 4,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-deepseek-v3": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-llama3-mistral-multi-endpoint": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-llama3.1-405b-instruct": {
+        "max_retries_on_system_failure": 1,
+        "nodes_per_block": 4,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-llama3.1-multi-endpoint": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-llama3.2-90B-vision-instruct": {
+        "max_retries_on_system_failure": 2,
+        "queue": "bigmem",
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-llama3.3-70b-instruct": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-mistral-large-instruct-2407": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-mixtral-8-22b-instruct": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-nemotron-4-340B-instruct": {
+        "max_retries_on_system_failure": 2,
+        "max_workers_per_node": 128,
+        "nodes_per_block": 4,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-qwen-1M-multi-endpoint": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-qwen-multi-endpoint": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-qwen-qwq-32b-preview": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    },
+
+    "sophia-vllm-qwen2-vl-72B-instruct": {
+        "max_retries_on_system_failure": 2,
+        "nodes_per_block": 1,
+        "allowed_functions": ["3073ed77-6a17-4e85-826a-e1dca5309e01"]
+    }
+}
+%}
