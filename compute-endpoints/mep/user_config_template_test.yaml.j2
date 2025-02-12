@@ -1,0 +1,72 @@
+{% set endpoint_slug = endpoint_slug | trim('"') -%}
+amqp_port: 443
+display_name: {{ endpoint_slug }}
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 1
+  address:
+    type: address_by_interface
+    ifname: ens10f0
+  provider:
+    init_blocks: 1
+    max_blocks: 1
+    min_blocks: 0
+    type: LocalProvider
+    worker_init: |
+      module use /soft/modulefiles
+      module load conda
+      conda activate inference-mep
+
+    {% if endpoint_slug == 'sophia-infinity-nv-embed-v2' %}
+      export VARIABLE_TEST='You chose sophia-infinity-nv-embed-v2'
+
+    {% elif endpoint_slug == 'sophia-vllm-auroragpt-endpoint' %}
+      export VARIABLE_TEST='You chose sophia-vllm-auroragpt-endpoint'
+
+    {% elif endpoint_slug == 'sophia-vllm-deepseek-r1' %}
+      export VARIABLE_TEST='You chose sophia-vllm-deepseek-r1'
+
+    {% elif endpoint_slug == 'sophia-vllm-deepseek-v3' %}
+      export VARIABLE_TEST='You chose sophia-vllm-deepseek-v3'
+
+    {% elif endpoint_slug == 'sophia-vllm-llama3-mistral-multi-endpoint' %}
+      export VARIABLE_TEST='You chose sophia-vllm-llama3-mistral-multi-endpoint'
+
+    {% elif endpoint_slug == 'sophia-vllm-llama3.1-405b-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-llama3.1-405b-instruct'
+
+    {% elif endpoint_slug == 'sophia-vllm-llama3.1-multi-endpoint' %}
+      export VARIABLE_TEST='You chose sophia-vllm-llama3.1-multi-endpoint'
+
+    {% elif endpoint_slug == 'sophia-vllm-llama3.2-90B-vision-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-llama3.2-90B-vision-instruct'
+
+    {% elif endpoint_slug == 'sophia-vllm-llama3.3-70b-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-llama3.3-70b-instruct'
+
+    {% elif endpoint_slug == 'sophia-vllm-mistral-large-instruct-2407' %}
+      export VARIABLE_TEST='You chose sophia-vllm-mistral-large-instruct-2407'
+
+    {% elif endpoint_slug == 'sophia-vllm-mixtral-8-22b-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-mixtral-8-22b-instruct'
+
+    {% elif endpoint_slug == 'sophia-vllm-nemotron-4-340B-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-nemotron-4-340B-instruct'
+
+    {% elif endpoint_slug == 'sophia-vllm-qwen-1M-multi-endpoint' %}
+      export VARIABLE_TEST='You chose sophia-vllm-qwen-1M-multi-endpoint'
+
+    {% elif endpoint_slug == 'sophia-vllm-qwen-multi-endpoint' %}
+      export VARIABLE_TEST='You chose sophia-vllm-qwen-multi-endpoint'
+
+    {% elif endpoint_slug == 'sophia-vllm-qwen-qwq-32b-preview' %}
+      export VARIABLE_TEST='You chose sophia-vllm-qwen-qwq-32b-preview'
+
+    {% elif endpoint_slug == 'sophia-vllm-qwen2-vl-72B-instruct' %}
+      export VARIABLE_TEST='You chose sophia-vllm-qwen2-vl-72B-instruct'
+
+    {% else %}
+      export VARIABLE_TEST='Choice not implemented yet'
+
+    {% endif %}
