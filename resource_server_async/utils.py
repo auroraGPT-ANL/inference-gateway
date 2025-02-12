@@ -260,12 +260,20 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
 
 
 # Update batch status result
-async def update_batch_status_result(batch):
+async def update_batch_status_result(batch, cross_check=False):
     """
     From a database Batch object, query batch status from Globus
     if necessary, update the "status" and "result" fields in the
     database, and return the batch details.
-    Returns: status, result, "", 200 OR "", "", error_message, error_code
+
+    Arguments
+    ---------
+        batch: batch object from the Batch database model
+        cross_check: If True, will cross check Globus status with qstat function
+
+    Returns
+    -------
+        status, result, "", 200 OR "", "", error_message, error_code
     """
 
     # Skip all of the Globus task status check if the batch already completed or failed
@@ -284,6 +292,7 @@ async def update_batch_status_result(batch):
                 batch.status = "failed"
                 batch.error = error_message
                 await update_database(db_object=batch)
+                return batch.status, batch.result, "", 200
             except Exception as e:
                 return "", "", f"Error: Could not update batch status in database: {e}", 400
             
@@ -307,12 +316,15 @@ async def update_batch_status_result(batch):
         #       This means tasks can be lost and will always be flagged as "pending".
         #       Globus has an open ticket for this issue so the below measure is temporary
         if pending_list.count(True) > 0:
-            batch_status = await cross_check_status(batch)
-            if batch_status == "pending" or batch_status == "running":
-                batch.in_progress_at = timezone.now()
-            elif batch_status == "failed":
-                batch.failed_at = timezone.now()
-                batch.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
+            if cross_check:
+                batch_status = await cross_check_status(batch)
+                if batch_status == "pending" or batch_status == "running":
+                    batch.in_progress_at = timezone.now()
+                elif batch_status == "failed":
+                    batch.failed_at = timezone.now()
+                    batch.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
+            else:
+                batch_status = batch.status
 
         # Completed
         elif status_list.count("success") == len(status_list):
@@ -320,7 +332,6 @@ async def update_batch_status_result(batch):
             batch.completed_at = timezone.now()
 
         # Failed
-        #TODO: Figure out how to be resilient and restart failed jobs?
         else:
             batch_status = "failed"
             batch.failed_at = timezone.now()
@@ -392,21 +403,29 @@ async def cross_check_status(batch):
     # Attempt to parse qstat_result
     try:
 
-        # Label batch as running if the HPC job tied to the batch is running
-        for running in qstat_result["running"]:
-            if running.get("Batch ID", "") == batch.batch_id:
-                return "running"
+        # Collect batch ids that are running
+        running_batch_ids = [running.get("Batch ID", "") for running in qstat_result["running"]]
+        running_batch_ids = [x for x in running_batch_ids if not x == "" ]
+        nb_running_batches = len(running_batch_ids)
+
+        # Collect the number of batch in the HPC queue
+        queued_models = [queued["Models"] for queued in qstat_result["queued"]]
+        nb_queued_batches = queued_models.count("batch_job")
+        
+        # Set status to "running" if an HPC job is running for the targetted batch
+        if batch.batch_id in running_batch_ids:
+            return "running"
             
-        # Label running batch as failed if the HPC job does not exist anymore
-        if batch.status == "running":
+        # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
+        if not batch.batch_id in running_batch_ids and batch.status == "running":
             return "failed"
         
-        # Label pending batch as failed if no batch job is queued
-        if batch.status == "pending":
-            queued_models = [queued["Models"] for queued in qstat_result["queued"]]
-            if not "batch_job" in queued_models:
-                if (timezone.now() - batch.created_at).seconds > 10:
-                    return "failed"
+        # Set status to "failed" if batch is pending, but nothing is queued or running
+        # Do not fail just because nothing is in the HPC queue. If a batch is running,
+        # it is possible that the targetted batch is in the Globus queue in the cloud.
+        if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
+            if (timezone.now() - batch.created_at).seconds > 10:
+                return "failed"
 
     # Preserve current status if no further investigation can be done    
     except Exception as e:

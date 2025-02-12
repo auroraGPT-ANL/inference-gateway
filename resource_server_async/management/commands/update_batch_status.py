@@ -23,7 +23,7 @@ class Command(BaseCommand):
         for batch in pending_running_batches:
             try:
                 batch_status_before = batch.status
-                batch_status, _, _, _ = async_to_sync(update_batch_status_result)(batch)
+                batch_status, _, _, _ = async_to_sync(update_batch_status_result)(batch, cross_check=True)
                 print(f"batch {batch.batch_id} updated from {batch_status_before} to {batch_status}.")
             except Exception as e:
                 pass
