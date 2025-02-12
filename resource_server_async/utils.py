@@ -379,7 +379,7 @@ async def cross_check_status(batch):
     restart or a compute node failure. This is not 100% accurate, but it serves
     as a temporary improvement while Globus addresses the open ticket on improving
     the communication between Globus and AMQP when tasks are lost.
-    Returns: status, error_message, code
+    Returns: status
     """
 
     # Get Globus Compute client and executor
