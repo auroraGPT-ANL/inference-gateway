@@ -380,7 +380,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     return await get_list_response(db_data, status, 200)
 
 
-# List Endpoints (GET)
+# List running and queue models (GET)
 @router.get("/{cluster}/jobs")
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
@@ -486,7 +486,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Reject request if the allowed quota per user would be exceeded
     try:
         number_of_active_batches = 0
-        async for batch in Batch.objects.filter(username=atv_response.username, status="in_progress"):
+        async for batch in Batch.objects.filter(username=atv_response.username, status__in=["pending", "running"]):
             number_of_active_batches += 1
         if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
             error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
@@ -615,6 +615,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
                 "model": batch_data["model"]
             },
             "batch_id": db_data["batch_id"],
+            "username": db_data["username"]
         }
     ]
     if "output_file_path" in batch_data:
@@ -631,7 +632,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Submit batch to Globus Compute and update batch status if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
-        db_data["status"] = "in_progress"
+        db_data["status"] = "pending"
     except Exception as e:
         return await get_plain_response(f"Error: Could not submit the Globus Compute batch: {e}", 500)
     
@@ -651,8 +652,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         return await get_batch_response(db_data, f"Error: Batch submitted but no task UUID recovered: {e}", 400, db_Model=Batch)
 
     # Create batch entry in the database and return response to the user
-    # TODO: Make serializer for batch object
-    db_data["status"] = "in_progress"
     response = {
         "batch_id": db_data["batch_id"],
         "input_file": db_data["input_file"],

@@ -1,6 +1,7 @@
 __pycache__/
 .DS_Store
 .env
+cron_logs.txt
 
 # VS code
 .vscode/
