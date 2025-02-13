@@ -37,7 +37,7 @@ ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 ALLOWED_QSTAT_ENDPOINTS = {
     "sophia":{
         "endpoint_uuid":"23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
-        "function_uuid":"bcbd9341-5eaa-42d5-864b-681de362724f"
+        "function_uuid":"977414a2-8acc-42c7-a271-f965c39091ee"
     }
 }
 

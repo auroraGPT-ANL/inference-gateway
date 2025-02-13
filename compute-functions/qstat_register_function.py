@@ -107,8 +107,9 @@ def qstat_inference_function():
     def determine_batch_job_status(job_id, job_dict):
         home_dir = os.path.expanduser('~')
         batch_jobs_path = os.path.join(home_dir, "batch_jobs")
-        # Get all files in the batch_jobs directory
+        # Get all files in the batch_jobs directory, sorted by modification time with the latest file first
         batch_jobs_files = os.listdir(batch_jobs_path)
+        batch_jobs_files.sort(key=lambda x: os.path.getmtime(os.path.join(batch_jobs_path, x)), reverse=True)
         job_dict["Model Status"] = "starting"
         # Check if any file name contains the job id from batch_jobs_files
         for file in batch_jobs_files:
@@ -120,6 +121,21 @@ def qstat_inference_function():
                 job_dict["Username"] = username
                 job_dict["Model Status"] = "running"
                 return job_dict
+        return job_dict
+    
+    def common_job_attributes(attributes, job_dict, job_id, job_state):
+        job_dict["Job ID"] = job_id
+        job_dict["Job State"] = job_state
+        job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
+        job_dict["Job Comments"] = attributes.get('comment', 'N/A')
+        job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
+        walltime = attributes.get('resources_used.walltime', 'N/A')
+        if walltime != 'N/A':
+            job_dict["Walltime"] = walltime
+        estimated_start = attributes.get('estimated.start_time', 'N/A')
+        if estimated_start != 'N/A':
+            estimated_start += " (Chicago time)"
+            job_dict["Estimated Start Time"] = estimated_start
         return job_dict
     
     def run_qstat():
@@ -145,6 +161,8 @@ def qstat_inference_function():
         running_jobs = []
         queued_jobs = []
         other_jobs = []
+        private_batch_running = []
+        private_batch_queued = []
 
         for job_id in job_ids:
             job_dict = {}
@@ -159,41 +177,31 @@ def qstat_inference_function():
             if job_state == 'R':
                 if "batch_job" in job_dict["Models"]:
                     job_dict = determine_batch_job_status(job_id, job_dict)  
+                    job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
+                    private_batch_running.append(job_dict)
                 else:
                     job_dict = determine_model_status(submit_path, job_dict)
-                walltime = attributes.get('resources_used.walltime', 'N/A')
-                job_dict["Walltime"] = walltime
-                job_dict["Job ID"] = job_id
-                job_dict["Job State"] = job_state
-                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
-                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
-                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
-                running_jobs.append(job_dict)
+                    job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
+                    running_jobs.append(job_dict)
             elif job_state == 'Q':
                 job_dict["Model Status"] = 'queued'
-                estimated_start = attributes.get('estimated.start_time', 'N/A')
-                if estimated_start != 'N/A':
-                    estimated_start += " (Chicago time)"
-                job_dict["Estimated Start Time"] = estimated_start
-                job_dict["Job ID"] = job_id
-                job_dict["Job State"] = job_state
-                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
-                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
-                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
-                queued_jobs.append(job_dict)
+                if "batch_job" in job_dict["Models"]:
+                    job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
+                    private_batch_queued.append(job_dict)
+                else:
+                    job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
+                    queued_jobs.append(job_dict)
             else:
                 job_dict["Model Status"] = 'other'
-                job_dict["Job ID"] = job_id
-                job_dict["Job State"] = job_state
-                job_dict["Host Name"] = attributes.get('exec_host', 'N/A')
-                job_dict["Job Comments"] = attributes.get('comment', 'N/A')
-                job_dict["Nodes Reserved"] = attributes.get('Resource_List.nodect', 'N/A')
+                job_dict = common_job_attributes(attributes, job_dict)
                 other_jobs.append(job_dict)
         # Create the final JSON structure
         final_output = {
             "running": running_jobs,
             "queued": queued_jobs,
-            "others": other_jobs
+            "others": other_jobs,
+            "private-batch-running": private_batch_running,
+            "private-batch-queued": private_batch_queued
         }
 
         # Print the JSON output
