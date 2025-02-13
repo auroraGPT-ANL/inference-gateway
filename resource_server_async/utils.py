@@ -405,13 +405,13 @@ async def cross_check_status(batch):
 
         # Collect batch ids that are running
         running_batch_ids = []
-        for running in qstat_result["private_batch_running"]:
+        for running in qstat_result["private-batch-running"]:
             if "Batch ID" in running:
                 running_batch_ids.append(running["Batch ID"])
-        nb_running_batches = len(qstat_result["private_batch_running"])
+        nb_running_batches = len(qstat_result["private-batch-running"])
 
         # Collect the number of queued batches
-        nb_queued_batches = len(qstat_result["private_batch_queued"])
+        nb_queued_batches = len(qstat_result["private-batch-queued"])
         
         # Set status to "running" if an HPC job is running for the targetted batch
         if str(batch.batch_id) in running_batch_ids:
