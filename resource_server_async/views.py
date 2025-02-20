@@ -782,7 +782,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Return error if batch failed
     if batch_status == "failed":
-        return await get_plain_response("Error: Batch failed.", 400)
+        return await get_plain_response(f"Error: Batch failed: {batch.error}", 400)
 
     # Return error if results are not ready yet
     if not batch_status == "completed":
