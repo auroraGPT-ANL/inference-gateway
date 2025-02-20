@@ -1,6 +1,5 @@
-cd /home/webportal/inference-gateway
-source .venv/bin/activate
-echo "-------------------" >> /home/webportal/inference-gateway/cron_jobs/cron_logs.txt
-date '+%d/%m/%Y_%H:%M:%S' >> /home/webportal/inference-gateway/cron_jobs/cron_logs.txt
-echo "executing update_batch_status" >> /home/webportal/inference-gateway/cron_jobs/cron_logs.txt
-python3 manage.py update_batch_status
+echo "-------------------" >> /home/webportal/inference-gateway/cron_jobs/update_batch_status_output.log
+date '+%d/%m/%Y_%H:%M:%S' >> /home/webportal/inference-gateway/cron_jobs/update_batch_status_output.log
+echo "-------------------" >> /home/webportal/inference-gateway/cron_jobs/update_batch_status_error.log
+date '+%d/%m/%Y_%H:%M:%S' >> /home/webportal/inference-gateway/cron_jobs/update_batch_status_error.log
+/home/webportal/inference-gateway/.venv/bin/python /home/webportal/inference-gateway/manage.py update_batch_status
