@@ -222,9 +222,7 @@
             "model": "mgoin/Nemotron-4-340B-Instruct-hf",
             "api_port": 8000,
             "endpoint_uuid": "34fa20a8-0d4a-49d2-8a73-39dc85bd2ed4",
-            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe",
-            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "8a302dd5-0877-4461-b13c-fbc874354b01"
+            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe"
         }
     },
     {
@@ -237,9 +235,7 @@
             "model": "meta-llama/Meta-Llama-3.1-405B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "d39cbc54-b6ed-4d1f-894f-499dff5b1dc8",
-            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe",
-            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "8a302dd5-0877-4461-b13c-fbc874354b01"
+            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe"
         }
     },
     {
@@ -416,9 +412,7 @@
             "model": "deepseek-ai/DeepSeek-R1",
             "api_port": 8000,
             "endpoint_uuid": "712bd6f6-7f1c-45cd-9672-81d579faf4db",
-            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe",
-            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "8a302dd5-0877-4461-b13c-fbc874354b01"
+            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe"
         }
     },
     {
