@@ -41,6 +41,13 @@ ALLOWED_QSTAT_ENDPOINTS = {
     }
 }
 
+ALLOWED_QDEL_ENDPOINTS = {
+    "sophia":{
+        "endpoint_uuid":"....",
+        "function_uuid":"...."
+    }
+}
+
 
 # Batch list filter
 class BatchStatusEnum(str, Enum):
@@ -48,6 +55,7 @@ class BatchStatusEnum(str, Enum):
     running = 'running'
     failed = 'failed'
     completed = 'completed'
+    cancelling = 'cancelling'
 class BatchListFilter(FilterSchema):
     status: BatchStatusEnum = None
 

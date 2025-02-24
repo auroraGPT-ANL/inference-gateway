@@ -25,6 +25,7 @@ from resource_server_async.utils import (
     update_batch_status_result,
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
+    ALLOWED_QDEL_ENDPOINTS,
     BatchListFilter,
 )
 log.info("Utils functions loaded.")
@@ -428,7 +429,6 @@ async def get_jobs(request, cluster:str):
 
 # Import file path (POST)
 # TODO: Should we check if the input file path already exists in the database?
-# TODO: Use primary identity username to claim ownership on files and batches
 #@router.post("/v1/files")
 #async def post_batch_file(request, *args, **kwargs):
 #    """POST request to import input file path for running batches."""
@@ -467,7 +467,6 @@ async def get_jobs(request, cluster:str):
 
 
 # Inference batch (POST)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
@@ -661,7 +660,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
 
 # List of batches (GET)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches")
 async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
     """GET request to list all batches linked to the authenticated user."""
@@ -713,7 +711,6 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 
 
 # Inference batch status (GET)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches/{batch_id}")
 async def get_batch_status(request, batch_id: str, *args, **kwargs):
     """GET request to query status of an existing batch job."""
@@ -748,8 +745,59 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     return await get_plain_response(batch_status, 200)
 
 
+# Inference batch cancel (GET)
+# TODO: Add a revert option in case someone cancelled a batch by accident
+@router.get("/v1/batches/{batch_id}/cancel")
+async def get_batch_cancel(request, batch_id: str, *args, **kwargs):
+    """GET request to cancel an existing batch job."""
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # Recover batch object in the database
+    try:
+        batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
+    except Batch.DoesNotExist:
+        return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400)
+
+    # Make sure user has permission to access this batch_id
+    try:
+        if not atv_response.username == batch.username:
+            error_message = f"Error: Permission denied to Batch {batch_id}."
+            return await get_plain_response(error_message, 403)
+    except Exception as e:
+        return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
+    
+    # Make sure the targetted cluster has a qdel endpoint to handle batch cancelling
+    if not batch.cluster in ALLOWED_QDEL_ENDPOINTS:
+        return await get_plain_response(f"Error: Batch job cannot be cancelled on {batch.cluster} yet.", 501)
+    
+    # Error message if the batch cannot be cancelled
+    if batch.status in ["failed", "completed"]:
+        return await get_plain_response(f"Error: Cannot cancel. Batch {batch_id} is {batch.status}.", 400)
+    if batch.status == "cancelling":
+        return await get_plain_response(f"Error: Cannot cancel. Batch {batch_id} is already scheduled to be cancelled.", 400)
+    
+    # Schedule the batch to be cancelled
+    # A cron job will periodically scan for "cancelling" batches and attempt to kill them on the HPC cluster
+    await update_database(db_object=batch)
+    try:
+        batch.status = "cancelling"
+        await update_database(db_object=batch)
+    except Exception as e:
+        error_message = f"Error: Could not update database: {e}"
+        log.error(error_message)
+        return HttpResponse(json.dumps(error_message), status=400)
+
+    # Return status of the batch job
+    return await get_plain_response(f"Batch {batch_id} was scheduled to be cancelled.", 200)
+
+
 # Inference batch result (GET)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches/{batch_id}/result")
 async def get_batch_result(request, batch_id: str, *args, **kwargs):
     """GET request to recover result from an existing batch job."""
