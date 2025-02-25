@@ -11,13 +11,13 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
 
         # Print signs of execution
-        print("update_batch_status management command executed")
+        print("update_batch_status management command executed.")
 
         # Gather all batch objects that are still in progress
         try:
             pending_running_batches = Batch.objects.filter(status__in=['pending', 'running'])
         except Exception as e:
-            raise CommandError(f"Error: Could not extract in_progress batches from database: {e}")
+            raise CommandError(f"Error: Could not extract pending/running batches from database: {e}")
 
         # Update the status of each batch and collect result if available
         for batch in pending_running_batches:
