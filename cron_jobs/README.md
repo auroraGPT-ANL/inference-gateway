@@ -2,7 +2,7 @@
 
 ### Update Batch Status
 
-This is to periodically update the status of all ongoing batch jobs, and add the results in the database while they are available from the Globus server (which deletes task results after 3 days).
+This is to periodically update the status of all ongoing batch jobs, and add the results in the database while they are available from the Globus server (which deletes task results after 3 days). It also looks for batches to cancel and attempt to kill the HPC job associated with cancelling batches.
 
 On the VM, as the `webportal` user, add a crontab with the following command:
 ```bash
