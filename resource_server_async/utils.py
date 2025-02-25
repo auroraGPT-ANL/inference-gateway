@@ -56,6 +56,7 @@ class BatchStatusEnum(str, Enum):
     failed = 'failed'
     completed = 'completed'
     cancelling = 'cancelling'
+    cancelled = 'cancelled'
 class BatchListFilter(FilterSchema):
     status: BatchStatusEnum = None
 
@@ -492,11 +493,11 @@ async def kill_HPC_batch_job(batch):
                 # Set the qdel operation parameters
                 endpoint_uuid = ALLOWED_QDEL_ENDPOINTS[batch.cluster]["endpoint_uuid"]
                 function_uuid = ALLOWED_QDEL_ENDPOINTS[batch.cluster]["function_uuid"]
-                data = {"PBS_jod_id": int(running["Job ID"].split(".")[0])}
+                PBS_jod_id = int(running["Job ID"].split(".")[0])
 
                 # Attempt to kill the batch job on the HPC cluster
                 qdel_return_code, _, error_message, error_code = await submit_and_get_result(
-                    gce, endpoint_uuid, function_uuid, True, data=data
+                    gce, endpoint_uuid, function_uuid, True, data=PBS_jod_id
                 )
                 if len(error_message) > 0:
                     return "", error_message, error_code
