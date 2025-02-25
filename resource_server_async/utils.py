@@ -429,10 +429,10 @@ async def cross_check_status(batch):
         if not batch.batch_id in running_batch_ids and batch.status == "running":
             return "failed"
         
-        # Set status to "failed" if batch is pending, but nothing is queued or running
+        # Set status to "failed" if batch is pending or cancelling, but nothing is queued or running
         # Do not fail just because nothing is in the HPC queue. If a batch is running,
         # it is possible that the targetted batch is in the Globus queue in the cloud.
-        if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
+        if batch.status in ["pending", "cancelling"] and nb_running_batches == 0 and nb_queued_batches == 0:
             if (timezone.now() - batch.created_at).seconds > 10:
                 return "failed"
 
@@ -442,6 +442,83 @@ async def cross_check_status(batch):
     
     # Return same status if no special case was catched
     return batch.status
+
+
+# Kill HPC batch job
+async def kill_HPC_batch_job(batch):
+    """
+    Cancel a batch job by attempting to kill the underlying batch job
+    running on the HPC cluster (using a qdel command). This will also
+    update the batch status state to either "cancelling" or "cancelled",
+    depending on whether the job was successfully killed on the HPC cluster.
+    
+    Arguments
+    ---------
+        batch: batch object from the Batch database model
+
+    Returns
+    -------
+        batch.status, "", 200 OR "", error_message, error_code
+    """
+
+    # Initially set the batch status to "cancelling"
+    batch_status = "cancelling"
+
+    # Get Globus Compute client and executor
+    try:
+        gcc = get_compute_client_from_globus_app()
+        gce = get_compute_executor(client=gcc, amqp_port=443)
+    except Exception as e:
+        return "", f"Error: Could not get the Globus Compute client or executor: {e}", 500
+    
+    # Collect (qstat) details on the jobs running/queued on the cluster
+    qstat_result, _, error_message, error_code = await get_qstat_details(batch.cluster, gcc, gce, timeout=60)
+    if len(error_message) > 0:
+        return "", error_message, error_code
+
+    # Convert raw qstat result into dictionary
+    try:
+        qstat_result = json.loads(qstat_result)
+    except Exception as e:
+        return "", f"Error: Could not read qstat_result with json.loads: {e}", 400
+    
+    # Try to cancel the batch job
+    try: 
+
+        # If the batch is running on the HPC cluster ...
+        for running in qstat_result["private-batch-running"]:
+            if running["Batch ID"] == batch.batch_id:
+
+                # Set the qdel operation parameters
+                endpoint_uuid = ALLOWED_QDEL_ENDPOINTS[batch.cluster]["endpoint_uuid"]
+                function_uuid = ALLOWED_QDEL_ENDPOINTS[batch.cluster]["function_uuid"]
+                data = {"PBS_jod_id": int(running["Job ID"].split(".")[0])}
+
+                # Attempt to kill the batch job on the HPC cluster
+                qdel_return_code, _, error_message, error_code = await submit_and_get_result(
+                    gce, endpoint_uuid, function_uuid, True, data=data
+                )
+                if len(error_message) > 0:
+                    return "", error_message, error_code
+                
+                # Set the batch status to "cancelled" if the HPC job got successfully killed
+                if qdel_return_code == 0:
+                    batch_status = "cancelled"
+                
+    # Error message if something went wrong when parsing qstat_result
+    except Exception as e:
+        return "", f"Error: Could not parse qstat_result data: {e}", 400
+    
+    # Update batch status in the database (if needed)
+    if not batch.status == batch_status:
+        try:
+            batch.status = batch_status
+            await update_database(db_object=batch)
+        except Exception as e:
+            return "", f"Error: Could not update database: {e}", 400
+
+    # Return the current (or updated) batch status
+    return batch.status, "", 200
 
 
 # Update database

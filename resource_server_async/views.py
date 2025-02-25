@@ -24,6 +24,7 @@ from resource_server_async.utils import (
     get_qstat_details,
     update_batch_status_result,
     update_database,
+    kill_HPC_batch_job,
     ALLOWED_QSTAT_ENDPOINTS,
     ALLOWED_QDEL_ENDPOINTS,
     BatchListFilter,
@@ -483,6 +484,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
     
     # Reject request if the allowed quota per user would be exceeded
+    # Here we voluntarily do not count ongoing (maybe queued) "cancelling" jobs
     try:
         number_of_active_batches = 0
         async for batch in Batch.objects.filter(username=atv_response.username, status__in=["pending", "running"]):
@@ -737,7 +739,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
         return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
     
     # Get a status update for the batch (this will update the database if needed)
-    batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
+    batch_status, _, error_message, code = await update_batch_status_result(batch)
     if len(error_message) > 0:
         return await get_plain_response(error_message, code)
 
@@ -746,7 +748,6 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
 
 # Inference batch cancel (GET)
-# TODO: Add a revert option in case someone cancelled a batch by accident
 @router.get("/v1/batches/{batch_id}/cancel")
 async def get_batch_cancel(request, batch_id: str, *args, **kwargs):
     """GET request to cancel an existing batch job."""
@@ -777,24 +778,18 @@ async def get_batch_cancel(request, batch_id: str, *args, **kwargs):
         return await get_plain_response(f"Error: Batch job cannot be cancelled on {batch.cluster} yet.", 501)
     
     # Error message if the batch cannot be cancelled
-    if batch.status in ["failed", "completed"]:
+    if batch.status in ["failed", "completed", "cancelled"]:
         return await get_plain_response(f"Error: Cannot cancel. Batch {batch_id} is {batch.status}.", 400)
     if batch.status == "cancelling":
         return await get_plain_response(f"Error: Cannot cancel. Batch {batch_id} is already scheduled to be cancelled.", 400)
     
-    # Schedule the batch to be cancelled
-    # A cron job will periodically scan for "cancelling" batches and attempt to kill them on the HPC cluster
-    await update_database(db_object=batch)
-    try:
-        batch.status = "cancelling"
-        await update_database(db_object=batch)
-    except Exception as e:
-        error_message = f"Error: Could not update database: {e}"
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+    # Try to kill the batch job running on the HPC cluster (this will update the database if needed)
+    batch_status, error_message, error_code = await kill_HPC_batch_job(batch)
+    if len(error_message) > 0:
+        return await get_plain_response(error_message, error_code)
 
-    # Return status of the batch job
-    return await get_plain_response(f"Batch {batch_id} was scheduled to be cancelled.", 200)
+    # Return the new batch status
+    return await get_plain_response(f"Batch {batch_id} is {batch_status}", 200)
 
 
 # Inference batch result (GET)
