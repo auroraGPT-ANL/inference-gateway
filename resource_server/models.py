@@ -138,7 +138,7 @@ class Batch(models.Model):
 
     # What did the user request?
     input_file = models.CharField(max_length=500)
-    output_file_path = models.CharField(max_length=500, blank=True)
+    output_folder_path = models.CharField(max_length=500, blank=True)
     cluster = models.CharField(max_length=100)
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
