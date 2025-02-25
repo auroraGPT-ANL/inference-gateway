@@ -23,7 +23,7 @@ class Command(BaseCommand):
         for batch in cancelling_batches:
             try:
                 batch_status_before = batch.status
-                batch_status, _, _, _ = async_to_sync(kill_HPC_batch_job)(batch)
+                batch_status, _, _ = async_to_sync(kill_HPC_batch_job)(batch)
                 print(f"batch {batch.batch_id} updated from {batch_status_before} to {batch_status}.")
             except Exception as e:
                 pass
