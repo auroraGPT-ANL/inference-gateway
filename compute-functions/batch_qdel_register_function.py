@@ -24,7 +24,7 @@ gcc = globus_compute_sdk.Client()
 COMPUTE_FUNCTION_ID = gcc.register_function(qdel_inference_function)
 
 # # Write function UUID in a file
-uuid_file_name = "qdel_register_function_sophia.txt"
+uuid_file_name = "batch_qdel_register_function_sophia.txt"
 with open(uuid_file_name, "w") as file:
     file.write(COMPUTE_FUNCTION_ID)
     file.write("\n")
