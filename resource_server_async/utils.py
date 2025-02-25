@@ -43,8 +43,8 @@ ALLOWED_QSTAT_ENDPOINTS = {
 
 ALLOWED_QDEL_ENDPOINTS = {
     "sophia":{
-        "endpoint_uuid":"....",
-        "function_uuid":"...."
+        "endpoint_uuid":"a5120beb-f223-4648-87bf-719ffa0242f4",
+        "function_uuid":"d03a28f0-f4be-4f3e-ac76-d97bc5fb828a"
     }
 }
 
