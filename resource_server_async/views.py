@@ -557,7 +557,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     #       Do we allow multiple batches on the same file on different clusters?
     try:
         async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
-            if not batch.status in ["failed", "completed"]:
+            if batch.status in ["pending", "running"]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_plain_response(error_message, 400)
     except Batch.DoesNotExist:
