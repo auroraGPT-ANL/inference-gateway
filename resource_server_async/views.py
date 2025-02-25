@@ -523,7 +523,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     db_data["framework"] = framework
     db_data["model"] = batch_data["model"]
     db_data["input_file"] = batch_data["input_file"]
-    db_data["output_file_path"] = batch_data.get("output_file_path", "")
+    db_data["output_folder_path"] = batch_data.get("output_folder_path", "")
     db_data["status"] = "failed" # First assume it fails, overwrite if successful
 
     # Build the requested endpoint slug
@@ -618,8 +618,8 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
             "username": db_data["username"]
         }
     ]
-    if "output_file_path" in batch_data:
-        params_list[0]["model_params"]["output_file_path"] = batch_data["output_file_path"]
+    if "output_folder_path" in batch_data:
+        params_list[0]["model_params"]["output_folder_path"] = batch_data["output_folder_path"]
 
     # Prepare the batch job
     try:
