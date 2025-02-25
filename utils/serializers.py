@@ -91,7 +91,7 @@ class BatchParamSerializer(serializer_utils.BaseSerializers):
     #completion_window = serializer_utils.TrueCharField(allow_blank=False, **MAND)
 
     # Optional model parameters
-    output_file_path = serializer_utils.TrueCharField(**OPT_NULL)
+    output_folder_path = serializer_utils.TrueCharField(**OPT_NULL)
     #metadata = serializers.DictField(**OPT_NULL)
 
 
