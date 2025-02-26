@@ -42,13 +42,11 @@ def chunked_vllm_inference_function(parameters):
             "-o", chunk_output_file,
             "--model", model_name,
             "--tensor-parallel-size", "8",
-            "--gpu-memory-utilization", "0.98",
-            "--enable-chunked-prefill",
+            "--gpu-memory-utilization", "0.95",
             "--max-model-len", "16384",
             "--disable-log-requests",
             "--multi-step-stream-outputs", "False",
-            "--trust-remote-code",
-            "--max-num-seqs", "128"
+            "--trust-remote-code"
         ]
 
         # Capture vLLM stdout/stderr in a log file
@@ -101,7 +99,7 @@ def chunked_vllm_inference_function(parameters):
     Expected parameters['model_params'] to include:
       - 'model': The model name or path for vLLM.
       - 'input_file': The large input JSONL file with requests.
-      - 'output_file_path': (optional) Directory path for final combined results.
+      - 'output_folder_path': (optional) Directory path for final combined results.
       - 'chunk_size': (optional) # lines per chunk (default=100)
       - 'username': (optional) User name (default='anonymous')
     """
@@ -117,7 +115,7 @@ def chunked_vllm_inference_function(parameters):
     model_params = parameters.get('model_params', {})
     model_name = model_params.get('model')
     input_file = model_params.get('input_file')
-    final_output_dir = model_params.get('output_file_path', '/lus/eagle/projects/argonne_tpc/inference-service-batch-results/')
+    final_output_dir = model_params.get('output_folder_path', '/lus/eagle/projects/argonne_tpc/inference-service-batch-results/')
     chunk_size = model_params.get('chunk_size', 20000)
     batch_id = parameters.get('batch_id',f"batch_{uuid.uuid4().hex[:6]}")
     username = parameters.get('username', 'anonymous')
@@ -148,8 +146,20 @@ def chunked_vllm_inference_function(parameters):
         raise PermissionError(f"No read permission for file: {input_file}")
 
     # Create directories if needed (depends on HPC environment if allowed)
-    os.makedirs(os.path.dirname(final_output_file), exist_ok=True)
-    os.makedirs(os.path.dirname(progress_file), exist_ok=True)
+    # Create directories with world-readable and writable permissions.
+    old_umask = os.umask(0)
+    try:
+        os.makedirs(os.path.dirname(final_output_file), mode=0o777, exist_ok=True)
+        os.makedirs(os.path.dirname(progress_file), mode=0o777, exist_ok=True)
+    finally:
+        os.umask(old_umask)
+
+    # 2) Validate input file
+    if not os.path.isfile(input_file):
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+    if not os.access(input_file, os.R_OK):
+        raise PermissionError(f"No read permission for file: {input_file}")
+
 
     # 3) Initialize or load progress data
     progress_data = {
@@ -175,6 +185,7 @@ def chunked_vllm_inference_function(parameters):
         progress_data["num_responses_so_far"] = num_responses_global
         with open(progress_file, "w") as pf:
             json.dump(progress_data, pf, indent=4)
+        os.chmod(progress_file, 0o666)
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
@@ -183,6 +194,8 @@ def chunked_vllm_inference_function(parameters):
     #    We'll append chunk results after each chunk
     with open(final_output_file, "a") as _:
         pass
+    os.chmod(final_output_file, 0o666)
+
 
     # 6) Read from the input file, skipping lines_processed
     token_pattern = re.compile(r'"total_tokens":\s*(\d+)')
@@ -233,6 +246,7 @@ def chunked_vllm_inference_function(parameters):
 
                 with open(progress_file, "w") as pf:
                     json.dump(progress_data, pf, indent=4)
+                os.chmod(progress_file, 0o666)
 
                 lines_buffer = []
                 chunk_index += 1
@@ -264,6 +278,7 @@ def chunked_vllm_inference_function(parameters):
             })
             with open(progress_file, "w") as pf:
                 json.dump(progress_data, pf, indent=4)
+            os.chmod(progress_file, 0o666)
 
     end_time = time.time()
     response_time = end_time - start_time
@@ -284,6 +299,7 @@ def chunked_vllm_inference_function(parameters):
     progress_data.update(final_metrics)
     with open(progress_file, "w") as pf:
         json.dump(progress_data, pf, indent=4)
+    os.chmod(progress_file, 0o666)
 
     # Return info
     output = {
