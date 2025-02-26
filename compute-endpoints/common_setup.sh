@@ -19,14 +19,15 @@ setup_environment() {
     module load conda
 
     # Source the Conda initialization script directly
-    conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.6.4.post1/
+    conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.7.1/
 
     # Set environment variables
     export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
     export HF_HOME='/eagle/argonne_tpc/model_weights/'
     export RAY_TMPDIR='/tmp'
-    export NCCL_SOCKET_IFNAME='bond0'
-    export OMP_NUM_THREADS=4
+    export NCCL_SOCKET_IFNAME='infinibond0'
+    export VLLM_IMAGE_FETCH_TIMEOUT=60
+    export HF_TOKEN=''
     ulimit -c unlimited
 
     # Set path to common setup script
@@ -35,6 +36,40 @@ setup_environment() {
     #export PATH="/home/raffenet/software/hydra-4.2.3/bin/mpiexec:$PATH"
 
     echo "Environment setup complete."
+}
+
+setup_environment_infinity(){
+    echo "Setting up the environment..."
+
+    # Set proxy configurations
+    export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+    export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+    export http_proxy="http://proxy.alcf.anl.gov:3128"
+    export https_proxy="http://proxy.alcf.anl.gov:3128"
+    export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+
+    # Load modules and activate the conda environment
+    source /etc/profile.d/modules.sh
+    source /etc/profile  # Initialize environment properly
+    module use /soft/modulefiles
+    module load conda
+
+    # Source the Conda initialization script directly
+    conda activate /eagle/argonne_tpc/inference-gateway/infinityv0.0.71
+
+    # Set environment variables
+    export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
+    export HF_HOME='/eagle/argonne_tpc/model_weights/'
+    export NCCL_SOCKET_IFNAME='infinibond0'
+    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    ulimit -c unlimited
+
+    # Set path to common setup script
+    export COMMON_SETUP_SCRIPT='/home/openinference_svc/sophia_common_scripts.sh'
+
+    #export PATH="/home/raffenet/software/hydra-4.2.3/bin/mpiexec:$PATH"
+
+    echo "Infinity Environment setup complete."
 }
 
 ################################
@@ -85,22 +120,31 @@ cleanup_python_processes() {
 ################################
 # Start Model Function          #
 ################################
+
+################################
+# Start Model Function          #
+################################
 start_model() {
     local model_name="$1"
     local command="$2"
     local log_file="$3"
     local -n attempt_counter_ref="$4"  # Pass by reference for attempt counter
-    local max_attempts=3
-    local timeout=900  # Default timeout (can be parameterized)
+    local max_attempts=2
+    local timeout=3600  # Default timeout (can be parameterized)
 
     while [ "$attempt_counter_ref" -lt "$max_attempts" ]; do
         attempt_counter_ref=$((attempt_counter_ref + 1))
         echo "Starting $model_name (Attempt $attempt_counter_ref of $max_attempts)"
 
-        # Clear the log file before each attempt
+        # Start the model in the background
+        log_dir="$(dirname "$log_file")"
+        # Create the directory if it doesn’t exist
+        mkdir -p "$log_dir"
+
+        # Create an empty file if it doesn't already exist
+        touch "$log_file"
         > "$log_file"
 
-        # Start the model in the background
         nohup bash -c "$command" > "$log_file" 2>&1 &
         local pid=$!
 
