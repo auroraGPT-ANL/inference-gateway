@@ -3,6 +3,7 @@ __pycache__/
 .env
 update_batch_status_error.log
 update_batch_status_output.log
+*.jsonl
 
 # VS code
 .vscode/
