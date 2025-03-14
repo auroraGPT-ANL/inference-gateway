@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.files.storage import default_storage
 import uuid
 import json
 from django.utils import timezone
@@ -95,6 +96,9 @@ async def post_upload_file_test(request, file: UploadedFile = File(...)):
         is_valid, error_message = validate_params(UploadFileParamSerializer, entry_dict)
         if not is_valid:
             return await get_plain_response(f"{base_error}: {error_message}", 400)
+        
+    # Save validated file to local storage
+    file_name = default_storage.save(file.name, file)
 
     # Prepare response data
     response = {
