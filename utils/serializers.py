@@ -102,9 +102,25 @@ class BatchParamSerializer(serializer_utils.BaseSerializers):
     #metadata = serializers.DictField(**OPT_NULL)
 
 
-# OpenAI file upload parameter serializer
-# TODO: Should be OpenAI compliant https://platform.openai.com/docs/api-reference/files/create
-#class OpenAIFileUploadParamSerializer(serializer_utils.BaseSerializers):
-#
-#    # Mandatory model parameters
-#    input_file_path = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+# Upload file parameter serializer
+class UploadFileParamSerializer(serializer_utils.BaseSerializers):
+
+    # Serializers linked to OpenAI endpoints
+    __SERIALIZER_CHOICES = {
+        "/v1/chat/completions": OpenAIChatCompletionsParamSerializer,
+        "/v1/completions": OpenAICompletionsParamSerializer,
+        "/v1/embeddings": OpenAIEmbeddingsParamSerializer
+    }
+
+    # Mandatory model parameters
+    custom_id = serializer_utils.TrueCharField(allow_blank=False, **MAND)
+    method = serializers.ChoiceField(choices=["POST"], **MAND)
+    url = serializers.ChoiceField(choices=["/v1/completions", "/v1/embeddings", "/v1/chat/completions"], **MAND)
+    body = serializers.DictField(**MAND) # Will be validated in the __init__ function
+
+    # Validate the body based on the url field value
+    def __init__(self, *args, **kwargs):
+        super(UploadFileParamSerializer, self).__init__(*args, **kwargs)
+        serializer_class = self.__SERIALIZER_CHOICES[kwargs["data"]["url"]]
+        serializer = serializer_class(data=kwargs["data"]["body"])
+        _ = serializer.is_valid(raise_exception=True)

@@ -16,6 +16,7 @@ from logging_config import LOGGING_CONFIG
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
+from utils.serializers import UploadFileParamSerializer
 from utils.auth_utils import validate_access_token
 import utils.globus_utils as globus_utils
 from resource_server_async.utils import (
@@ -24,6 +25,7 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
+    validate_params,
     #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
@@ -41,12 +43,71 @@ from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, Feder
 from asgiref.sync import sync_to_async
 
 # Ninja API
-from ninja import NinjaAPI, Router, Query
+from ninja import NinjaAPI, Router, Query, File
+from ninja.files import UploadedFile
 api = NinjaAPI(urls_namespace='resource_server_async_api')
 router = Router()
 
 # Simple in-memory cache for endpoint lookups
 endpoint_cache = {}
+
+# Upload file test (POST)
+@router.post("/upload-file-test")
+async def post_upload_file_test(request, file: UploadedFile = File(...)):
+    """POST request to upload a file (development test)."""
+
+    # TODO: collect file name
+    #{'name': file.name, 'len': len(input_entries)}
+    # TODO: Check permissions
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # Try to read the file
+    try:
+        data = await sync_to_async(file.read)()
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not read uploaded file: {e}", 400)
+    
+    # Decode request body into a list of input entries
+    try:
+        data = data.decode("utf-8").split("\n")
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not decode uploaded file: {e}", 400)
+    
+    # For each entry ...
+    input_entries = []
+    for i_entry in range(len(data)):
+
+        # Base error message
+        base_error = f"Error: line {i_entry+1} in uploaded file"
+
+        # Convert the entry string into a dictionary
+        try:
+            entry_dict = json.loads(data[i_entry])
+        except Exception as e:
+            error_message = f"{base_error}: Could not convert to dictionary: {e}"
+            return await get_plain_response(error_message, 400)
+
+        # Validate entry
+        is_valid, error_message = validate_params(UploadFileParamSerializer, entry_dict)
+        if not is_valid:
+            return await get_plain_response(f"{base_error}: {error_message}", 400)
+
+    # Prepare response data
+    response = {
+        'name': file.name,
+        'len': len(data)
+    }
+    
+    # Clear memory
+    del input_entries
+    del file
+
+    return await get_plain_response(response, 200)
+
 
 # List Endpoints (GET)
 @router.get("/list-endpoints")
