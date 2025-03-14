@@ -108,7 +108,6 @@ def extract_prompt(model_params):
 
 
 # Validate request body
-# TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
         
@@ -132,6 +131,26 @@ def validate_request_body(request, openai_endpoint):
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Get serializer class
+def get_serializer_class(openai_endpoint):
+    """Return serializer based on the OpenAI endpoint."""
+
+    # Chat completions
+    if "chat/completions" in openai_endpoint:
+        return OpenAIChatCompletionsParamSerializer, ""
+    
+    # Completions
+    if "completion" in openai_endpoint:
+        return  OpenAICompletionsParamSerializer, ""
+    
+    # Embeddings
+    if "embeddings" in openai_endpoint:
+        return OpenAIEmbeddingsParamSerializer, ""
+    
+    # Error if endpoint not supported
+    return None, f"Error: {openai_endpoint} endpoint not supported."
 
 
 # Validate batch body
@@ -166,6 +185,25 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
+
+
+# Validate input parameters
+def validate_params(serializer_class, params):
+    """Validate input parameters against a given serializer class."""
+
+    # Validate parameters
+    try:
+        serializer = serializer_class(data=params)
+        _ = serializer.is_valid(raise_exception=True)
+
+    # Return error message if something went wrong during the validation
+    except ValidationError as e:
+        return False, f"Error: Could not validate data: {e}"
+    except Exception as e:
+        return False, f"Error: Something went wrong in validating with serializer: {e}"
+
+    # Return True (valid) with no error message
+    return True, ""
 
 
 # Extract group UUIDs from an allowed_globus_groups model field
