@@ -114,40 +114,44 @@ def extract_prompt(model_params):
 
 
 # Validate request body
-# TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
         
     # Select the appropriate data validation serializer based on the openai endpoint
-    if "chat/completions" in openai_endpoint:
-        serializer_class = OpenAIChatCompletionsParamSerializer
-    elif "completion" in openai_endpoint:
-        serializer_class = OpenAICompletionsParamSerializer
-    elif "embeddings" in openai_endpoint:
-        serializer_class = OpenAIEmbeddingsParamSerializer
-    else:
-        return {"error": f"Error: {openai_endpoint} endpoint not supported."}
-        
-    # Decode request body into a dictionary
-    try:
-        model_params = json.loads(request.body.decode("utf-8"))
-    except:
-        return {"error": f"Error: Request body cannot be decoded."}
-        
-    # Send an error if the input data is not valid
-    try:
-        serializer = serializer_class(data=model_params)
-        is_valid = serializer.is_valid(raise_exception=True)
-    except ValidationError as e:
-        return {"error": f"Error: Could not validate data: {e}"}
-    except Exception as e:
-        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+    serializer_class, error_message = get_serializer_class(openai_endpoint)
+    if len(error_message) > 0:
+        return {"error": error_message}
+
+    # Validate the request body against the selected serializer
+    model_params = validate_body(request, serializer_class)
+    if "error" in model_params:
+        return model_params
 
     # Add the 'url' parameter to model_params
     model_params['openai_endpoint'] = openai_endpoint
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
+
+
+# Get serializer class
+def get_serializer_class(openai_endpoint):
+    """Return serializer based on the OpenAI endpoint."""
+
+    # Chat completions
+    if "chat/completions" in openai_endpoint:
+        return OpenAIChatCompletionsParamSerializer, ""
+    
+    # Completions
+    if "completion" in openai_endpoint:
+        return  OpenAICompletionsParamSerializer, ""
+    
+    # Embeddings
+    if "embeddings" in openai_endpoint:
+        return OpenAIEmbeddingsParamSerializer, ""
+    
+    # Error if endpoint not supported
+    return None, f"Error: {openai_endpoint} endpoint not supported."
 
 
 # Validate batch body
@@ -172,17 +176,32 @@ def validate_body(request, serializer_class):
     except:
         return {"error": f"Error: Request body cannot be decoded."}
 
-    # Send an error if the input data is not valid
-    try:
-        serializer = serializer_class(data=params)
-        _ = serializer.is_valid(raise_exception=True)
-    except ValidationError as e:
-        return {"error": f"Error: Could not validate data: {e}"}
-    except Exception as e:
-        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+    # Make sure the parameters are valid
+    is_valid, error_message = validate_params(serializer_class, params)
+    if not is_valid:
+        return {"error": error_message}
 
     # Build request data if nothing wrong was caught
     return params
+
+
+# Validate input parameters
+def validate_params(serializer_class, params):
+    """Validate input parameters against a given serializer class."""
+
+    # Validate parameters
+    try:
+        serializer = serializer_class(data=params)
+        _ = serializer.is_valid(raise_exception=True)
+
+    # Return error message if something went wrong during the validation
+    except ValidationError as e:
+        return False, f"Error: Could not validate data: {e}"
+    except Exception as e:
+        return False, f"Error: Something went wrong in validating with serializer: {e}"
+
+    # Return True (valid) with no error message
+    return True, ""
 
 
 # Extract group UUIDs from an allowed_globus_groups model field
