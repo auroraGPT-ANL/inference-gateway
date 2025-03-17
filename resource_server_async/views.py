@@ -98,7 +98,11 @@ async def post_upload_file_test(request, file: UploadedFile = File(...)):
             return await get_plain_response(f"{base_error}: {error_message}", 400)
         
     # Save validated file to local storage
-    file_name = default_storage.save(file.name, file)
+    try:
+        batch_id = str(uuid.uuid4())
+        file_name = default_storage.save(f"uploaded_files/{batch_id}.{atv_response.username}.{file.name}", file)
+    except Exception as e:
+        return await get_plain_response("Error: Could not write file to local storage.", 400)
 
     # Prepare response data
     response = {
