@@ -34,9 +34,6 @@ globus-compute-common = "^0.5.0"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.scripts]
-agpt-bulk-cli = "agpt_bulk_cli.app.main:app"
-
 [tool.black]
 line-length = 88
 target-version = ["py39"]
