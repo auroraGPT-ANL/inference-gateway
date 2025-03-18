@@ -83,9 +83,6 @@ INSTALLED_APPS = [
     'dashboard_async'
 ]
 
-if ENABLE_BATCHES:
-    INSTALLED_APPS.append('bulk_inference')
-
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

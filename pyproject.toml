@@ -4,7 +4,6 @@ version = "0.1.0"
 description = ""
 authors = ["Benoit Cote <bcote@anl.gov>"]
 readme = "README.md"
-packages = [{include = "agpt_bulk_cli"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
