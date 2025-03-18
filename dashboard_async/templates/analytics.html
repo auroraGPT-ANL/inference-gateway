@@ -156,6 +156,69 @@
       <canvas id="modelThroughputChart"></canvas>
     </div>
 
+    <!-- Add these chart containers after the existing ones -->
+
+    <!-- Batch Overview -->
+    <div class="chart-container">
+      <h3>Batch Jobs Overview</h3>
+      <canvas id="batchOverviewChart"></canvas>
+    </div>
+
+    <!-- Batch Requests Per Model -->
+    <div class="chart-container">
+      <h3>Batch Requests Per Model</h3>
+      <canvas id="batchRequestsPerModelChart"></canvas>
+    </div>
+
+    <!-- Batch Latency Per Model -->
+    <div class="chart-container">
+      <h3>Batch Average Latency Per Model (seconds)</h3>
+      <canvas id="batchLatencyPerModelChart"></canvas>
+    </div>
+
+    <!-- Batch Throughput Per Model -->
+    <div class="chart-container">
+      <h3>Batch Average Throughput Per Model (tokens/s)</h3>
+      <canvas id="batchThroughputPerModelChart"></canvas>
+    </div>
+
+    <!-- Batch Key Stats -->
+    <div class="chart-container">
+      <h3>Batch Key Statistics</h3>
+      <div style="font-size: 1.2rem; margin-top: 20px;">
+        <p><strong>Total Batch Jobs:</strong> <span id="totalBatchJobs"></span></p>
+        <p><strong>Total Successful Requests:</strong> <span id="totalBatchRequests"></span></p>
+        <p><strong>Total Unique Users:</strong> <span id="totalBatchUsers"></span></p>
+        <p><strong>Total Tokens Processed:</strong> <span id="totalTokensProcessed"></span></p>
+      </div>
+    </div>
+
+    <!-- Add this for Batch Daily Usage Chart -->
+    <div class="chart-container">
+      <h3>Daily Batch Jobs (Past 2 Weeks)</h3>
+      <canvas id="batchDailyUsageChart"></canvas>
+    </div>
+
+    <!-- Add this for Batch Logs Table -->
+    <div class="table-container">
+      <h3>Batch Logs</h3>
+      <table id="batchLogsTable" class="display">
+        <thead>
+          <tr>
+            <th>Batch ID</th>
+            <th>Name</th>
+            <th>Username</th>
+            <th>Model</th>
+            <th>Status</th>
+            <th>Created At</th>
+            <th>Duration (s)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button id="loadMoreBatchLogs">Load More Batch Logs</button>
+    </div> 
+
     <!-- Add this for a detailed data table -->
     <div class="table-container">
         <h3>User Request Details</h3>
@@ -526,6 +589,120 @@
           }
         }
       });
+
+      // Batch Overview
+      const batchOverview = data.batch_overview || {
+        total_batch_jobs: 0,
+        completed_batch_jobs: 0,
+        failed_batch_jobs: 0,
+        pending_batch_jobs: 0,
+        running_batch_jobs: 0
+      };
+
+      new Chart(document.getElementById('batchOverviewChart'), {
+        type: 'pie',
+        data: {
+          labels: ['Completed', 'Failed', 'Pending', 'Running'],
+          datasets: [{
+            data: [
+              batchOverview.completed_batch_jobs,
+              batchOverview.failed_batch_jobs,
+              batchOverview.pending_batch_jobs,
+              batchOverview.running_batch_jobs
+            ],
+            backgroundColor: ['#28a745', '#dc3545', '#ffc107', '#17a2b8']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed || 0;
+                  const sum = batchOverview.total_batch_jobs;
+                  const pct = sum ? ((value / sum) * 100).toFixed(1) + '%' : '0%';
+                  return `${label}: ${value} (${pct})`;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // Batch Requests Per Model
+      const batchRequestsPerModel = data.batch_requests_per_model || [];
+      new Chart(document.getElementById('batchRequestsPerModelChart'), {
+        type: 'bar',
+        data: {
+          labels: batchRequestsPerModel.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Total Requests',
+            data: batchRequestsPerModel.map(item => item.total_requests),
+            backgroundColor: '#ff6384'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // Batch Latency Per Model
+      const batchAvgLatency = data.batch_avg_latency || [];
+      new Chart(document.getElementById('batchLatencyPerModelChart'), {
+        type: 'bar',
+        data: {
+          labels: batchAvgLatency.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Average Latency (s)',
+            data: batchAvgLatency.map(item => item.avg_response_time_sec),
+            backgroundColor: '#ffc107'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // Batch Throughput Per Model
+      const batchAvgThroughput = data.batch_avg_throughput || [];
+      new Chart(document.getElementById('batchThroughputPerModelChart'), {
+        type: 'bar',
+        data: {
+          labels: batchAvgThroughput.map(item => item.model || 'Unknown'),
+          datasets: [{
+            label: 'Avg Throughput (tokens/s)',
+            data: batchAvgThroughput.map(item => item.avg_throughput_tokens_per_sec),
+            backgroundColor: '#17a2b8'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // Update batch key stats
+      document.getElementById('totalBatchJobs').textContent = batchOverview.total_batch_jobs || 0;
+      document.getElementById('totalBatchRequests').textContent = data.batch_successful_requests || 0;
+      document.getElementById('totalBatchUsers').textContent = data.batch_unique_users || 0;
+
+      // Format tokens with commas for readability
+      const totalTokens = data.batch_total_tokens || 0;
+      document.getElementById('totalTokensProcessed').textContent = totalTokens.toLocaleString();
     }
 
     // Initialize logs table (DataTables)
