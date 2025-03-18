@@ -4,7 +4,12 @@ version = "0.1.0"
 description = ""
 authors = ["Benoit Cote <bcote@anl.gov>"]
 readme = "README.md"
-packages = [{include = "agpt_bulk_cli"}]
+packages = [
+    { include = "resource_server" },
+    { include = "resource_server_async" },
+    { include = "dashboard_async" },
+    { include = "utils" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -33,9 +38,6 @@ globus-compute-common = "^0.5.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
-agpt-bulk-cli = "agpt_bulk_cli.app.main:app"
 
 [tool.black]
 line-length = 88

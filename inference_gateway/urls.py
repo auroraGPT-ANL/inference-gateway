@@ -12,7 +12,3 @@ urlpatterns = [
     # Async app
     path("resource_server/", include("resource_server_async.urls")),
 ]
-
-# Batch processing feature
-if settings.ENABLE_BATCHES:
-    urlpatterns.append(path("bulk_inference/", include("bulk_inference.urls")))

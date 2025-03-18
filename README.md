@@ -94,14 +94,6 @@ python manage.py loaddata fixtures/endpoints.json
 python manage.py runserver
 ```
 
-## Run Bulk Inference API
-
-Install with poetry and run from within a `poetry shell` session:
-
-```
-poetry run agpt-bulk-cli
-```
-
 
 ## Migration To Postgres DB from local SQLlite
 
