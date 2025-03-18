@@ -3,6 +3,8 @@ __pycache__/
 .env
 update_batch_status_error.log
 update_batch_status_output.log
+create_pg_backup_log.log
+pg_backup/
 
 # VS code
 .vscode/
