@@ -4,6 +4,12 @@ version = "0.1.0"
 description = ""
 authors = ["Benoit Cote <bcote@anl.gov>"]
 readme = "README.md"
+packages = [
+    { include = "resource_server" },
+    { include = "resource_server_async" },
+    { include = "dashboard_async" },
+    { include = "utils" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
