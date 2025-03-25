@@ -1,0 +1,16 @@
+amqp_port: 443
+display_name: sophia-share-collection-endpoint
+engine:
+  max_retries_on_system_failure: 1
+  max_workers_per_node: 1
+  address:
+    type: address_by_interface
+    ifname: ens10f0
+  provider:
+    init_blocks: 1
+    max_blocks: 1
+    min_blocks: 0
+    type: LocalProvider
+  type: GlobusComputeEngine
+allowed_functions:
+  - eeba0058-b9a6-44ec-a529-883488794b0e
