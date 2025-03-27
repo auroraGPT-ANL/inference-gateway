@@ -26,3 +26,6 @@ locust
 
 * Look at Charts and then Download report after 10 minutes when runs stop.
 
+mkdir -p load-testing/datasets
+mkdir -p load-testing/results
+
