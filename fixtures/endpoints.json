@@ -235,7 +235,7 @@
             "model": "meta-llama/Meta-Llama-3.1-405B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "d39cbc54-b6ed-4d1f-894f-499dff5b1dc8",
-            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe"
+            "function_uuid": "29aabd3d-3366-4aa0-b897-e2eed90abde2"
         }
     },
     {
@@ -322,7 +322,7 @@
             "model": "meta-llama/Llama-3.3-70B-Instruct",
             "api_port": 8181,
             "endpoint_uuid": "c3daad56-7af1-4ba4-bca4-63e4ce72f268",
-            "function_uuid": "f1c4f45a-766c-4ec6-a832-c057ec5feebe",
+            "function_uuid": "29aabd3d-3366-4aa0-b897-e2eed90abde2",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "8c731d7a-b31f-4ebd-a824-858b6b4b4649"
         }
