@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 # Reusable serializer base class
 # Raises error if extra/unexpected parameters are passed in the payload
+# TODO: This does not always prevent extra arguments
 class BaseSerializers(serializers.Serializer):
     def is_valid(self, raise_exception=False):
         if hasattr(self, 'initial_data'):
@@ -392,3 +393,103 @@ class OpenAIEmbeddingsInputField(BaseCustomField):
         
         # Wrong format
         return False
+
+
+# OpenAI content part serializer (needed for the content field of the chat completions prediction field)
+class OpenAIContentPartSerializer(BaseSerializers):
+    text = TrueCharField(required=True)
+    type = TrueCharField(required=True)
+
+
+# OpenAI content object (needed for the content field of the chat completions prediction field)
+class OpenAIContentObjectField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIContentObjectField, self).__init__(*args, **kwargs)
+        form = "{ 'text': 'string', 'type': 'string' }"
+        self.custom_error_message = f"'content' must be a string or an array of dictionaries in the form of {form}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            return True
+        if isinstance(data, list):
+            if len(data) == 0:
+                return False
+            for item in data:
+                if not isinstance(item, dict):
+                    return False
+                serializer = OpenAIContentPartSerializer(data=item)
+                if not serializer.is_valid(raise_exception=True):
+                    return False
+            return True
+        return False
+
+
+# OpenAI static content serializer (needed for chat completions prediction field)
+class OpenAIStaticContentSerializer(BaseSerializers):
+    content = OpenAIContentObjectField(required=True)
+    type = serializers.ChoiceField(choices=["content"], required=True)
+
+
+# OpenAI user location serializer (needed for chat completions web search options serializer)
+class OpenAIApproximateSerializer(BaseSerializers):
+    city = TrueCharField(required=False)
+    country = TrueCharField(required=False)
+    region = TrueCharField(required=False)
+    timezone = TrueCharField(required=False)
+
+
+# OpenAI user location serializer (needed for chat completions web search options serializer)
+class OpenAIUserLocationSerializer(BaseSerializers):
+    approximate = OpenAIApproximateSerializer(required=True)
+    type = serializers.ChoiceField(choices=["approximate"], required=True)
+
+
+# OpenAI web search options serializer (needed for chat completions web_search_options field)
+class OpenAIWebSearchOptionsSerializer(BaseSerializers):
+    search_context_size = serializers.ChoiceField(choices=["low", "medium", "high"], required=False)
+    user_location = OpenAIUserLocationSerializer(required=False, allow_null=True)
+
+
+# OpenAI modalities field (needed for chat completions fields)
+class OpenAIModalitiesField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIModalitiesField, self).__init__(*args, **kwargs)
+        self.allowed = [["text"], ["text", "audio"]]
+        self.custom_error_message = f"Must be one of the following arrays: {self.allowed}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, list):
+            if len(data) == 0:
+                return False
+            if not data in self.allowed:
+                return False
+            return True
+        return False
+
+
+# OpenAI metadata field (needed for chat completions fields)
+class OpenAIMetaDataField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIMetaDataField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'metadata' must a dictionary with a maximum of 16 key-value pairs. Keys are strings with a maximum length of 64 characters. Values are strings with a maximum length of 512 characters."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, dict):
+            for key, val in data.items():
+                if isinstance(key, str) and isinstance(val, str):
+                    if len(key) > 64 or len(val) > 512:
+                        return False
+                else:
+                    return False
+            return True
+        else:
+            return False

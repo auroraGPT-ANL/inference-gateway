@@ -49,13 +49,19 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     logit_bias = serializer_utils.OpenAILogitBiasField(**OPT)
     logprobs = serializers.BooleanField(**OPT_NULL)
     top_logprobs = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: logsprobs must be True to use it
+    max_completion_tokens = serializers.IntegerField(min_value=0, **OPT_NULL)
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL)
+    metadata = serializer_utils.OpenAIMetaDataField(**OPT)
+    modalities = serializer_utils.OpenAIModalitiesField(**OPT_NULL)
     n = serializers.IntegerField(min_value=1, max_value=128, **OPT_NULL)
+    prediction = serializer_utils.OpenAIStaticContentSerializer(**OPT)
     presence_penalty = serializers.FloatField(min_value=-2, max_value=2, **OPT_NULL)
+    reasoning_effort = serializers.ChoiceField(choices=["low", "medium", "high"], **OPT_NULL)
     response_format = serializer_utils.OpenAIResponseFormatField(**OPT)
     seed = serializers.IntegerField(min_value=-9223372036854775808, max_value=9223372036854775807, **OPT_NULL)
     service_tier = serializers.ChoiceField(choices=["auto", "default"], **OPT_NULL)
     stop = serializer_utils.OpenAIStopField(**OPT_NULL)
+    store = serializers.BooleanField(**OPT_NULL)
     stream = serializers.BooleanField(**OPT_NULL)
     stream_options = serializer_utils.OpenAIStreamOptionsField(**OPT_NULL) # TODO: 1) Only if stream==True
     temperature = serializers.FloatField(min_value=0, max_value=2, **OPT_NULL)
@@ -64,6 +70,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     tool_choice = serializer_utils.OpenAIToolChoiceField(**OPT)
     parallel_tool_calls = serializers.BooleanField(**OPT)
     user = serializer_utils.TrueCharField(**OPT)
+    web_search_options = serializer_utils.OpenAIWebSearchOptionsSerializer(**OPT)
 
 
 # OpenAI embeddings parameter serializer

@@ -512,5 +512,310 @@
                 ]
             }
         ]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": "not-a-valid-choice"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": ["low"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": 1.45
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "store": "not a boolean"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "store": [true]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here", "type": "not-a-valid-type"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here", "type": ["not-a-valid-type"]}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": 1.45, "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": [1,2], "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": [{}], "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"contentS": "string goes here", "typeS": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": [
+                {
+                    "text": "text goes here",
+                    "type": "type goes here"
+                },
+                {
+                    "text": "another text goes here",
+                    "type": "another type goes here",
+                    "aa": "aa"
+                }
+            ], 
+            "type": "content"
+        }
+    },
+
+    {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "web_search_options": {
+          "search_context_size": "not-a-choice",
+          "user_location": {
+              "type": "approximate",
+              "approximate": {
+                  "city": "city",
+                  "country": "country",
+                  "region": "region",
+                  "timezone": "timezone"
+              }
+          }
+      }
+    },
+
+    {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "web_search_options": {
+          "search_context_size": "medium",
+          "user_location": {
+              "type": "not-a-choice",
+              "approximate": {
+                  "city": "city",
+                  "country": "country",
+                  "region": "region",
+                  "timezone": "timezone"
+              }
+          }
+      }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": ["text", "audio", "extra"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": ["not a choice"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": 13.4567
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "metadata": {
+          "to-longaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "value",
+          "key2": "value a a a a a a a a a"
+        }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "metadata": {
+          "key1": "value",
+          "key2": ["value a a a a a a a a a"]
+        }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": "asdf"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": {"a":"a"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": -8
     }
 ]
