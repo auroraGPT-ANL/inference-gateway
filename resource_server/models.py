@@ -147,8 +147,11 @@ class Batch(models.Model):
     #completion_window = models.CharField(max_length=100)
     #endpoint = models.CharField(max_length=250)
 
+    # Globus Flow UUID in case the batch goes through Flow (Transfer + Compute + Guest Collection)
+    globus_flow_uuid = models.CharField(max_length=100, null=True)
+
     # List of Globus task UUIDs tied to the batch (string separated with ,)
-    globus_batch_uuid = models.CharField(max_length=100)
+    globus_batch_uuid = models.CharField(max_length=100, null=True)
     globus_task_uuids = models.TextField(null=True)
     result = models.TextField(blank=True)
     error = models.TextField(blank=True)
