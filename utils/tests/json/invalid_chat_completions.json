@@ -567,5 +567,117 @@
           }
         ],
         "store": [true]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here", "type": "not-a-valid-type"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here", "type": ["not-a-valid-type"]}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": 1.45, "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": [1,2], "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": [{}], "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"contentS": "string goes here", "typeS": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": [
+                {
+                    "text": "text goes here",
+                    "type": "type goes here"
+                },
+                {
+                    "text": "another text goes here",
+                    "type": "another type goes here",
+                    "aa": "aa"
+                }
+            ], 
+            "type": "content"
+        }
     }
 ]

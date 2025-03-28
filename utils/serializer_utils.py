@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 # Reusable serializer base class
 # Raises error if extra/unexpected parameters are passed in the payload
+# TODO: This does not always prevent extra arguments
 class BaseSerializers(serializers.Serializer):
     def is_valid(self, raise_exception=False):
         if hasattr(self, 'initial_data'):
@@ -392,3 +393,41 @@ class OpenAIEmbeddingsInputField(BaseCustomField):
         
         # Wrong format
         return False
+
+
+# OpenAI content part serializer (needed for the content field of the chat completions prediction field)
+class OpenAIContentPartSerializer(BaseSerializers):
+    text = TrueCharField(required=True)
+    type = TrueCharField(required=True)
+
+
+# OpenAI content object (needed for the content field of the chat completions prediction field)
+class OpenAIContentObjectField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIContentObjectField, self).__init__(*args, **kwargs)
+        form = "{ 'text': 'string', 'type': 'string' }"
+        self.custom_error_message = f"'content' must be a string or an array of dictionaries in the form of {form}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, str):
+            return True
+        if isinstance(data, list):
+            if len(data) == 0:
+                return False
+            for item in data:
+                if not isinstance(item, dict):
+                    return False
+                serializer = OpenAIContentPartSerializer(data=item)
+                if not serializer.is_valid(raise_exception=True):
+                    return False
+            return True
+        return False
+
+
+# OpenAI static content serializer (needed for chat completions prediction field)
+class OpenAIStaticContentSerializer(BaseSerializers):
+    content = OpenAIContentObjectField(required=True)
+    type = serializers.ChoiceField(choices=["content"], required=True)

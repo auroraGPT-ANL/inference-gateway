@@ -351,6 +351,74 @@
           }
         ],
         "store": false
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {"content": "string goes here", "type": "content"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": [
+                {
+                    "text": "text goes here",
+                    "type": "type goes here"
+                }
+            ], 
+            "type": "content"
+        }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": [
+                {
+                    "text": "text goes here",
+                    "type": "type goes here"
+                },
+                {
+                    "text": "another text goes here",
+                    "type": "another type goes here"
+                }
+            ], 
+            "type": "content"
+        }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": "string goes here", 
+            "type": "content",
+            "a":"s"
+        }
     }
 
 ]

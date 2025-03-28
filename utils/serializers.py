@@ -51,6 +51,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     top_logprobs = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: logsprobs must be True to use it
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL)
     n = serializers.IntegerField(min_value=1, max_value=128, **OPT_NULL)
+    prediction = serializer_utils.OpenAIStaticContentSerializer(**OPT)
     presence_penalty = serializers.FloatField(min_value=-2, max_value=2, **OPT_NULL)
     reasoning_effort = serializers.ChoiceField(choices=["low", "medium", "high"], **OPT_NULL)
     response_format = serializer_utils.OpenAIResponseFormatField(**OPT)
