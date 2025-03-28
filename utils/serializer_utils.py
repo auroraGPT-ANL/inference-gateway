@@ -471,3 +471,25 @@ class OpenAIModalitiesField(BaseCustomField):
                 return False
             return True
         return False
+
+
+# OpenAI metadata field (needed for chat completions fields)
+class OpenAIMetaDataField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIMetaDataField, self).__init__(*args, **kwargs)
+        self.custom_error_message = "'metadata' must a dictionary with a maximum of 16 key-value pairs. Keys are strings with a maximum length of 64 characters. Values are strings with a maximum length of 512 characters."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, dict):
+            for key, val in data.items():
+                if isinstance(key, str) and isinstance(val, str):
+                    if len(key) > 64 or len(val) > 512:
+                        return False
+                else:
+                    return False
+            return True
+        else:
+            return False

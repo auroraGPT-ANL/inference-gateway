@@ -463,6 +463,20 @@
         }
       ],
       "modalities": ["text", "audio"]
+  },
+
+  {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "metadata": {
+        "key1": "value",
+        "key2": "value a a a a a a a a a"
+      }
   }
 
 ]

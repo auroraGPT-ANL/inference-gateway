@@ -50,6 +50,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     logprobs = serializers.BooleanField(**OPT_NULL)
     top_logprobs = serializers.IntegerField(min_value=0, max_value=20, **OPT_NULL) #TODO: logsprobs must be True to use it
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL)
+    metadata = serializer_utils.OpenAIMetaDataField(**OPT)
     modalities = serializer_utils.OpenAIModalitiesField(**OPT_NULL)
     n = serializers.IntegerField(min_value=1, max_value=128, **OPT_NULL)
     prediction = serializer_utils.OpenAIStaticContentSerializer(**OPT)
