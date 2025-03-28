@@ -329,6 +329,28 @@
           }
         ],
         "reasoning_effort": "high"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "store": true
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "store": false
     }
 
 ]

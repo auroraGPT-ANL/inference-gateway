@@ -57,6 +57,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     seed = serializers.IntegerField(min_value=-9223372036854775808, max_value=9223372036854775807, **OPT_NULL)
     service_tier = serializers.ChoiceField(choices=["auto", "default"], **OPT_NULL)
     stop = serializer_utils.OpenAIStopField(**OPT_NULL)
+    store = serializers.BooleanField(**OPT_NULL)
     stream = serializers.BooleanField(**OPT_NULL)
     stream_options = serializer_utils.OpenAIStreamOptionsField(**OPT_NULL) # TODO: 1) Only if stream==True
     temperature = serializers.FloatField(min_value=0, max_value=2, **OPT_NULL)
