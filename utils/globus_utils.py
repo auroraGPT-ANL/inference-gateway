@@ -1,9 +1,10 @@
 import asyncio
+import time
 from django.conf import settings
 import globus_sdk
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
-from cachetools import TTLCache, cached, LRUCache
+from cachetools import TTLCache, cached
 
 import logging
 log = logging.getLogger(__name__)
@@ -13,6 +14,8 @@ log = logging.getLogger(__name__)
 class ResourceServerError(Exception):
     pass
 
+# Define separate cache object for Globus executor
+executor_cache = TTLCache(maxsize=1024, ttl=60*10)
 
 # Get authenticated Compute Client using secret
 #@cached(cache=LRUCache(maxsize=1024))
@@ -39,8 +42,7 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 
 # Get authenticated Compute Executor using existing client
-#@cached(cache=LRUCache(maxsize=1024))
-@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
+@cached(cache=executor_cache)
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     """
     Create and return an authenticated Compute Executor using using existing client.
@@ -94,7 +96,13 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
             future = gce.submit_to_registered_function(function_uuid)
         else:    
             future = gce.submit_to_registered_function(function_uuid, args=[data])
+    
+    # Error message if something goes wrong
+    # Clear cache if the Executor is shut down in order for subsequent requests to work
     except Exception as e:
+        if "is shutdown" in str(e):
+            executor_cache.clear()
+            time.sleep(1)
         return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
 
     # Wait for the Globus Compute result using asyncio and coroutine
