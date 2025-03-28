@@ -296,6 +296,39 @@
         ],
         "logprobs": true,
         "top_logprobs": 2
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": "low"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": "medium"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": "high"
     }
 
 ]

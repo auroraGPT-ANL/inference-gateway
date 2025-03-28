@@ -512,5 +512,38 @@
                 ]
             }
         ]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": "not-a-valid-choice"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": ["low"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "reasoning_effort": 1.45
     }
 ]

@@ -52,6 +52,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     max_tokens = serializers.IntegerField(min_value=0, **OPT_NULL)
     n = serializers.IntegerField(min_value=1, max_value=128, **OPT_NULL)
     presence_penalty = serializers.FloatField(min_value=-2, max_value=2, **OPT_NULL)
+    reasoning_effort = serializers.ChoiceField(choices=["low", "medium", "high"], **OPT_NULL)
     response_format = serializer_utils.OpenAIResponseFormatField(**OPT)
     seed = serializers.IntegerField(min_value=-9223372036854775808, max_value=9223372036854775807, **OPT_NULL)
     service_tier = serializers.ChoiceField(choices=["auto", "default"], **OPT_NULL)
