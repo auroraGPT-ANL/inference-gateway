@@ -431,3 +431,23 @@ class OpenAIContentObjectField(BaseCustomField):
 class OpenAIStaticContentSerializer(BaseSerializers):
     content = OpenAIContentObjectField(required=True)
     type = serializers.ChoiceField(choices=["content"], required=True)
+
+
+# OpenAI user location serializer (needed for chat completions web search options serializer)
+class OpenAIApproximateSerializer(BaseSerializers):
+    city = TrueCharField(required=False)
+    country = TrueCharField(required=False)
+    region = TrueCharField(required=False)
+    timezone = TrueCharField(required=False)
+
+
+# OpenAI user location serializer (needed for chat completions web search options serializer)
+class OpenAIUserLocationSerializer(BaseSerializers):
+    approximate = OpenAIApproximateSerializer(required=True)
+    type = serializers.ChoiceField(choices=["approximate"], required=True)
+
+
+# OpenAI web search options serializer (needed for chat completions web_search_options field)
+class OpenAIWebSearchOptionsSerializer(BaseSerializers):
+    search_context_size = serializers.ChoiceField(choices=["low", "medium", "high"], required=False)
+    user_location = OpenAIUserLocationSerializer(required=False, allow_null=True)

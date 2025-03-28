@@ -67,6 +67,7 @@ class OpenAIChatCompletionsParamSerializer(serializer_utils.BaseSerializers):
     tool_choice = serializer_utils.OpenAIToolChoiceField(**OPT)
     parallel_tool_calls = serializers.BooleanField(**OPT)
     user = serializer_utils.TrueCharField(**OPT)
+    web_search_options = serializer_utils.OpenAIWebSearchOptionsSerializer(**OPT)
 
 
 # OpenAI embeddings parameter serializer

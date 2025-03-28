@@ -679,5 +679,49 @@
             ], 
             "type": "content"
         }
+    },
+
+    {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "web_search_options": {
+          "search_context_size": "not-a-choice",
+          "user_location": {
+              "type": "approximate",
+              "approximate": {
+                  "city": "city",
+                  "country": "country",
+                  "region": "region",
+                  "timezone": "timezone"
+              }
+          }
+      }
+    },
+
+    {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "web_search_options": {
+          "search_context_size": "medium",
+          "user_location": {
+              "type": "not-a-choice",
+              "approximate": {
+                  "city": "city",
+                  "country": "country",
+                  "region": "region",
+                  "timezone": "timezone"
+              }
+          }
+      }
     }
 ]

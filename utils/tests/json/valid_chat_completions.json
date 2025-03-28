@@ -419,6 +419,28 @@
             "type": "content",
             "a":"s"
         }
-    }
+    },
+
+    {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "web_search_options": {
+          "search_context_size": "low",
+          "user_location": {
+              "type": "approximate",
+              "approximate": {
+                  "city": "city",
+                  "country": "country",
+                  "region": "region",
+                  "timezone": "timezone"
+              }
+          }
+      }
+  }
 
 ]
