@@ -784,5 +784,38 @@
           "key1": "value",
           "key2": ["value a a a a a a a a a"]
         }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": "asdf"
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": {"a":"a"}
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "max_completion_tokens": -8
     }
 ]
