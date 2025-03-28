@@ -451,3 +451,23 @@ class OpenAIUserLocationSerializer(BaseSerializers):
 class OpenAIWebSearchOptionsSerializer(BaseSerializers):
     search_context_size = serializers.ChoiceField(choices=["low", "medium", "high"], required=False)
     user_location = OpenAIUserLocationSerializer(required=False, allow_null=True)
+
+
+# OpenAI modalities field (needed for chat completions fields)
+class OpenAIModalitiesField(BaseCustomField):
+
+    # Add to the existing initialization
+    def __init__(self, *args, **kwargs):
+        super(OpenAIModalitiesField, self).__init__(*args, **kwargs)
+        self.allowed = [["text"], ["text", "audio"]]
+        self.custom_error_message = f"Must be one of the following arrays: {self.allowed}."
+
+    # Check if the data has a valid type
+    def has_valid_types(self, data):
+        if isinstance(data, list):
+            if len(data) == 0:
+                return False
+            if not data in self.allowed:
+                return False
+            return True
+        return False

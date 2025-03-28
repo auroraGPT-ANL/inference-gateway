@@ -723,5 +723,38 @@
               }
           }
       }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": ["text", "audio", "extra"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": ["not a choice"]
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "modalities": 13.4567
     }
 ]

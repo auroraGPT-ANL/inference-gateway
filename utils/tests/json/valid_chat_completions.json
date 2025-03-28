@@ -441,6 +441,28 @@
               }
           }
       }
+  },
+
+  {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "modalities": ["text"]
+  },
+
+  {
+      "model": "VAR_model_id",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello!"
+        }
+      ],
+      "modalities": ["text", "audio"]
   }
 
 ]
