@@ -52,11 +52,24 @@ router = Router()
 # Simple in-memory cache for endpoint lookups
 endpoint_cache = {}
 
+# Schema to validate request data when uploading files
+from ninja import Form, Schema
+class InputParams(Schema):
+    input_file: str
+    output_folder_path: str
+    model: str
+
+
 # Upload file test (POST)
-@router.post("/upload-file-test")
-async def post_upload_file_test(request, file: UploadedFile = File(...)):
+@router.post("/{cluster}/{framework}/v1/upload-batches")
+async def post_upload_file_test(request, 
+                                cluster: str, framework: str, 
+                                details: Form[InputParams] = Form(...),
+                                file: UploadedFile = File(...)):
     """POST request to upload a file (development test)."""
 
+    print(cluster, framework)
+    print(details)
     # TODO: collect file name
     #{'name': file.name, 'len': len(input_entries)}
     # TODO: Check permissions
@@ -65,6 +78,8 @@ async def post_upload_file_test(request, file: UploadedFile = File(...)):
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # TODO: Make a validation utils function for the uploaded file
 
     # Try to read the file
     try:
@@ -98,9 +113,12 @@ async def post_upload_file_test(request, file: UploadedFile = File(...)):
             return await get_plain_response(f"{base_error}: {error_message}", 400)
         
     # Save validated file to local storage
+    # TODO delete saved file after the flow is done
+    #       have a cron job that look over files and check if batch id is completed/failed, then delete file
+    # TODO delete saved file on Eagle as the last step of the Flow
     try:
         batch_id = str(uuid.uuid4())
-        file_name = default_storage.save(f"uploaded_files/{batch_id}.{atv_response.username}.{file.name}", file)
+        file_name = default_storage.save(f"uploaded_files/{batch_id}.{file.name}", file)
     except Exception as e:
         return await get_plain_response("Error: Could not write file to local storage.", 400)
 
