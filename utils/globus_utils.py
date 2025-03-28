@@ -102,7 +102,7 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
     except Exception as e:
         if "is shutdown" in str(e):
             executor_cache.clear()
-            time.sleep(1)
+            time.sleep(2)
         return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
 
     # Wait for the Globus Compute result using asyncio and coroutine
