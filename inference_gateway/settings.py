@@ -154,7 +154,7 @@ DATABASES = {
             "connect_timeout": 10,  # Connection timeout in seconds
         },
         "CONN_MAX_AGE": 0,  # Set to 0 to let the built-in pooler manage connection lifetime
-        "ATOMIC_REQUESTS": True,  # Wrap each request in a transaction
+        "ATOMIC_REQUESTS": False,  # Cannot be True with async views
         "CONN_HEALTH_CHECKS": True,  # Enable connection health checks
     }
 }

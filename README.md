@@ -112,6 +112,7 @@ PGDATABASE="<Postgres DB Name>"
 PGUSER="<Postgres User Name>"
 PGPASSWORD="<Postgres Password>"
 ENABLE_ASYNC="True"
+MAX_BATCHES_PER_USER=1
 ```
 
 ## Obtaining Globus API Credentials
