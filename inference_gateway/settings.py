@@ -80,10 +80,12 @@ INSTALLED_APPS = [
     'resource_server_async',
     'drf_spectacular',
     # 'dashboard',
-    'dashboard_async'
+    'dashboard_async',
+    'django_prometheus',
 ]
 
 MIDDLEWARE = [
+    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -91,6 +93,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 REST_FRAMEWORK = {
@@ -148,10 +151,14 @@ DATABASES = {
         "OPTIONS": {
             "pool": {
                 "min_size": 5,
-                "max_size": 450,
-                "timeout": 60,
-            }
+                "max_size": 20,  # Reduced from 450 to a more reasonable value
+                "timeout": 30,   # Reduced from 60 to 30 seconds
+            },
+            "connect_timeout": 10,  # Connection timeout in seconds
         },
+        "CONN_MAX_AGE": 0,  # Set to 0 to let the built-in pooler manage connection lifetime
+        "ATOMIC_REQUESTS": True,  # Wrap each request in a transaction
+        "CONN_HEALTH_CHECKS": True,  # Enable connection health checks
     }
 }
 
