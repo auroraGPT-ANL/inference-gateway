@@ -286,8 +286,10 @@
     document.addEventListener('DOMContentLoaded', async () => {
       await loadMetrics();
       initializeLogsTable();
+      initializeBatchLogsTable();
       loadEndpoints();
       document.getElementById('loadMoreLogs').addEventListener('click', loadMoreLogs);
+      document.getElementById('loadMoreBatchLogs').addEventListener('click', loadMoreBatchLogs);
     });
 
     async function fetchJson(url) {
@@ -753,6 +755,86 @@
         tableBody.appendChild(row);
       });
     }
+
+    // Initialize batch logs table (DataTables)
+    function initializeBatchLogsTable() {
+      $('#batchLogsTable').DataTable({
+        ajax: {
+          url: `/dashboard/batch-logs?page=${currentPage}&per_page=${PAGE_SIZE}`,
+          dataSrc: '' // the array is at root level
+        },
+        columns: [
+          { data: 'batch_id' },
+          { data: 'name' },
+          { data: 'username' },
+          { data: 'model' },
+          { data: 'status' },
+          { data: 'created_at' },
+          { data: 'duration' }
+        ],
+        pageLength: PAGE_SIZE,
+        searching: false,
+        ordering: false,
+        processing: true
+      });
+    }
+
+    // Load more batch logs
+    async function loadMoreBatchLogs() {
+      const batchLogsTable = $('#batchLogsTable').DataTable();
+      batchLogsTable.processing(true);
+      currentPage++;
+      const data = await fetchJson(`/dashboard/batch-logs?page=${currentPage}&per_page=${PAGE_SIZE}`);
+      batchLogsTable.rows.add(data).draw();
+      batchLogsTable.processing(false);
+    }
+
+    // Add batch daily usage chart
+    const batchDailyUsage = data.batch_daily_usage || [];
+    new Chart(document.getElementById('batchDailyUsageChart'), {
+      type: 'bar',
+      data: {
+        labels: batchDailyUsage.map(item => new Date(item.day).toLocaleDateString()),
+        datasets: [
+          {
+            label: 'Total Batch Jobs',
+            data: batchDailyUsage.map(item => item.batch_count),
+            backgroundColor: '#007bff',
+            stack: 'Stack 0'
+          },
+          {
+            label: 'Completed',
+            data: batchDailyUsage.map(item => item.completed_count),
+            backgroundColor: '#28a745',
+            stack: 'Stack 0'
+          },
+          {
+            label: 'Failed',
+            data: batchDailyUsage.map(item => item.failed_count),
+            backgroundColor: '#dc3545',
+            stack: 'Stack 0'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            stacked: true
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'top'
+          }
+        }
+      }
+    });
   </script>
 </body>
 </html>

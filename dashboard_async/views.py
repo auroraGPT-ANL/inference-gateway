@@ -19,19 +19,17 @@ def fetch_metrics():
     """Fetch metrics synchronously using materialized views."""
     from django.db import connection
 
-    # 1) Overall stats from mv_overall_stats
     with connection.cursor() as cursor:
+        # 1) Overall stats from mv_overall_stats
         cursor.execute("SELECT * FROM mv_overall_stats")
         row = cursor.fetchone()
         total_requests, successful_requests, failed_requests, total_users = row
 
-    # 2) User details from mv_user_details
-    with connection.cursor() as cursor:
+        # 2) User details from mv_user_details
         cursor.execute("SELECT name, username FROM mv_user_details")
         user_details = [{"name": row[0], "username": row[1]} for row in cursor.fetchall()]
 
-    # 3) Model-specific metrics from mv_model_requests
-    with connection.cursor() as cursor:
+        # 3) Model-specific metrics from mv_model_requests
         cursor.execute("SELECT * FROM mv_model_requests")
         model_requests = [
             {
@@ -43,48 +41,42 @@ def fetch_metrics():
             for row in cursor.fetchall()
         ]
 
-    # 4) Model latency from mv_model_latency
-    with connection.cursor() as cursor:
+        # 4) Model latency from mv_model_latency
         cursor.execute("SELECT * FROM mv_model_latency")
         model_latency = [
             {"model": row[0], "avg_latency": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 5) Users per model from mv_users_per_model
-    with connection.cursor() as cursor:
+        # 5) Users per model from mv_users_per_model
         cursor.execute("SELECT * FROM mv_users_per_model")
         users_per_model = [
             {"model": row[0], "user_count": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 6) Weekly usage from mv_weekly_usage
-    with connection.cursor() as cursor:
+        # 6) Weekly usage from mv_weekly_usage
         cursor.execute("SELECT * FROM mv_weekly_usage")
         weekly_usage = [
             {"week_start": row[0], "request_count": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 7) Daily usage from mv_daily_usage_2_weeks
-    with connection.cursor() as cursor:
+        # 7) Daily usage from mv_daily_usage_2_weeks
         cursor.execute("SELECT * FROM mv_daily_usage_2_weeks")
         daily_usage_2_weeks = [
             {"day": row[0], "request_count": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 8) Model throughput from mv_model_throughput
-    with connection.cursor() as cursor:
+        # 8) Model throughput from mv_model_throughput
         cursor.execute("SELECT * FROM mv_model_throughput")
         model_throughput = [
             {"model": row[0], "avg_throughput": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 9) Requests per user from mv_requests_per_user
-    with connection.cursor() as cursor:
+        # 9) Requests per user from mv_requests_per_user
         cursor.execute("SELECT * FROM mv_requests_per_user")
         requests_per_user = [
             {
@@ -96,33 +88,8 @@ def fetch_metrics():
             }
             for row in cursor.fetchall()
         ]
-    
-    # Calculate today's RPS (still needs real-time data)
-    day_start = now().replace(hour=0, minute=0, second=0, microsecond=0)
-    requests_today = Log.objects.filter(timestamp_receive__gte=day_start).count()
-    time_since_day_start = (now() - day_start).total_seconds()
-    average_rps_today = requests_today / time_since_day_start if time_since_day_start > 0 else 0
 
-    # Calculate daily RPS for past 7 days
-    daily_rps_7_days = []
-    for day_info in daily_usage_2_weeks:
-        day_dt = day_info["day"]
-        req_count = day_info["request_count"]
-
-        if day_dt.date() == now().date():
-            partial_seconds = (now() - day_start).total_seconds()
-            avg_rps = req_count / partial_seconds if partial_seconds > 0 else 0
-        else:
-            avg_rps = req_count / 86400.0
-
-        daily_rps_7_days.append({
-            "day": day_dt.isoformat(),
-            "average_rps": avg_rps
-        })
-
-    # Add batch metrics
-    # 10) Batch Overview
-    with connection.cursor() as cursor:
+        # 10) Batch Overview
         cursor.execute("SELECT * FROM mv_batch_total_jobs")
         row = cursor.fetchone()
         batch_overview = {
@@ -132,15 +99,13 @@ def fetch_metrics():
             "pending_batch_jobs": row[3],
             "running_batch_jobs": row[4]
         }
-
-    # 11) Batch Successful Requests
-    with connection.cursor() as cursor:
+        
+        # 11) Batch Successful Requests
         cursor.execute("SELECT * FROM mv_batch_successful_requests")
         row = cursor.fetchone()
         batch_successful_requests = row[0] if row[0] is not None else 0
 
-    # 12) Batch Requests Per Model
-    with connection.cursor() as cursor:
+        # 12) Batch Requests Per Model
         cursor.execute("SELECT * FROM mv_batch_requests_per_model")
         batch_requests_per_model = [
             {
@@ -152,33 +117,44 @@ def fetch_metrics():
             for row in cursor.fetchall()
         ]
 
-    # 13) Batch Unique Users
-    with connection.cursor() as cursor:
+        # 13) Batch Unique Users
         cursor.execute("SELECT * FROM mv_batch_unique_users")
         row = cursor.fetchone()
         batch_unique_users = row[0] if row is not None else 0
 
-    # 14) Batch Total Tokens
-    with connection.cursor() as cursor:
+        # 14) Batch Total Tokens
         cursor.execute("SELECT * FROM mv_batch_total_tokens")
         row = cursor.fetchone()
         batch_total_tokens = row[0] if row[0] is not None else 0
 
-    # 15) Batch Average Latency
-    with connection.cursor() as cursor:
+        # 15) Batch Average Latency
         cursor.execute("SELECT * FROM mv_batch_avg_latency")
         batch_avg_latency = [
             {"model": row[0], "avg_response_time_sec": row[1]}
             for row in cursor.fetchall()
         ]
 
-    # 16) Batch Average Throughput
-    with connection.cursor() as cursor:
+        # 16) Batch Average Throughput
         cursor.execute("SELECT * FROM mv_batch_avg_throughput")
         batch_avg_throughput = [
             {"model": row[0], "avg_throughput_tokens_per_sec": row[1]}
             for row in cursor.fetchall()
         ]
+
+        # 17) Add daily batch usage
+        cursor.execute("SELECT * FROM mv_batch_daily_usage")
+        batch_daily_usage = [
+            {
+                "day": row[0],
+                "batch_count": row[1],
+                "completed_count": row[2],
+                "failed_count": row[3],
+                "total_requests": row[4]
+            }
+            for row in cursor.fetchall()
+        ]
+
+
     
     # Calculate today's RPS (still needs real-time data)
     day_start = now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -202,20 +178,6 @@ def fetch_metrics():
             "day": day_dt.isoformat(),
             "average_rps": avg_rps
         })
-
-    # Add daily batch usage
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT * FROM mv_batch_daily_usage")
-        batch_daily_usage = [
-            {
-                "day": row[0],
-                "batch_count": row[1],
-                "completed_count": row[2],
-                "failed_count": row[3],
-                "total_requests": row[4]
-            }
-            for row in cursor.fetchall()
-        ]
 
     return {
         "total_requests": total_requests,
