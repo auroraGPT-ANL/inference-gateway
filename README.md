@@ -218,6 +218,11 @@ This is optional but recommended on HPC clusters. This function is used to get t
 
 vLLM is a high-performance inference engine for LLMs. Although and inference serving framework can be used we have found vLLM to be the most performant and simple to set up. Installation instructions vary by system:
 
+## Setting up the Compute Endpoints
+
+Globus Compute Endpoints allow remote execution on HPC clusters. These typically run on login nodes. You can set it up locally for testing purposes if you have enough resources to run the vLLM server.
+
+### Installation
 ```bash
 # Basic installation with pip
 pip install vllm
