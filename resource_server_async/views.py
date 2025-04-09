@@ -40,6 +40,8 @@ from ninja import NinjaAPI, Router, Query
 api = NinjaAPI(urls_namespace='resource_server_async_api')
 router = Router()
 
+# Simple in-memory cache for endpoint lookups
+endpoint_cache = {}
 
 # List Endpoints (GET)
 @router.get("/list-endpoints")
@@ -836,23 +838,45 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
-    log.info("endpoint_slug", endpoint_slug)
-    print("endpoint_slug", endpoint_slug, "-", atv_response.username)
+    log.info(f"endpoint_slug: {endpoint_slug} - user: {atv_response.username}")
     db_data["endpoint_slug"] = endpoint_slug
-    
-    # Pull the targetted endpoint UUID and function UUID from the database
+
+    # Try to get endpoint from the simple in-memory cache
+    if endpoint_slug in endpoint_cache:
+        endpoint = endpoint_cache[endpoint_slug]
+        log.info(f"Retrieved endpoint {endpoint_slug} from in-memory cache.")
+    else:
+        # If not in cache, fetch from DB asynchronously
+        try:
+            get_endpoint_sync = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            endpoint = await get_endpoint_sync(endpoint_slug=endpoint_slug)
+
+            # Store the fetched endpoint in the cache
+            endpoint_cache[endpoint_slug] = endpoint
+            log.info(f"Fetched endpoint {endpoint_slug} from DB and added to in-memory cache.")
+
+        except Endpoint.DoesNotExist:
+            return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+        except Exception as e:
+            return await get_response(db_data, f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400)
+
+    # Use the endpoint data (either from cache or freshly fetched)
     try:
-        endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
         data["model_params"]["api_port"] = endpoint.api_port
         db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
-    except Endpoint.DoesNotExist:
-        return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
-    
+         # If there was an error processing the data (e.g., attribute missing),
+         # it might be safer to remove it from the cache to force a refresh on next request.
+        if endpoint_slug in endpoint_cache:
+            del endpoint_cache[endpoint_slug]
+        return await get_response(db_data, f"Error processing endpoint data for {endpoint_slug}: {e}", 400)
+
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
+        # Remove from cache if group extraction fails, as the cached data might be problematic
+        if endpoint_slug in endpoint_cache:
+            del endpoint_cache[endpoint_slug]
         return await get_response(db_data, error_message, 401)
     
     # Block access if the user is not a member of at least one of the required groups
