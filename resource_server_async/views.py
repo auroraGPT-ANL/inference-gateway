@@ -842,7 +842,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     
     # Pull the targetted endpoint UUID and function UUID from the database
     try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+        endpoint = Endpoint.objects.get(endpoint_slug=endpoint_slug)
         data["model_params"]["api_port"] = endpoint.api_port
         db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     except Endpoint.DoesNotExist:

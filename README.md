@@ -2,7 +2,7 @@
 ![Build](https://github.com/auroraGPT-ANL/inference-gateway/workflows/Django/badge.svg)
 
 # Inference Gateway for FIRST toolkit
-A RESTful API Gateway that authenticates and authorizes inference requests to scientific computing clusters. This system enables LLM inference as a service, allowing secure, remote execution of large language models through an OpenAI-compatible API.
+A RESTful API Gateway that authenticates and authorizes inference requests to scientific computing clusters. This system enables LLM inference as a service, allowing secure, remote execution of large language models through an OpenAI-compatible API. This the FIRST toolkit's inference gateway.
 
 ## System Architecture
 
@@ -31,11 +31,29 @@ The Inference Gateway consists of several components:
 git clone https://github.com/auroraGPT-ANL/inference-gateway.git
 cd inference-gateway
 
-# Create .env file (see Configuration section)
-# ...
+# Create .env file (see Configuration section below)
+# Ensure you have the required environment variables set.
+
+# Create necessary directories for logs and Prometheus config
+mkdir -p logs prometheus
+
+# If you don't have a prometheus.yml, you might need to create a basic one
+# echo "global:\\n  scrape_interval: 15s\\nscrape_configs:\\n  - job_name: 'prometheus'\\n    static_configs:\\n      - targets: ['localhost:9090']" > prometheus/prometheus.yml
 
 # Start all services
-docker-compose -f docker-compose.yml up --build
+docker-compose -f docker-compose.yml up --build -d # Run in background
+
+# Initialize the database inside the container (first time setup)
+docker-compose -f docker-compose.yml exec inference-gateway python manage.py migrate
+docker-compose -f docker-compose.yml exec inference-gateway python manage.py loaddata fixtures/endpoints.json
+
+# Optional: If you have materialized views created by custom commands/migrations:
+# docker-compose -f docker-compose.yml exec inference-gateway python manage.py <your_command_to_create/refresh_views>
+
+# Optional: Import data from host DB (if needed, see DB Import section below)
+# pg_dump -U <host_user> ... -f dump.dump
+# docker cp dump.dump postgres:/tmp/dump.dump
+# docker exec -i postgres pg_restore -U dataportaldev -d inferencegateway ... /tmp/dump.dump
 ```
 
 This will deploy:
@@ -73,46 +91,70 @@ poetry install
 # Activate the environment
 poetry shell
 
+# Ensure database connection environment variables are set in your shell
+# (e.g., export PGHOST=localhost PGUSER=... PGPASSWORD=... PGDATABASE=...)
+# See the .env example in the Configuration section for variable names.
+
 # Set up the database
 python manage.py migrate
 python manage.py loaddata fixtures/endpoints.json
+# Optional: Create/refresh materialized views needed for the dashboard
+# python manage.py <your_command_to_create/refresh_views>
 ```
 
 ## Configuration
 
-Create a [.env](.env) file in the project root with the following parameters:
+Create a [.env](.env) file in the project root with the following parameters. **Note:** This file is used by both bare-metal setup and the Docker Compose deployment.
 
 ```text
+# Django Core Settings
 SECRET_KEY="<some-super-secret-key>"
+DEBUG=True # Set to False for production bare-metal, True often helpful for local Docker dev
+ALLOWED_HOSTS="localhost,127.0.0.1" # Adjust for your domain/IP if needed
+
+# Globus Credentials (Required for core functionality)
 GLOBUS_APPLICATION_ID="<Globus-API-client-identity>"
 GLOBUS_APPLICATION_SECRET="<Globus-API-client-secret>"
-POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
-POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
-DEBUG=False
 GLOBUS_GROUPS="
 <globus-group-uuid-1>
 <globus-group-uuid-2>
-...
 "
 GLOBUS_POLICIES="
 <globus-policy-uuid-1>
-<globus-policy-uuid-2>
-...
 "
 AUTHORIZED_IDPS='
 {
-    "<identity-provider-name-1>" : "<identity-provider-uuid-1>",
-    "<identity-provider-name-2>" : "<identity-provider-uuid-2>"
+    "<identity-provider-name-1>" : "<identity-provider-uuid-1>"
 }
 '
 
-PGHOST="localhost"
+# Compute Endpoint IDs (Replace with actual IDs)
+POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
+POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
+
+# Database Credentials (Used by inference-gateway, postgres, postgres-exporter)
+POSTGRES_DB="inferencegateway" # Database name
+POSTGRES_USER="dataportaldev" # Database user
+POSTGRES_PASSWORD="dataportaldevpwd123" # Database password
+PGHOST="postgres" # Service name in docker-compose, or "localhost" for bare-metal
+# Use PGHOST="host.docker.internal" to connect from Docker to a DB running on your host machine
+# (Requires host DB to allow connections from Docker's IP range, see PostgreSQL docs)
 PGPORT=5432
-PGDATABASE="<Postgres DB Name>"
-PGUSER="<Postgres User Name>"
-PGPASSWORD="<Postgres Password>"
+
+# Redis URL (Used by inference-gateway)
+REDIS_URL="redis://redis:6379/0" # Service name in docker-compose
+
+# Gateway Specific Settings
 ENABLE_ASYNC="True"
 MAX_BATCHES_PER_USER=1
+
+# Grafana Admin Credentials (Used by grafana service in docker-compose)
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=admin
+# Optional: GF_USERS_ALLOW_SIGN_UP=false
+
+# Django Settings Module (Defaults usually fine)
+# DJANGO_SETTINGS_MODULE=inference_gateway.settings
 ```
 
 ## Obtaining Globus API Credentials
@@ -222,13 +264,41 @@ python manage.py loaddata fixtures/endpoints.json
 ### Development
 
 ```bash
+# Ensure DB connection vars (PGHOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+# are set in your shell environment for your local DB (e.g., using export).
+# Alternatively, add python-dotenv and load a specific .env file in manage.py.
+# Example using export for a local DB:
+# export PGHOST=localhost POSTGRES_USER=mylocaluser POSTGRES_DB=mylocaldb POSTGRES_PASSWORD=xxx
 python manage.py runserver
 ```
 
 ### Production (with Gunicorn)
 
 ```bash
-poetry run gunicorn inference_gateway.wsgi:application --config gunicorn_asgi.config.py
+# NOTE: The gunicorn_asgi.config.py file uses a custom worker that may cause issues.
+# The recommended approach, especially in Docker, is to run Gunicorn with explicit parameters:
+# Ensure environment variables (DB connection etc.) are set appropriately first.
+poetry run gunicorn \
+    inference_gateway.asgi:application \
+    -k uvicorn.workers.UvicornWorker \
+    -b 0.0.0.0:7000 \
+    --workers 5 \
+    --threads 4 \
+    --timeout 1800 \
+    --log-level info \
+    --access-logfile /path/to/access.log \
+    --error-logfile /path/to/error.log \
+    --capture-output
+
+# Adjust workers, log paths, and other parameters as needed for your bare-metal setup.
+```
+
+### Docker
+
+```bash
+# Ensure .env file is configured for docker deployment (e.g., DEBUG=True, PGHOST=postgres, REDIS_URL=redis://redis:6379/0)
+# Create necessary directories first (see Docker Deployment section)
+docker-compose -f docker-compose.yml up --build
 ```
 
 ## Monitoring
@@ -237,6 +307,8 @@ Access the monitoring dashboard at:
 - **Dashboard**: http://localhost:8000/dashboard/analytics
 - **Grafana**: http://localhost:3000 (default credentials: admin/admin)
 - **Prometheus**: http://localhost:9090
+
+The **/dashboard/analytics** page requires specific PostgreSQL materialized views (e.g., `mv_overall_stats`, `mv_model_requests`). Ensure these are created and refreshed according to the steps in the Installation section or your project's specific procedures.
 
 The dashboard includes:
 - Application metrics (request rates, latency, error rates)
@@ -248,3 +320,18 @@ The dashboard includes:
 - Error rates
 - Latency metrics
 - Active user counts
+
+## Troubleshooting
+
+*   **Nginx 404/502/504 Errors:**
+    *   Verify `docker-compose.yml` correctly mounts `./nginx_app.conf` to `/etc/nginx/conf.d/default.conf`.
+    *   Check `nginx_app.conf` has the correct `upstream app_server` definition (pointing to `inference-gateway:7000`).
+    *   Check `inference-gateway` service logs (`docker-compose logs inference-gateway`) for startup errors.
+    *   Ensure `PGHOST` in `.env` is correct for the context (`postgres` for Docker-to-Docker, `host.docker.internal` for Docker-to-Host).
+*   **Database Connection Errors (e.g., Password Auth Failed, Timeout, Connection Refused):**
+    *   **Docker:** Ensure `.env` variables (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `PGHOST`, `PGPORT`) are correctly set and match the expectations in `settings.py`.
+    *   **Local `runserver`:** Ensure the same variables are correctly exported in your *local shell* environment and point to the intended database (local host or Docker via mapped port), or use `python-dotenv`.
+    *   **Docker-to-Host:** If using `PGHOST=host.docker.internal`, verify the host PostgreSQL allows network connections and `pg_hba.conf` permits connections from Docker IPs.
+*   **Dashboard (`/dashboard/analytics`) 500 Error or Missing Data:**
+    *   Check `inference-gateway` logs (`docker-compose logs inference-gateway`) for Python tracebacks when accessing `/dashboard/metrics`.
+    *   Verify that the required materialized views (e.g., `mv_overall_stats`) exist in the target database and are populated. Check if creation/refresh commands ran successfully during setup.
