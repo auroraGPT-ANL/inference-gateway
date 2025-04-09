@@ -848,8 +848,8 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     else:
         # If not in cache, fetch from DB asynchronously
         try:
-            get_endpoint_sync = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
-            endpoint = await get_endpoint_sync(endpoint_slug=endpoint_slug)
+            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
 
             # Store the fetched endpoint in the cache
             endpoint_cache[endpoint_slug] = endpoint
