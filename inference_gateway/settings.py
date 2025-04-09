@@ -140,8 +140,8 @@ WSGI_APPLICATION = 'inference_gateway.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('PGDATABASE', 'mydatabase'),
-        'USER': os.getenv('PGUSER', 'myusername'),
+        'NAME': os.getenv('POSTGRES_DB', 'mydatabase'),
+        'USER': os.getenv('POSTGRES_USER', 'myusername'),
         'PASSWORD': '',  # Leave this empty to use .pgpass
         'HOST': os.getenv('PGHOST', 'localhost'),
         'PORT': os.getenv('PGPORT', '5432'),
