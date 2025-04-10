@@ -146,14 +146,9 @@ DATABASES = {
         'HOST': os.getenv('PGHOST', 'localhost'),
         'PORT': os.getenv('PGPORT', '5432'),
         "OPTIONS": {
-            "pool": {
-                "min_size": 5,
-                "max_size": 20,  # Reduced from 450 to a more reasonable value
-                "timeout": 30,   # Reduced from 60 to 30 seconds
-            },
             "connect_timeout": 10,  # Connection timeout in seconds
         },
-        "CONN_MAX_AGE": 0,  # Set to 0 to let the built-in pooler manage connection lifetime
+        "CONN_MAX_AGE": 300,  # Set to non-zero (e.g., 300 seconds) to enable connection reuse
         "ATOMIC_REQUESTS": False,  # Cannot be True with async views
         "CONN_HEALTH_CHECKS": True,  # Enable connection health checks
     }

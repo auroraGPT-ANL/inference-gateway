@@ -31,7 +31,7 @@ backlog = 2048
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
-workers = multiprocessing.cpu_count() * 2 + 1  # Recommended formula: (2 x num_cores) + 1
+workers = 5 # Reduced to 5 for our VM
 threads = 4  # Increase threads per worker for better concurrency
 worker_connections = 1000  # Maximum number of simultaneous clients per worker
 
