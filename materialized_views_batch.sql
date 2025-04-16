@@ -112,4 +112,24 @@ SELECT
     ) AS total_requests
 FROM resource_server_batch
 GROUP BY date_trunc('day'::text, created_at)
-ORDER BY date_trunc('day'::text, created_at); 
+ORDER BY date_trunc('day'::text, created_at);
+
+-- Monthly batch usage (all time)
+DROP MATERIALIZED VIEW IF EXISTS public.mv_batch_monthly_usage CASCADE;
+CREATE MATERIALIZED VIEW public.mv_batch_monthly_usage AS
+SELECT
+    date_trunc('month'::text, created_at) AS month_start,
+    COUNT(*) AS batch_count,
+    COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+    COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+    SUM(
+        CASE
+            WHEN status = 'completed' AND result IS NOT NULL AND result <> '' AND
+                 (result)::json -> 'metrics' -> 'num_responses' IS NOT NULL
+            THEN (json_extract_path_text((result)::json, VARIADIC ARRAY['metrics', 'num_responses']))::numeric
+            ELSE 0
+        END
+    ) AS total_requests_in_completed
+FROM resource_server_batch
+GROUP BY date_trunc('month'::text, created_at)
+ORDER BY date_trunc('month'::text, created_at); 

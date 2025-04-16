@@ -148,9 +148,9 @@ DATABASES = {
         "OPTIONS": {
             "connect_timeout": 10,  # Connection timeout in seconds
         },
-        "CONN_MAX_AGE": 300,  # Set to non-zero (e.g., 300 seconds) to enable connection reuse
-        "ATOMIC_REQUESTS": False,  # Cannot be True with async views
-        "CONN_HEALTH_CHECKS": True,  # Enable connection health checks
+        "CONN_MAX_AGE": 300,
+        "ATOMIC_REQUESTS": False,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
