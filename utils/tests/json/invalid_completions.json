@@ -287,8 +287,54 @@
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "prompt": "prompt",
         "user": 1.2
-    }
+    },
 
-    
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "prompt": "this is my question?",
+        "extra": 1
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": 1,
+        "echo": true,
+        "frequency_penalty": -1,
+        "logit_bias": {"50256": -100, "23574": 45, "extra": [true]},
+        "logprobs": 3,
+        "max_tokens": 10,
+        "n": 2,
+        "presence_penalty": 1.23,
+        "seed": 3,
+        "stop": "stop",
+        "stream": false,
+        "stream_options": {"include_usage": true},
+        "suffix": "suffix",
+        "temperature": 1.3,
+        "top_p": 0.5,
+        "user": "user"
+    },
+
+    {
+        "model": "model",
+        "prompt": "prompt",
+        "best_of": 1,
+        "echo": true,
+        "frequency_penalty": -1,
+        "logit_bias": {"50256": -100, "23574": 45},
+        "logprobs": 3,
+        "max_tokens": 10,
+        "n": 2,
+        "presence_penalty": 1.23,
+        "seed": 3,
+        "stop": "stop",
+        "stream": false,
+        "stream_options": {"include_usage": true, "extra": 1},
+        "suffix": "suffix",
+        "temperature": 1.3,
+        "top_p": 0.5,
+        "user": "user"
+    }
 
 ]

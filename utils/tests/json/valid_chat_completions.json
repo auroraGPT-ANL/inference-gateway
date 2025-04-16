@@ -139,6 +139,7 @@
         "frequency_penalty": 1,
         "logit_bias": {"50256": -100, "23574": 42},
         "top_logprobs": 10,
+        "logprobs": true,
         "max_tokens": 10,
         "n": 10,
         "presence_penalty": 1,
@@ -146,8 +147,6 @@
         "seed": 1,
         "service_tier": "auto",
         "stop": "one stop",
-        "stream": true,
-        "stream_options": {"include_usage": true},
         "temperature": 1.2,
         "top_p" : 0.23
     },
@@ -416,8 +415,7 @@
         ],
         "prediction": {
             "content": "string goes here", 
-            "type": "content",
-            "a":"s"
+            "type": "content"
         }
     },
 
