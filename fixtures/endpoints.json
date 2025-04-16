@@ -376,11 +376,11 @@
         "model": "resource_server.endpoint",
         "pk": 27,
         "fields": {
-            "endpoint_slug": "sophia-vllm-argonne-privateauroragpt-tulu3-sft-0125",
+            "endpoint_slug": "sophia-vllm-argonne-privateauroragpt-7b-oi",
             "cluster": "sophia",
             "framework": "vllm",
-            "model": "argonne-private/AuroraGPT-Tulu3-SFT-0125",
-            "api_port": 8183,
+            "model": "argonne-private/AuroraGPT-7B-OI",
+            "api_port": 8184,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
             "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
@@ -438,7 +438,7 @@
             "cluster": "sophia",
             "framework": "vllm",
             "model": "argonne-private/AuroraGPT-SFT-1902",
-            "api_port": 8182,
+            "api_port": 8889,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
             "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
@@ -470,21 +470,6 @@
             "model": "Qwen/QwQ-32B",
             "api_port": 8000,
             "endpoint_uuid": "11509894-55f4-4c22-8866-d0382cab7f18",
-            "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
-            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "8c731d7a-b31f-4ebd-a824-858b6b4b4649"
-        }
-    },
-    {
-        "model": "resource_server.endpoint",
-        "pk": 34,
-        "fields": {
-            "endpoint_slug": "sophia-vllm-argonne-privateauroragpt-7b-oi",
-            "cluster": "sophia",
-            "framework": "vllm",
-            "model": "argonne-private/AuroraGPT-7B-OI",
-            "api_port": 8184,
-            "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
             "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "8c731d7a-b31f-4ebd-a824-858b6b4b4649"
