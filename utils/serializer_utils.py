@@ -29,7 +29,7 @@ class TrueCharField(serializers.CharField):
     # Overwrite to_internal_value to raise errors if the data has the wrong types
     def to_internal_value(self, data):
         if isinstance(data, str):
-            return True
+            return data
         else:
             raise ValidationError("Value not a string.") # TODO: Should make sure to give more details to users
 
