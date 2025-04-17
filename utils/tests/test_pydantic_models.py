@@ -1,14 +1,24 @@
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from utils.pydantic_models.batch import BatchPydantic
 from pydantic import ValidationError
 from rest_framework.test import APITestCase
 import json
 
 # Constants
-COMPLETIONS = "completions/"
-CHAT_COMPLETIONS = "chat/completions/"
-EMBEDDINGS = "embeddings/"
+COMPLETIONS = "completions"
+CHAT_COMPLETIONS = "chat_completions"
+EMBEDDINGS = "embeddings"
+BATCH = "batch"
+
+# Pydantic models
+PYDANTIC_MODELS = {
+    COMPLETIONS: OpenAICompletionsPydantic,
+    CHAT_COMPLETIONS: OpenAIChatCompletionsPydantic,
+    EMBEDDINGS: OpenAIEmbeddingsPydantic,
+    BATCH: BatchPydantic,
+}
 
 # Test OpenAI pydantic models
 class UtilsPydanticModelsTestCase(APITestCase):
@@ -23,26 +33,12 @@ class UtilsPydanticModelsTestCase(APITestCase):
         # Load test input data (OpenAI format)
         base_path = "utils/tests/json"
         self.valid_params = {}
-        with open(f"{base_path}/valid_completions.json") as json_file:
-            self.valid_params[COMPLETIONS] = json.load(json_file)
-        with open(f"{base_path}/valid_chat_completions.json") as json_file:
-            self.valid_params[CHAT_COMPLETIONS] = json.load(json_file)
-        with open(f"{base_path}/valid_embeddings.json") as json_file:
-            self.valid_params[EMBEDDINGS] = json.load(json_file)
         self.invalid_params = {}
-        with open(f"{base_path}/invalid_completions.json") as json_file:
-            self.invalid_params[COMPLETIONS] = json.load(json_file)
-        with open(f"{base_path}/invalid_chat_completions.json") as json_file:
-            self.invalid_params[CHAT_COMPLETIONS] = json.load(json_file)
-        with open(f"{base_path}/invalid_embeddings.json") as json_file:
-            self.invalid_params[EMBEDDINGS] = json.load(json_file)
-
-        # Assign pydantic models
-        self.pydantic_models = {
-            COMPLETIONS: OpenAICompletionsPydantic,
-            CHAT_COMPLETIONS: OpenAIChatCompletionsPydantic,
-            EMBEDDINGS: OpenAIEmbeddingsPydantic
-        }
+        for model in PYDANTIC_MODELS:
+            with open(f"{base_path}/valid_{model}.json") as json_file:
+                self.valid_params[model] = json.load(json_file)
+            with open(f"{base_path}/invalid_{model}.json") as json_file:
+                self.invalid_params[model] = json.load(json_file)
 
     # Test OpenAICompletions pydantic model for validation
     def test_OpenAICompletions_validation(self):
@@ -56,24 +52,28 @@ class UtilsPydanticModelsTestCase(APITestCase):
     def test_OpenAIEmbeddings_validation(self):
         self.__generic_serializer_validation(EMBEDDINGS)
 
+    # Test Batch pydantic model for validation
+    def test_Batch_validation(self):
+        self.__generic_serializer_validation(BATCH)
+
     # Reusable function to validate pydantic model definitions
-    def __generic_serializer_validation(self, model_key):
+    def __generic_serializer_validation(self, model):
 
         # For each valid set of parameters ...
-        for valid_params in self.valid_params[model_key]:
+        for valid_params in self.valid_params[model]:
 
             # Make sure the pydantic model does not raise a validation error
             try:
-                self.pydantic_models[model_key](**valid_params)
+                PYDANTIC_MODELS[model](**valid_params)
             except ValidationError:
                 self.fail(f"The following data was supposed to be valid, but was flagged as invalid: {valid_params}")
 
         # For each invalid set of parameters ...
-        for invalid_params in self.invalid_params[model_key]:
+        for invalid_params in self.invalid_params[model]:
 
             # Make sure the pydantic model raises a validation error
             try:
-                self.pydantic_models[model_key](**invalid_params)
+                PYDANTIC_MODELS[model](**invalid_params)
                 self.fail(f"The following data was supposed to be invalid, but was flagged as valid: {valid_params}")
             except ValidationError:
                 pass
