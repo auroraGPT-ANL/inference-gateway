@@ -339,7 +339,7 @@ class SystemMessage(BaseModelExtraForbid):
     role: SystemMessageRole
     name: Optional[str] = Field(default=None)
 
-# User message - content 
+# User message - content - object (general class that will re-route the validation according to the targeted content type)
 class UserMessageContent(BaseModelExtraForbid):
     type: str
     text: Optional[Any] = Field(default=None)
@@ -375,6 +375,13 @@ class UserMessageContent(BaseModelExtraForbid):
         # Return values if nothing wrong happened in the valudation step
         return values
     
+# User_message
+class UserMessage(BaseModelExtraForbid):
+    #content: Union[str, List[Union[MessageTextContent, MessageImageContent, MessageAudioContent, MessageFileContent]]]
+    content: Union[str, List[UserMessageContent]]
+    role: UserMessageRole
+    name: Optional[str] = Field(default=None)
+
 # Assistant message - content 
 class AssistantMessageContent(BaseModelExtraForbid):
     type: str
@@ -407,13 +414,6 @@ class AssistantMessageContent(BaseModelExtraForbid):
         # Return values if nothing wrong happened in the valudation step
         return values
 
-# User_message
-class UserMessage(BaseModelExtraForbid):
-    #content: Union[str, List[Union[MessageTextContent, MessageImageContent, MessageAudioContent, MessageFileContent]]]
-    content: Union[str, List[UserMessageContent]]
-    role: UserMessageRole
-    name: Optional[str] = Field(default=None)
-
 # Assistant_message
 class AssistantMessage(BaseModelExtraForbid):
     role: AssistantMessageRole
@@ -430,7 +430,7 @@ class ToolMessage(BaseModelExtraForbid):
     role: ToolMessageRole
     tool_call_id: str
 
-# Message
+# Message (general class that will re-route the validation according to the targeted role)
 class Message(BaseModelExtraForbid):
     role: str
     content: Optional[Any] = Field(default=None)
