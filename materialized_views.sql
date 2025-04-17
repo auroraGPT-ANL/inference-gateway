@@ -40,3 +40,11 @@ CREATE MATERIALIZED VIEW public.mv_daily_usage_2_weeks AS
 DROP MATERIALIZED VIEW IF EXISTS public.mv_requests_per_user CASCADE;
 CREATE MATERIALIZED VIEW public.mv_requests_per_user AS
  SELECT resource_server_log.name,     resource_server_log.username,     count(*) AS total_requests,     count(*) FILTER (WHERE ((resource_server_log.response_status = 200) OR (resource_server_log.response_status IS NULL))) AS successful_requests,     count(*) FILTER (WHERE (NOT ((resource_server_log.response_status = 200) OR (resource_server_log.response_status IS NULL)))) AS failed_requests    FROM resource_server_log   GROUP BY resource_server_log.name, resource_server_log.username;;
+
+DROP MATERIALIZED VIEW IF EXISTS public.mv_monthly_usage CASCADE;
+CREATE MATERIALIZED VIEW public.mv_monthly_usage AS
+ SELECT date_trunc('month'::text, resource_server_log.timestamp_receive) AS month_start,
+    count(*) AS request_count
+   FROM resource_server_log
+  GROUP BY (date_trunc('month'::text, resource_server_log.timestamp_receive))
+  ORDER BY (date_trunc('month'::text, resource_server_log.timestamp_receive));;
