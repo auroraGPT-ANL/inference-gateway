@@ -12,9 +12,9 @@ class OpenAIStreamOptions(BaseModelExtraForbid):
 
 # OpenAI completions
 # https://platform.openai.com/docs/api-reference/completions/create
-class OpenAICompletions(BaseModelExtraForbid):
+class OpenAICompletionsPydantic(BaseModelExtraForbid):
     prompt: Union[str, List[str], List[int], List[List[int]]]
-    model: str = Field(min_length=1)
+    model: str = Field(..., min_length=1)
     best_of: Optional[int] = Field(default=1, ge=0, le=20)
     echo: Optional[bool] = Field(default=False)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
@@ -41,7 +41,6 @@ class OpenAICompletions(BaseModelExtraForbid):
             for bias in values.logit_bias.values():
                 if bias < -100 or bias > 100:
                     raise ValueError("'logit_bias' bias values must be from -100 to 100.")
-
 
         # Return values if nothing wrong happened in the valudation step
         return values

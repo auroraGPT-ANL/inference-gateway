@@ -178,7 +178,7 @@ class ResponseFormatText(BaseModelExtraForbid):
 
 # Response_format - json_schema - json_schema
 class ResponseFormatJsonSchemaJsonSchema(BaseModelExtraForbid):
-    name: str = Field(max_length=64)
+    name: str = Field(..., max_length=64)
     description: Optional[str] = Field(default=None)
     schema: Optional[dict] = Field(default_factory=dict)
     strict: Optional[bool] = Field(default=False)
@@ -235,7 +235,7 @@ class ToolChoiceObject(BaseModelExtraForbid):
 
 # Tool - function 
 class ToolFunction(BaseModelExtraForbid):
-    name: str = Field(max_length=64)
+    name: str = Field(..., max_length=64)
     description: Optional[str] = Field(default=None)
     parameters: Optional[dict] = Field(default=None)
     strict: Optional[bool] = Field(default=False)
@@ -256,10 +256,10 @@ class Tool(BaseModelExtraForbid):
 
 # Web_search_options - user_location - approximate
 class WebSearchOptionsUserLocationApproximate(BaseModelExtraForbid):
-    city: str = Field(default=None)
-    country: str = Field(default=None)
-    region: str = Field(default=None)
-    timezone: str = Field(default=None)
+    city: Optional[str] = Field(default=None)
+    country: Optional[str] = Field(default=None)
+    region: Optional[str] = Field(default=None)
+    timezone: Optional[str] = Field(default=None)
 
 # Web_search_options - user_location
 class WebSearchOptionsUserLocation(BaseModelExtraForbid):
@@ -418,8 +418,8 @@ class AssistantMessageContent(BaseModelExtraForbid):
 class AssistantMessage(BaseModelExtraForbid):
     role: AssistantMessageRole
     audio: Optional[AssistantMessageAudio] = Field(default=None)
-    #content: Optional[Union[str, List[Union[MessageTextContent, MessageRefusalContent]]]]
-    content: Optional[Union[str, List[AssistantMessageContent]]]
+    #content: Optional[Union[str, List[Union[MessageTextContent, MessageRefusalContent]]]] = Field(default=None)
+    content: Optional[Union[str, List[AssistantMessageContent]]] = Field(default=None)
     name: Optional[str] = Field(default=None)
     refusal: Optional[str] = Field(default=None)
     tool_calls: Optional[List[AssistantMessageToolCalls]] = Field(default=None)
@@ -471,7 +471,7 @@ class Message(BaseModelExtraForbid):
 
 # OpenAI chat completions
 # https://platform..com/docs/api-reference/chat/create
-class OpenAIChatCompletions(BaseModelExtraForbid):
+class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
 
     #messages: List[Union[
     #    DeveloperMessage,
@@ -482,7 +482,7 @@ class OpenAIChatCompletions(BaseModelExtraForbid):
     #]
     messages: List[Message]
 
-    model: str = Field(min_length=1)
+    model: str = Field(..., min_length=1)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
     logit_bias: Optional[Dict[str, float]] = Field(default=None)
     logprobs: Optional[bool] = Field(default=False)

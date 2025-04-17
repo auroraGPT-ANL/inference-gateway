@@ -14,7 +14,7 @@ class EncodingFormat(str, Enum):
 
 # OpenAI embeddings
 # https://platform.openai.com/docs/api-reference/embeddings/create
-class OpenAIEmbeddings(BaseModelExtraForbid):
+class OpenAIEmbeddingsPydantic(BaseModelExtraForbid):
     input: Union[str, List[str], List[int], List[List[int]]]
     model: str
     dimensions: Optional[int] = Field(default=None, ge=1)
