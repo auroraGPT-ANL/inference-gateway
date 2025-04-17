@@ -1,5 +1,8 @@
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletions
+from utils.pydantic_models.openai_completions import OpenAICompletions
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddings
+from pydantic import ValidationError
 from rest_framework.test import APITestCase
-from utils.serializers import OpenAICompletionsParamSerializer, OpenAIChatCompletionsParamSerializer, OpenAIEmbeddingsParamSerializer
 import json
 
 # Constants
@@ -7,8 +10,8 @@ COMPLETIONS = "completions/"
 CHAT_COMPLETIONS = "chat/completions/"
 EMBEDDINGS = "embeddings/"
 
-# Test utils/serializers.py
-class UtilsSerializersTestCase(APITestCase):
+# Test OpenAI pydantic models
+class UtilsPydanticModelsTestCase(APITestCase):
 
     # Initialization
     @classmethod
@@ -34,47 +37,44 @@ class UtilsSerializersTestCase(APITestCase):
         with open(f"{base_path}/invalid_embeddings.json") as json_file:
             self.invalid_params[EMBEDDINGS] = json.load(json_file)
 
-        # Assign serializers
-        self.serializers = {
-            COMPLETIONS: OpenAICompletionsParamSerializer,
-            CHAT_COMPLETIONS: OpenAIChatCompletionsParamSerializer,
-            EMBEDDINGS: OpenAIEmbeddingsParamSerializer
+        # Assign pydantic models
+        self.pydantic_models = {
+            COMPLETIONS: OpenAICompletions,
+            CHAT_COMPLETIONS: OpenAIChatCompletions,
+            EMBEDDINGS: OpenAIEmbeddings
         }
 
-
-    # Test OpenAICompletionsParamSerializer for validation
-    def test_OpenAICompletionsParamSerializer_validation(self):
+    # Test OpenAICompletions pydantic model for validation
+    def test_OpenAICompletions_validation(self):
         self.__generic_serializer_validation(COMPLETIONS)
     
-
-    # Test OpenAIChatCompletionsParamSerializer for validation
-    def test_OpenAIChatCompletionsParamSerializer_validation(self):
+    # Test OpenAIChatCompletions pydantic model for validation
+    def test_OpenAIChatCompletions_validation(self):
         self.__generic_serializer_validation(CHAT_COMPLETIONS)
 
-
-    # Test OpenAIEmbeddingsParamSerializer for validation
-    def test_OpenAIEmbeddingsParamSerializer_validation(self):
+    # Test OpenAIEmbeddings pydantic model for validation
+    def test_OpenAIEmbeddings_validation(self):
         self.__generic_serializer_validation(EMBEDDINGS)
 
-
-    # Reusable generic serializer validation
-    def __generic_serializer_validation(self, serializer_key):
+    # Reusable function to validate pydantic model definitions
+    def __generic_serializer_validation(self, model_key):
 
         # For each valid set of parameters ...
-        for valid_params in self.valid_params[serializer_key]:
+        for valid_params in self.valid_params[model_key]:
 
-            # Send the data to the serializer and make sure the data is valid
-            serializer = self.serializers[serializer_key](data=valid_params)
-            self.assertTrue(serializer.is_valid(raise_exception=True))
+            # Make sure the pydantic model does not raise a validation error
+            try:
+                self.pydantic_models[model_key](**valid_params)
+            except ValidationError:
+                self.fail(f"The following data was supposed to be valid, but was flagged as invalid: {valid_params}")
 
         # For each invalid set of parameters ...
-        for invalid_params in self.invalid_params[serializer_key]:
+        for invalid_params in self.invalid_params[model_key]:
 
-            # Send the data to the serializer
-            serializer = self.serializers[serializer_key](data=invalid_params)
-
-            # Make sure the data is not valid
-            if serializer.is_valid(raise_exception=False):
-                print("  ",invalid_params) # TODO: Is there a better way to print out info with self.assertFalse?
-            self.assertFalse(serializer.is_valid(raise_exception=False))
+            # Make sure the pydantic model raises a validation error
+            try:
+                self.pydantic_models[model_key](**invalid_params)
+                self.fail(f"The following data was supposed to be invalid, but was flagged as valid: {valid_params}")
+            except ValidationError:
+                pass
 
