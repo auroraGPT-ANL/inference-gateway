@@ -1,6 +1,6 @@
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletions
-from utils.pydantic_models.openai_completions import OpenAICompletions
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddings
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
+from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from pydantic import ValidationError
 from rest_framework.test import APITestCase
 import json
@@ -39,9 +39,9 @@ class UtilsPydanticModelsTestCase(APITestCase):
 
         # Assign pydantic models
         self.pydantic_models = {
-            COMPLETIONS: OpenAICompletions,
-            CHAT_COMPLETIONS: OpenAIChatCompletions,
-            EMBEDDINGS: OpenAIEmbeddings
+            COMPLETIONS: OpenAICompletionsPydantic,
+            CHAT_COMPLETIONS: OpenAIChatCompletionsPydantic,
+            EMBEDDINGS: OpenAIEmbeddingsPydantic
         }
 
     # Test OpenAICompletions pydantic model for validation
