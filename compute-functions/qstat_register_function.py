@@ -58,7 +58,7 @@ def qstat_inference_function():
         framework_str = 'N/A'
         cluster_str = 'N/A'
         if not os.path.exists(file_path):
-            # We’ll return a dict with N/A if file doesn’t exist
+            # We'll return a dict with N/A if file doesn't exist
             job_dict["Models"] = models_str
             job_dict["Framework"] = framework_str
             job_dict["Cluster"] = cluster_str
@@ -204,10 +204,61 @@ def qstat_inference_function():
             "private-batch-queued": private_batch_queued
         }
 
-        # Print the JSON output
         return final_output
 
+    def get_node_status():
+        """
+        Determines the number of free nodes on the cluster.
+        Currently supports PBS via 'pbsnodes'. Add checks for other schedulers here.
+        Returns a dictionary like {'free_nodes': count}.
+        Returns {'free_nodes': -1} if status cannot be determined.
+        """
+        free_nodes_count = -1 # Default to unknown
+        try:
+            # --- PBS Implementation ---
+            # Check if pbsnodes command exists
+            pbs_check_cmd = "command -v pbsnodes"
+            pbs_check_result = subprocess.run(pbs_check_cmd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            if pbs_check_result.returncode == 0:
+                cmd = "pbsnodes -a -F json"
+                result = subprocess.run(cmd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                if result.returncode == 0:
+                    try:
+                        pbsnodes_data = json.loads(result.stdout)
+                        # Count nodes where state is 'free' and not marked as broken
+                        count = 0
+                        for node_name, node_info in pbsnodes_data.get('nodes', {}).items():
+                            if node_info.get('state') == 'free' and node_info.get('resources_available', {}).get('broken') != 'True':
+                                count += 1
+                        free_nodes_count = count
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing pbsnodes JSON: {e}") # Log error
+                    except Exception as e:
+                        print(f"Error processing pbsnodes data: {e}") # Log error
+                else:
+                    print(f"pbsnodes command failed: {result.stderr}") # Log error
+            else:
+                # --- Add Slurm/Other Scheduler Logic Here ---
+                # Example placeholder for Slurm:
+                # slurm_check_cmd = "command -v sinfo"
+                # if subprocess.run(slurm_check_cmd, ...).returncode == 0:
+                #    cmd = "sinfo -h -o '%N %t' | grep 'idle' | wc -l"
+                #    result = subprocess.run(cmd, ...)
+                #    free_nodes_count = int(result.stdout.strip())
+                pass # No other schedulers implemented yet
+
+        except subprocess.TimeoutExpired:
+            print("Node status command timed out.") # Log error
+        except Exception as e:
+            print(f"Error getting node status: {e}") # Log error
+            
+        return {"free_nodes": free_nodes_count}
+
     output = run_qstat()
+    node_status = get_node_status()
+    output["cluster_status"] = node_status # Add node status to the main output
+    
     json_output = json.dumps(output, indent=4)
 
     return json_output
