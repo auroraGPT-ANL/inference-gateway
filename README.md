@@ -137,8 +137,8 @@ GLOBUS_APPLICATION_SECRET="<Your-Globus-App-Client-Secret>"
 # --- Database Credentials ---
 # Used by Django Gateway, Postgres container, postgres-exporter
 POSTGRES_DB="inferencegateway"
-POSTGRES_USER="dataportaldev"
-POSTGRES_PASSWORD="dataportaldevpwd123" # CHANGE THIS for production
+POSTGRES_USER="inferencedev"
+POSTGRES_PASSWORD="inferencedevpwd" # CHANGE THIS for production
 # Hostname: Use "postgres" for Docker-compose networking.
 # Use "localhost" for bare-metal if DB is local.
 # Use "host.docker.internal" if Gateway runs in Docker but DB runs on the host machine.
