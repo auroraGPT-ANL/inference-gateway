@@ -1,0 +1,22 @@
+[
+    {
+        "model": "resource_server.federatedendpoint",
+        "pk": 1,
+        "fields": {
+            "name": "Meta Llama 3.1 8B Instruct (Federated)",
+            "slug": "federated-meta-llama-31-8b-instruct",
+            "target_model_name": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "description": "Federated access point for the Meta Llama 3.1 8B Instruct model across available clusters.",
+            "targets": [
+                {
+                    "cluster": "local",
+                    "framework": "vllm",
+                    "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
+                    "function_uuid": "c0b3e315-5294-47be-87e4-d5efd96d524d",
+                    "api_port": 8000
+                }
+                
+            ]
+        }
+    }
+] 

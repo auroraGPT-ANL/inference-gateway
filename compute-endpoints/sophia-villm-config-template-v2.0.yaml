@@ -42,6 +42,15 @@ engine:
       retry_counter_model_1=0
 
       # Start the model
-      start_model "$model_name" "$model_command" "$log_file" retry_counter_model_1
+      # Loop to start models and restart if any model fails
+      while true; do
+          echo "Starting models sequence..."
+          # Start first model
+          if ! start_model "$model_name_1" "$model_command_1" "$logfile_1" retry_counter_model_1; then
+              continue  # Restart from the beginning if this fails
+          fi
+          echo "All models started successfully."
+          break  # Exit the loop if all models start successfully
+      done
 allowed_functions:
   - 3073ed77-6a17-4e85-826a-e1dca5309e01 

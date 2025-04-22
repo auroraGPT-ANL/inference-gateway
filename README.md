@@ -209,12 +209,28 @@ The Gateway interacts with the inference server via functions registered with Gl
 
 Navigate to the `compute-functions` directory in your local clone of the repository.
 
+**Important for Local/Non-HPC Setups:** When registering functions or configuring an endpoint you need to explicitly tie the function/endpoint identity back to your registered Globus Application (the Inference Gateway itself). Do this by exporting the *Gateway's* Globus Application Client ID and Secret as environment variables **before** running the registration script or configuring the endpoint:
+
+```bash
+# Example using the Gateway's Globus App credentials
+export GLOBUS_COMPUTE_CLIENT_ID="<Your-Gateway-Globus-App-Client-ID>"
+export GLOBUS_COMPUTE_CLIENT_SECRET="<Your-Gateway-Globus-App-Client-Secret>"
+
+# Example registration command after setting the variables:
+# (inference-gateway-py3.11.9-env) ADITYAs-MacBook-Pro-2:compute-functions adityatanikanti$ python3 vllm_register_function.py
+# Function registered with UUID - c0b3e315-5294-47be-87e4-d5efd96d524d
+# The UUID is stored in vllm_register_function_sophia_multiple_models.txt.
+```
+
+Now, register the necessary functions:
+
 ```bash
 cd path/to/inference-gateway/compute-functions
 
 # Activate the Python environment (e.g., poetry shell or conda activate)
 
 # Register the vLLM inference function (modify the script if needed)
+# See compute-functions/vllm_register_function.py
 python vllm_register_function.py
 # Note the output Function UUID (e.g., <vllm-function-uuid>)
 
@@ -258,6 +274,7 @@ globus-compute-endpoint configure <my-endpoint-name>
 *   `strategy`: Configure how tasks are managed.
 
 See [sophia-vllm-config-template.yaml](./compute-endpoints/sophia-vllm-config-template.yaml) for a detailed example.
+See [local-vllm-endpoint.yaml](./compute-endpoints/local-vllm-endpoint.yaml) for an example configured for local execution.
 Refer to [Globus Compute Endpoint Docs](https://globus-compute.readthedocs.io/en/latest/endpoints.html) for all options.
 
 **After configuring `config.yaml`:**

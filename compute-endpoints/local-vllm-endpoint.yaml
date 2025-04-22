@@ -1,0 +1,32 @@
+display_name: local-vllm-endpoint
+engine:
+  type: GlobusComputeEngine
+  max_retries_on_system_failure: 2
+  max_workers_per_node: 2
+  provider:
+    type: LocalProvider
+    launcher:
+      type: SimpleLauncher
+    init_blocks: 1
+    max_blocks: 1
+    min_blocks: 0
+    worker_init: |
+     source /Users/adityatanikanti/Codes/inference-gateway/compute-endpoints/common_setup.sh
+     model_name="Meta-Llama-3.1-8B-Instruct"
+     model_command="vllm serve ${model_name} --max-model-len 32764"
+     log_file="$PWD/logfile_sophia_vllm_$(model_name)_$(hostname).log"
+     # Initialize retry counter for the model
+     retry_counter_model_1=0
+     # Start the model
+     # Loop to start models and restart if any model fails
+     while true; do
+          echo "Starting models sequence..."
+          # Start first model
+          if ! start_model "$model_name_1" "$model_command_1" "$logfile_1" retry_counter_model_1; then
+              continue  # Restart from the beginning if this fails
+          fi
+          echo "All models started successfully."
+          break  # Exit the loop if all models start successfully
+      done
+allowed_functions:
+  - c0b3e315-5294-47be-87e4-d5efd96d524d
