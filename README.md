@@ -3,7 +3,7 @@
 
 # Inference Gateway for FIRST toolkit
 
-A RESTful API Gateway that validates and authorizes inference requests to scientific computing clusters using Globus Auth and Globus Compute. This system enables LLM inference as a service, allowing secure, remote execution of large language models through an OpenAI-compatible API. This is the FIRST toolkit's inference gateway.
+FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables LLM (Large Language Model) inference as a service, allowing secure, remote execution of LLMs through an OpenAI-compatible API. FIRST's Inference Gateway is a RESTful API that validates and authorizes inference requests to scientific computing clusters using Globus Auth and Globus Compute.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ A RESTful API Gateway that validates and authorizes inference requests to scient
 ![System Architecture](./inference_gateway_architecture_focused.png)
 
 The Inference Gateway consists of several components:
-- **API Gateway**: Django-based REST API that handles authorization and request routing.
+- **API Gateway**: Django-based REST/Ninja API that handles authorization and request routing.
 - **Globus Auth**: Authentication and authorization service.
 - **Globus Compute Endpoints**: Remote execution framework on HPC clusters (or local machines).
 - **Inference Server Backend**: (e.g., vLLM) High-performance inference service for LLMs running alongside the Globus Compute Endpoint.
