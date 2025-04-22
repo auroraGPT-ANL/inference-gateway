@@ -43,10 +43,10 @@ The Inference Gateway consists of several components:
 ## Prerequisites
 
 - Python 3.11+
-- PostgreSQL Server (can be run via Docker)
+- [PostgreSQL](https://www.postgresql.org/docs/) Server (can be run via Docker)
 - [Poetry](https://python-poetry.org/docs/#installation)
-- Docker and Docker Compose (Recommended for Gateway deployment)
-- Globus Account
+- [Docker](https://docs.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) (Recommended for Gateway deployment)
+- [Globus Account](https://www.globus.org/)
 - Access to a compute resource (HPC cluster or a local machine with sufficient resources for the chosen inference server and models)
 
 ## Setup Overview
