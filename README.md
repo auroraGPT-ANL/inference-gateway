@@ -78,8 +78,6 @@ mkdir -p logs prometheus
 # echo "global:\n  scrape_interval: 15s\nscrape_configs:\n  - job_name: 'prometheus'\n    static_configs:\n      - targets: ['localhost:9090']" > prometheus/prometheus.yml
 
 # Configuration is done via the .env file (see next steps)
-# Build and start services (in background)
-docker-compose -f docker-compose.yml up --build -d
 ```
 *See [Starting the Services](#starting-the-services) for how to run this after configuration.* 
 *See `docker-compose.yml` for details on included services (Postgres, Redis, optional monitoring).* 
@@ -96,7 +94,7 @@ poetry install
 poetry shell
 
 # Ensure PostgreSQL server is running and accessible.
-# Configuration is done via environment variables or .env (see next steps).
+# Configuration is done via the .env file (see next steps)
 ```
 
 ### Register Globus Application
