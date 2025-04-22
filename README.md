@@ -130,7 +130,7 @@ GLOBUS_APPLICATION_SECRET="<Your-Globus-App-Client-Secret>"
 # Optional: Restrict access to specific Globus Groups (space-separated UUIDs)
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
-# AUTHORIZED_IDPS='{\"Argonne National Laboratory\": \"411433c5-f79e-40ff-a049-6298917f5600\"}'
+# AUTHORIZED_IDPS='{\"Your Institution\": \"your-institution-uuid\"}'
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
 
