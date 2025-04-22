@@ -42,7 +42,7 @@ The Inference Gateway consists of several components:
 
 ## Prerequisites
 
-- Python 3.11+
+- [Python](https://www.python.org/) 3.11+
 - [PostgreSQL](https://www.postgresql.org/docs/) Server (can be run via Docker)
 - [Poetry](https://python-poetry.org/docs/#installation)
 - [Docker](https://docs.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) (Recommended for Gateway deployment)
