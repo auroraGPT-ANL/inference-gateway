@@ -19,7 +19,7 @@ FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables
   - [Create Virtual Environment](#virtual-python-environment)
   - [Install Inference Server (e.g., vLLM) and Globus Compute](#install-inference-server-eg-vllm-and-globus-compute)
   - [Register Globus Compute Functions](#register-globus-compute-functions)
-  - [Configure and Start Globus Compute Endpoint](#configure-and-start-globus-compute-endpoint)
+  - [Configure and Start a Globus Compute Endpoint](#configure-and-start-a-globus-compute-endpoint)
 - [Connecting Gateway and Backend](#connecting-gateway-and-backend)
   - [Update Fixtures](#update-fixtures)
   - [Load Fixtures](#load-fixtures)
@@ -254,21 +254,16 @@ The Gateway interacts with the inference server via functions registered with Gl
 2.  **Status Function (Optional but Recommended)**: Queries the cluster scheduler (e.g., PBS `qstat`) and node status to aid federated routing.
 
 **Important:** When registering Globus Compute functions and endpoints, you need to explicitly tie the function/endpoint identity back to your Globus **Service Account** application (not the Service API application). Do this by exporting the client ID (value of `POLARIS_ENDPOINT_ID` in `.env`) and Secret (value of `POLARIS_ENDPOINT_SECRET` in `.env`) as environment variables, **before** running the registration script or configuring the endpoint:
-
 ```bash
-# Example using the Gateway's Globus App credentials
 export GLOBUS_COMPUTE_CLIENT_ID="<Value-of-POLARIS_ENDPOINT_ID-from-.env>"
 export GLOBUS_COMPUTE_CLIENT_SECRET="<Value-of-POLARIS_ENDPOINT_SECRET-from-.env>"
-
-# Example registration command after setting the variables:
-# (inference-gateway-py3.11.9-env) ADITYAs-MacBook-Pro-2:compute-functions adityatanikanti$ python3 vllm_register_function.py
-# Function registered with UUID - c0b3e315-5294-47be-87e4-d5efd96d524d
-# The UUID is stored in vllm_register_function_sophia_multiple_models.txt.
 ```
 
-Now, register the necessary functions (within your virtual environment):
+Now, register the necessary functions:
 
 ```bash
+# Ensure you are in the correct Python environment
+
 # Navigate to the `compute-functions` directory in your local clone of the repository.
 cd path/to/inference-gateway/compute-functions
 
@@ -276,6 +271,9 @@ cd path/to/inference-gateway/compute-functions
 # See compute-functions/vllm_register_function.py
 python vllm_register_function.py
 # Note the output Function UUID (e.g., <vllm-function-uuid>)
+# Output example:
+#   Function registered with UUID - ....
+#   The UUID is stored in vllm_register_function_sophia_multiple_models.txt.
 
 # Register the qstat/status function (modify script for your scheduler if needed)
 python qstat_register_function.py
@@ -284,23 +282,20 @@ python qstat_register_function.py
 # (Register other functions like batch processing if needed)
 ```
 
-**Keep track of the Function UUIDs generated.**
+**Important**: Keep track of the Function UUIDs generated.
 
-### Configure and Start Globus Compute Endpoint
+### Configure and Start a Globus Compute Endpoint
 
 This endpoint runs on the backend machine, listens for tasks from Globus Compute, and executes the registered functions.
 
 ```bash
 # Ensure you are in the correct Python environment
 
-# Install the endpoint software (if not already installed)
-python3 -m pipx install globus-compute-endpoint
-
 # Configure a new endpoint (follow prompts)
-globus-compute-endpoint configure <my-endpoint-name>
-# Example: globus-compute-endpoint configure polaris-vllm
+# Here we use "my-compute-endpoint" for the name but you can choose another name (e.g. polaris-vllm)
+globus-compute-endpoint configure my-compute-endpoint
 
-# This creates a configuration directory, e.g., ~/.globus_compute/<my-endpoint-name>/
+# This creates a configuration directory, e.g., ~/.globus_compute/my-compute-endpoint/
 # Edit the config.yaml inside that directory.
 ```
 
