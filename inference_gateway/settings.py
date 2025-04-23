@@ -217,3 +217,6 @@ LOGGING = {
         },
     },
 }
+
+# Static files directory for deployment
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')

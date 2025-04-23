@@ -170,6 +170,7 @@ Once the database service is running (either via Docker or manually) and configu
 
 **Docker:**
 ```bash
+docker-compose -f docker-compose.yml exec inference-gateway python manage.py makemigrations
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py migrate
 ```
 
@@ -177,6 +178,7 @@ docker-compose -f docker-compose.yml exec inference-gateway python manage.py mig
 ```bash
 # Ensure DB connection vars are exported in your shell or use python-dotenv
 # (e.g., export PGHOST=localhost POSTGRES_USER=...)
+python manage.py makemigrations
 python manage.py migrate
 ```
 
