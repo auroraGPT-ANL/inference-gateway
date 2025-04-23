@@ -141,8 +141,8 @@ ALLOWED_HOSTS="localhost,127.0.0.1" # Add your gateway domain/IP for production
 
 # --- Globus Credentials (from the "Register Globus Application" step) ---
 # Client ID and Secret of the Globus Service API application
-GLOBUS_APPLICATION_ID="<Your-Gateway-Globus-Service-API-App-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-Service-API-App-Client-Secret>"
+GLOBUS_APPLICATION_ID="<Your-Gateway-Service-API-Globus-App-Client-UUID>"
+GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 # Optional: Restrict access to specific Globus Groups (space-separated UUIDs)
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
@@ -150,8 +150,8 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-Service-API-App-Client-Secret>"
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
 # Client ID and Secret of the Globus Service Account application
-POLARIS_ENDPOINT_ID="<Your-Compute-Endpoint-Globus-Service-Account-App-Client-UUID>"
-POLARIS_ENDPOINT_SECRET="Your-Compute-Endpoint-Globus-Service-Account-App-Client-Secret>"
+POLARIS_ENDPOINT_ID="<Your-Service-Account-Globus-App-Client-UUID>"
+POLARIS_ENDPOINT_SECRET="<Your-Service-Account-Globus-App-Client-Secret>"
 
 # --- CLI Authentication Helper ---
 # Public Client ID used by the inference-auth-token.py script for user authentication
@@ -199,13 +199,13 @@ Once you have configured the `.env` file, initialize the Gateway's database scha
 
 **Option 1: Docker (also works with Podman)**
 
-First, build and run the Gateway's containers (there should be 7 in total).
+First, build and run the Gateway's containers (there should be 7 in total):
 
 ```bash
 docker-compose -f docker-compose.yml up -d
 ```
 
-Initialize the database.
+Initialize the database:
 ```bash
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py makemigrations
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py migrate
@@ -231,7 +231,7 @@ All of the instruction below must be done within a Python virtual environment. M
 
 ### Install Inference Server (e.g., vLLM) and Globus Compute
 
-Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models.
+Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models:
 
 ```bash
 # Basic vLLM installation
@@ -241,7 +241,7 @@ pip install vllm
 # https://docs.vllm.ai/en/latest/getting_started/installation.html
 ```
 
-Install the Globus Compute Endpoint software and the Globus Compute SDK
+Install the Globus Compute Endpoint software and the Globus Compute SDK:
 ```bash
 pip install globus-compute-sdk globus-compute-endpoint
 ```
@@ -253,12 +253,12 @@ The Gateway interacts with the inference server via functions registered with Gl
 1.  **Inference Function**: Wraps the call to your inference server (e.g., vLLM OpenAI-compatible endpoint).
 2.  **Status Function (Optional but Recommended)**: Queries the cluster scheduler (e.g., PBS `qstat`) and node status to aid federated routing.
 
-**Important for Local/Non-HPC Setups:** When registering functions or configuring an endpoint you need to explicitly tie the function/endpoint identity back to your registered Globus Application (the Inference Gateway itself). Do this by exporting the *Gateway's* Globus Application Client ID and Secret as environment variables **before** running the registration script or configuring the endpoint:
+**Important:** When registering Globus Compute functions and endpoints, you need to explicitly tie the function/endpoint identity back to your Globus **Service Account** application (not the Service API application). Do this by exporting the client ID (value of `POLARIS_ENDPOINT_ID` in `.env`) and Secret (value of `POLARIS_ENDPOINT_SECRET` in `.env`) as environment variables, **before** running the registration script or configuring the endpoint:
 
 ```bash
 # Example using the Gateway's Globus App credentials
-export GLOBUS_COMPUTE_CLIENT_ID="<Your-Gateway-Globus-App-Client-ID>"
-export GLOBUS_COMPUTE_CLIENT_SECRET="<Your-Gateway-Globus-App-Client-Secret>"
+export GLOBUS_COMPUTE_CLIENT_ID="<Value-of-POLARIS_ENDPOINT_ID-from-.env>"
+export GLOBUS_COMPUTE_CLIENT_SECRET="<Value-of-POLARIS_ENDPOINT_SECRET-from-.env>"
 
 # Example registration command after setting the variables:
 # (inference-gateway-py3.11.9-env) ADITYAs-MacBook-Pro-2:compute-functions adityatanikanti$ python3 vllm_register_function.py
