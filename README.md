@@ -174,7 +174,7 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 # GF_SECURITY_ADMIN_PASSWORD=admin
 ```
 
-**Important:** Securely store your `SECRET_KEY` and database credentials, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret like the `GLOBUS_APPLICATION_SECRET`.
+**Important:** Securely store all of your credentials and secrets, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret.
 
 ### Initialize Gateway Database
 
