@@ -100,7 +100,9 @@ poetry shell
 
 ### Register Two Globus Applications
 
-To handle authorization within the API, the Gateway needs to be registered as a Globus **Service API application**:
+**Service API Application**
+
+To handle authorization within the API, the Gateway needs to be registered as a Globus Service API application:
 
 1.  Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
 2.  Under **Register an...**, click on **Register a service API ...**.
@@ -112,6 +114,8 @@ To handle authorization within the API, the Gateway needs to be registered as a 
     *   You can leave the check boxes to their default setting.
     *   Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
 6.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `GLOBUS_APPLICATION_ID`, and the secret will be for `GLOBUS_APPLICATION_SECRET`.
+
+**Service Account Application**
 
 To handle the communication between the Gateway API and the compute resources (the Inference Backend), you need to create a Globus **Service Account application**. This application represents the Globus identity that will own the Globus Compute endpoints.
 
