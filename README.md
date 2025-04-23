@@ -190,7 +190,7 @@ First, build and run the Gateway's containers.
 docker-compose -f docker-compose.yml up -d
 ```
 
-Verify that all 7 containers are up and running (`postgres`, `inference-gateway_redis_1`, `node-exporter`, `grafana`, `postgres-exporter`, `inference-gateway_inference-gateway_1`, `inference-gateway_nginx_1`)
+Verify that all 7 containers are up and running (`postgres`, `inference-gateway_redis_1`, `node-exporter`, `grafana`, `postgres-exporter`, `inference-gateway_inference-gateway_1`, `inference-gateway_nginx_1`).
 ```bash
 docker ps
 ```
