@@ -124,14 +124,26 @@ DEBUG=True # Set to False for production
 ALLOWED_HOSTS="localhost,127.0.0.1" # Add your gateway domain/IP for production
 
 # --- Globus Auth Credentials (from Step 2) ---
-GLOBUS_APPLICATION_ID="<Your-Globus-App-Client-ID>"
-GLOBUS_APPLICATION_SECRET="<Your-Globus-App-Client-Secret>"
+# Client ID and Secret for the Inference Gateway application itself
+GLOBUS_APPLICATION_ID="<Your-Gateway-Globus-App-Client-ID>"
+GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-App-Client-Secret>"
 # Optional: Restrict access to specific Globus Groups (space-separated UUIDs)
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
-# AUTHORIZED_IDPS='{\"Your Institution\": \"your-institution-uuid\"}'
+# AUTHORIZED_IDPS='{"Your Institution": "your-institution-uuid"}'
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
+
+# --- CLI Authentication Helper ---
+# Public Client ID used by the inference-auth-token.py script for user authentication
+CLI_AUTH_CLIENT_ID="58fdd3bc-e1c3-4ce5-80ea-8d6b87cfb944" # Default public client, replace if needed
+# Optional: Comma-separated list of allowed domains for CLI login (e.g., "anl.gov,alcf.anl.gov")
+# CLI_ALLOWED_DOMAINS="anl.gov,alcf.anl.gov"
+# Optional: Override token storage directory for CLI script
+# CLI_TOKEN_DIR="~/.globus/my_custom_token_dir"
+# Optional: Override App Name used by CLI script
+# CLI_APP_NAME="my_custom_cli_app"
+
 
 # --- Database Credentials ---
 # Used by Django Gateway, Postgres container, postgres-exporter
@@ -141,7 +153,7 @@ POSTGRES_PASSWORD="inferencedevpwd" # CHANGE THIS for production
 # Hostname: Use "postgres" for Docker-compose networking.
 # Use "localhost" for bare-metal if DB is local.
 # Use "host.docker.internal" if Gateway runs in Docker but DB runs on the host machine.
-PGHOST="postgres"
+PGHOST="postgres" # Important: Use "postgres" for Docker
 PGPORT=5432
 
 # --- Redis --- Used for caching, async tasks
@@ -162,7 +174,7 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 # GF_SECURITY_ADMIN_PASSWORD=admin
 ```
 
-**Important:** Securely store your `SECRET_KEY` and database credentials, especially in production.
+**Important:** Securely store your `SECRET_KEY` and database credentials, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret like the `GLOBUS_APPLICATION_SECRET`.
 
 ### Initialize Gateway Database
 
@@ -262,7 +274,7 @@ globus-compute-endpoint configure <my-endpoint-name>
 # Edit the config.yaml inside that directory.
 ```
 
-**Key `config.yaml` settings:**
+<!-- **Key `config.yaml` settings:**
 
 *   `display_name`: User-friendly name.
 *   `funcx_service_address`: Usually `https://compute.api.globus.org`.
@@ -272,7 +284,7 @@ globus-compute-endpoint configure <my-endpoint-name>
 *   `worker_init`: Commands to run before starting workers (e.g., `module load PrgEnv-nvhpc cuda; conda activate my-hpc-env`).
 *   `provider`: Configure PBSPro, Slurm, Local, etc.
     *   Include scheduler options (`#PBS`, `#SBATCH`), `nodes_per_block`, `walltime`, etc.
-*   `strategy`: Configure how tasks are managed.
+*   `strategy`: Configure how tasks are managed. -->
 
 See [sophia-vllm-config-template.yaml](./compute-endpoints/sophia-vllm-config-template.yaml) for a detailed example.
 See [local-vllm-endpoint.yaml](./compute-endpoints/local-vllm-endpoint.yaml) for an example configured for local execution.
@@ -392,21 +404,44 @@ Verify the associated inference server (e.g., vLLM) is started by the endpoint's
 
 ## Verifying the Setup
 
-Once both the Gateway and at least one Backend Compute Endpoint (with its inference server) are running, you can send a test request. You'll need a valid Globus authentication token.
+Once both the Gateway and at least one Backend Compute Endpoint (with its inference server) are running, you can send a test request. You'll need a valid Globus authentication token obtained for the gateway's scope.
 
-1.  **Get a Token**: The easiest way might be to log into the Gateway's web interface (if running `runserver` locally: `http://127.0.0.1:8000/`) which uses Globus Auth. After login, you might be able to extract a token from your browser's developer tools (network tab or storage), though this depends on the exact auth flow. Alternatively, use a dedicated Globus SDK script or tool to obtain a token for the registered Globus App Client with the necessary scopes.
+1.  **Get a Token using the Helper Script**:
+    *   Ensure your `.env` file has `GLOBUS_APPLICATION_ID` (for the gateway) and `CLI_AUTH_CLIENT_ID` (for the helper script, a default public one is provided) set. You might also configure `CLI_ALLOWED_DOMAINS` if needed.
+    *   **Authenticate (First time or if tokens expire):** Run the authentication script. This will open a browser window for Globus login. You might need to select a specific identity provider (e.g., your institution's SSO) if configured via `CLI_ALLOWED_DOMAINS` or required by gateway policies.
+        ```bash
+        python inference-auth-token.py authenticate
+        ```
+        This stores refresh and access tokens locally (typically in `~/.globus/app/...`).
+    *   **Force Re-authentication:** If you need to change Globus accounts or encounter permission errors possibly related to expired sessions or policy changes, log out via `https://app.globus.org/logout` and force re-authentication:
+        ```bash
+        python inference-auth-token.py authenticate --force
+        ```
+    *   **Get Access Token:** Retrieve your current, valid access token:
+        ```bash
+        export MY_TOKEN=$(python inference-auth-token.py get_access_token)
+        echo "Token stored in MY_TOKEN environment variable."
+        # echo $MY_TOKEN # Uncomment to view the token directly
+        ```
+        This command automatically uses the stored refresh token to get a new access token if the current one is expired.
 
-2.  **Send Request using cURL**: Replace `<your_globus_token>` and adjust the model name and payload.
+    *   **Token Validity:** Access tokens are valid for 48 hours. Refresh tokens allow getting new access tokens without re-logging in via browser, but they expire after 6 months of inactivity. Some institutions or policies might enforce re-authentication more frequently (e.g., weekly).
+
+
+2.  **Send Request using cURL**: Replace `$MY_TOKEN` (or paste the token if you didn't export it) and adjust the model name and payload.
 
     ```bash
     # Example using the federated endpoint for Llama 3.1 8B
-    curl -X POST http://127.0.0.1:8000/resource_server/v1/chat/completions \n      -H "Authorization: Bearer <your_globus_token>" \n      -H "Content-Type: application/json" \n      -d '{ 
-        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct", 
-        "messages": [ 
-          {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."} 
-        ], 
-        "max_tokens": 150 
-      }'
+    curl -X POST http://127.0.0.1:8000/resource_server/v1/chat/completions \
+          -H "Authorization: Bearer $MY_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "messages": [
+              {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
+            ],
+            "max_tokens": 150
+          }'
     ```
 
 A successful response will be a JSON object containing the model's completion.
