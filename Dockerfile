@@ -30,8 +30,7 @@ RUN poetry config virtualenvs.create false \
 
 # Set DJANGO_SETTINGS_MODULE env var specifically for this RUN command
 # Collect static files
-RUN export DJANGO_SETTINGS_MODULE=inference_gateway.settings && \
-    python manage.py collectstatic --noinput
+RUN export DJANGO_SETTINGS_MODULE=inference_gateway.settings
 
 # Create necessary directories
 RUN mkdir -p /var/log/inference-service
