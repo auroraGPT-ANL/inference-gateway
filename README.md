@@ -183,6 +183,7 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 Once you have configured the `.env` file, initialize the Gateway's database schame.
 
 **Option 1: Docker (also works with Podman)**
+
 First, build and run the Gateway's containers.
 
 ```bash
@@ -201,6 +202,7 @@ docker-compose -f docker-compose.yml exec inference-gateway python manage.py mig
 ```
 
 **Option 2: Bare Metal**
+
 If you are not using Docker, you must have a PostgreSQL service running.
 ```bash
 # Ensure DB connection vars are exported in your shell or use python-dotenv
