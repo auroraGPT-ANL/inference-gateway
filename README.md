@@ -43,7 +43,7 @@ The Inference Gateway consists of several components:
 ## Prerequisites
 
 - [Python](https://www.python.org/) 3.11+
-- [PostgreSQL](https://www.postgresql.org/docs/) Server (can be run via Docker)
+- [PostgreSQL](https://www.postgresql.org/docs/) Server (included in the Docker deployment)
 - [Poetry](https://python-poetry.org/docs/#installation)
 - [Docker](https://docs.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) (Recommended for Gateway deployment)
 - [Globus Account](https://www.globus.org/)
@@ -82,7 +82,7 @@ mkdir -p logs prometheus
 *See [Starting the Services](#starting-the-services) for how to run this after configuration.* 
 *See `docker-compose.yml` for details on included services (Postgres, Redis, optional monitoring).* 
 
-**Option 2: Bare Metal Setup / Local Development**
+**Option 2: Bare Metal Setup / Local Development (need a PostgreSQL server)**
 
 ```bash
 # Set up Python environment with Poetry
@@ -92,6 +92,7 @@ poetry install
 
 # Activate the environment
 poetry shell
+# Can also use 'source .venv/bin/activate'
 
 # Ensure PostgreSQL server is running and accessible.
 # Configuration is done via the .env file (see next steps)
