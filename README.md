@@ -178,15 +178,16 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 
 ### Initialize Gateway Database
 
-Once the database service is running (either via Docker or manually) and configured in `.env`, initialize the Gateway's database schema.
+Once you have configured the `.env` file, initialize the Gateway's database schame.
 
-**Docker:**
+**Option 1: Docker**
 ```bash
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py makemigrations
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py migrate
 ```
 
-**Bare Metal:**
+**Option 2: Bare Metal**
+If you are not using Docker, you must have a PostgreSQL service running.
 ```bash
 # Ensure DB connection vars are exported in your shell or use python-dotenv
 # (e.g., export PGHOST=localhost POSTGRES_USER=...)
