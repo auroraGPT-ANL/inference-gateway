@@ -155,6 +155,9 @@ POSTGRES_PASSWORD="inferencedevpwd" # CHANGE THIS for production
 # Use "host.docker.internal" if Gateway runs in Docker but DB runs on the host machine.
 PGHOST="postgres" # Important: Use "postgres" for Docker
 PGPORT=5432
+PGUSER="dataportaldev"
+PGPASSWORD="inferencedevpwd" # CHANGE THIS for production
+PGDATABASE="inferencegateway"
 
 # --- Redis --- Used for caching, async tasks
 # Use "redis" for Docker-compose networking.
@@ -162,7 +165,6 @@ PGPORT=5432
 REDIS_URL="redis://redis:6379/0"
 
 # --- Gateway Specific Settings ---
-ENABLE_ASYNC="True" # Use the async views (recommended)
 MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 
 # --- Optional: Compute Endpoint Credentials (If needed by specific utils/scripts) ---
@@ -180,7 +182,13 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 
 Once you have configured the `.env` file, initialize the Gateway's database schame.
 
-**Option 1: Docker**
+**Option 1: Docker (also works with Podman)**
+First, build the Gateway's containers
+
+```bash
+docker-compose -f docker-compose.yml up -d
+```
+
 ```bash
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py makemigrations
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py migrate
