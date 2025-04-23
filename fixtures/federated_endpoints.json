@@ -14,7 +14,7 @@
                     "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
                     "function_uuid": "c0b3e315-5294-47be-87e4-d5efd96d524d",
                     "endpoint_slug": "local-vllm-meta-llamameta-llama-31-8b-instruct",
-                    "api_port": 8000
+                    "api_port": 8001
                 }
                 
             ]
