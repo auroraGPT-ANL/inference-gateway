@@ -100,18 +100,18 @@ poetry shell
 
 ### Register Globus Application
 
-To handle authentication, the Gateway needs to be registered as a Globus application:
+To handle authorization, the Gateway needs to be registered as a Globus application:
 
-1.  Visit [developers.globus.org](https://developers.globus.org) and sign in.
-2.  Select **Register a new application**.
-3.  Choose **Portal / Science Gateway** as the application type.
-4.  Create a new project or select an existing one.
-5.  Complete the registration form:
+1.  Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
+2.  Under **Register an...**, click on **Register a service API ...**.
+3.  Select **none of the above - create a new project** or select one of your existing projects.
+4.  Complete the new project form (not needed if you selected an existing project).
+4.  Complete the registration form:
     *   Set **App Name** (e.g., "My Inference Gateway").
     *   Add **Redirect URIs**. For local development with the default Django server (`runserver`), use `http://localhost:8000/complete/globus/`. For production, use `https://<your-gateway-domain>/complete/globus/`.
-    *   Note the **Scopes** required (consult Globus documentation if unsure).
+    *   You can leave the check boxes to their default setting.
     *   Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
-6.  After registration, you will receive a **Client ID** and generate a **Client Secret**. **You will need these for the `.env` configuration.**
+5.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.**
 
 ### Configure Environment (.env)
 
@@ -119,14 +119,14 @@ Create a `.env` file in the project root (`inference-gateway/`). This file is us
 
 ```dotenv
 # --- Core Django Settings ---
-SECRET_KEY="<generate-a-strong-random-key>" # Use e.g., python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+SECRET_KEY="<generate-a-strong-random-key>" # Can be generate with Django, e.g. python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 DEBUG=True # Set to False for production
 ALLOWED_HOSTS="localhost,127.0.0.1" # Add your gateway domain/IP for production
 
-# --- Globus Auth Credentials (from Step 2) ---
-# Client ID and Secret for the Inference Gateway application itself
-GLOBUS_APPLICATION_ID="<Your-Gateway-Globus-App-Client-ID>"
-GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-App-Client-Secret>"
+# --- Globus Credentials (from the "Register Globus Applicatio"n" step) ---
+# Client ID and Secret of the Globus Service API application
+GLOBUS_APPLICATION_ID="<Your-Gateway-Globus-Service-API-App-Client-UUID>"
+GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-Service-API-App-Client-Secret>"
 # Optional: Restrict access to specific Globus Groups (space-separated UUIDs)
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
