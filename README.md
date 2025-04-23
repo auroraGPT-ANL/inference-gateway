@@ -194,15 +194,10 @@ Once you have configured the `.env` file, initialize the Gateway's database scha
 
 **Option 1: Docker (also works with Podman)**
 
-First, build and run the Gateway's containers.
+First, build and run the Gateway's containers (there should be 7 in total).
 
 ```bash
 docker-compose -f docker-compose.yml up -d
-```
-
-Verify that all 7 containers are up and running (`postgres`, `inference-gateway_redis_1`, `node-exporter`, `grafana`, `postgres-exporter`, `inference-gateway_inference-gateway_1`, `inference-gateway_nginx_1`).
-```bash
-docker ps
 ```
 
 Initialize the database.
