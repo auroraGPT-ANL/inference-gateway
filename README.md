@@ -98,20 +98,31 @@ poetry shell
 # Configuration is done via the .env file (see next steps)
 ```
 
-### Register Globus Application
+### Register Two Globus Applications
 
-To handle authorization, the Gateway needs to be registered as a Globus application:
+To handle authorization within the API, the Gateway needs to be registered as a Globus **Service API application**:
 
 1.  Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
 2.  Under **Register an...**, click on **Register a service API ...**.
 3.  Select **none of the above - create a new project** or select one of your existing projects.
 4.  Complete the new project form (not needed if you selected an existing project).
-4.  Complete the registration form:
+5.  Complete the registration form:
     *   Set **App Name** (e.g., "My Inference Gateway").
     *   Add **Redirect URIs**. For local development with the default Django server (`runserver`), use `http://localhost:8000/complete/globus/`. For production, use `https://<your-gateway-domain>/complete/globus/`.
     *   You can leave the check boxes to their default setting.
     *   Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
-5.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.**
+6.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `GLOBUS_APPLICATION_ID`, and the secret will be for `GLOBUS_APPLICATION_SECRET`.
+
+To handle the communication between the Gateway API and the compute resources (the Inference Backend), you need to create a Globus **Service Account application**. This application represents the Globus identity that will own the Globus Compute endpoints.
+
+1.  Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
+2.  Under **Projects**, click on project used to register your Service API application from the previous step.
+3.  Click on **Add an App**.
+4.  Select **Register a service account ...**.
+5.  Complete the registration form:
+    *   Set **App Name** (e.g., "My Inference Endpoints").
+    *   Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
+6.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `POLARIS_ENDPOINT_ID`, and the secret will be for `POLARIS_ENDPOINT_SECRET`.
 
 ### Configure Environment (.env)
 
@@ -123,7 +134,7 @@ SECRET_KEY="<generate-a-strong-random-key>" # Can be generate with Django, e.g. 
 DEBUG=True # Set to False for production
 ALLOWED_HOSTS="localhost,127.0.0.1" # Add your gateway domain/IP for production
 
-# --- Globus Credentials (from the "Register Globus Applicatio"n" step) ---
+# --- Globus Credentials (from the "Register Globus Application" step) ---
 # Client ID and Secret of the Globus Service API application
 GLOBUS_APPLICATION_ID="<Your-Gateway-Globus-Service-API-App-Client-UUID>"
 GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-Service-API-App-Client-Secret>"
@@ -133,6 +144,9 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Globus-Service-API-App-Client-Secret>"
 # AUTHORIZED_IDPS='{"Your Institution": "your-institution-uuid"}'
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
+# Client ID and Secret of the Globus Service Account application
+POLARIS_ENDPOINT_ID="<Your-Compute-Endpoint-Globus-Service-Account-App-Client-UUID>"
+POLARIS_ENDPOINT_SECRET="Your-Compute-Endpoint-Globus-Service-Account-App-Client-Secret>"
 
 # --- CLI Authentication Helper ---
 # Public Client ID used by the inference-auth-token.py script for user authentication
@@ -166,10 +180,6 @@ REDIS_URL="redis://redis:6379/0"
 
 # --- Gateway Specific Settings ---
 MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
-
-# --- Optional: Compute Endpoint Credentials (If needed by specific utils/scripts) ---
-# POLARIS_ENDPOINT_ID="<compute-endpoint-app-identity>"
-# POLARIS_ENDPOINT_SECRET="<compute-endpoint-add-secret>"
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin
@@ -213,16 +223,17 @@ python manage.py migrate
 
 ## Inference Backend Setup (Remote/Local)
 
-This section covers setting up the components on the machine where the AI models will actually run (e.g., an HPC login node, a powerful workstation).
+This section covers setting up the components on the machine where the AI models will actually run (e.g., an HPC compute node, a powerful workstation).
 
-### Install Inference Server (e.g., vLLM)
+### Virtual Python Environment
+
+All of the instruction below must be done within a Python virtual environment. Make sure to use a **virtual environment with the same Python version as the one used to deploy Gateway API** (Python 3.11 in this example). This will avoid version mismatch errors when using Globus Compute.
+
+### Install Inference Server (e.g., vLLM) and Globus Compute
 
 Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models.
 
 ```bash
-# Activate the Python environment where you'll run the Globus Compute Endpoint
-# (e.g., conda activate my-hpc-env)
-
 # Basic vLLM installation
 pip install vllm
 
@@ -230,14 +241,17 @@ pip install vllm
 # https://docs.vllm.ai/en/latest/getting_started/installation.html
 ```
 
+Install the Globus Compute Endpoint software and the Globus Compute SDK
+```bash
+pip install globus-compute-sdk globus-compute-endpoint
+```
+
 ### Register Globus Compute Functions
 
-The Gateway interacts with the inference server via functions registered with Globus Compute. You need to register at least:
+The Gateway interacts with the inference server via functions registered with Globus Compute. You need to register:
 
 1.  **Inference Function**: Wraps the call to your inference server (e.g., vLLM OpenAI-compatible endpoint).
 2.  **Status Function (Optional but Recommended)**: Queries the cluster scheduler (e.g., PBS `qstat`) and node status to aid federated routing.
-
-Navigate to the `compute-functions` directory in your local clone of the repository.
 
 **Important for Local/Non-HPC Setups:** When registering functions or configuring an endpoint you need to explicitly tie the function/endpoint identity back to your registered Globus Application (the Inference Gateway itself). Do this by exporting the *Gateway's* Globus Application Client ID and Secret as environment variables **before** running the registration script or configuring the endpoint:
 
@@ -252,12 +266,11 @@ export GLOBUS_COMPUTE_CLIENT_SECRET="<Your-Gateway-Globus-App-Client-Secret>"
 # The UUID is stored in vllm_register_function_sophia_multiple_models.txt.
 ```
 
-Now, register the necessary functions:
+Now, register the necessary functions (within your virtual environment):
 
 ```bash
+# Navigate to the `compute-functions` directory in your local clone of the repository.
 cd path/to/inference-gateway/compute-functions
-
-# Activate the Python environment (e.g., poetry shell or conda activate)
 
 # Register the vLLM inference function (modify the script if needed)
 # See compute-functions/vllm_register_function.py
