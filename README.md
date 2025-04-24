@@ -319,7 +319,6 @@ If you adopted the above configuration examples, make sure to edit the following
 
 *  `allowed_functions`: Make sure the function UUIDs (one per line) are the ones you registered in the [Register Globus Compute Functions](#register-globus-compute-functions) section.
 * `worker_init`, `source <my-path>inference-gateway/compute-endpoints/common_setup.sh`: Make sure you point to your `common_setup.sh` file.
-* 
 
 **After configuring `config.yaml`:**
 
@@ -405,15 +404,27 @@ Replace placeholders (`<...>`) with the UUIDs and details from the previous step
 Load the updated fixture file into the Gateway database.
 
 **Docker:**
+
+Make sure the fixture `json` files are updated within the running container. You can do this by editing the files directly within the container:
 ```bash
-docker-compose -f docker-compose.yml exec inference-gateway python manage.py loaddata fixtures/federated_endpoints.json
-# Or: docker-compose ... exec inference-gateway python manage.py loaddata fixtures/endpoints.json
+docker-compose -f docker-compose.yml exec inference-gateway /bin/bash
+# The edit the /app/fixtures/endpoints.json (or federated_endpoints.json) file
+```
+
+or by transfering the edited local file directly into the container:
+```bash
+docker cp fixtures/endpoints.json inference-gateway_inference-gateway_1:/app/fixtures/
+```
+
+```bash
+docker-compose -f docker-compose.yml exec inference-gateway python manage.py loaddata fixtures/endpoints.json
+# Or: docker-compose ... exec inference-gateway python manage.py loaddata fixtures/federated_endpoints.json
 ```
 
 **Bare Metal:**
 ```bash
-python manage.py loaddata fixtures/federated_endpoints.json
-# Or: python manage.py loaddata fixtures/endpoints.json
+python manage.py loaddata fixtures/endpoints.json
+# Or: python manage.py loaddata fixtures/federated_endpoints.json
 ```
 
 ## Starting the Services
