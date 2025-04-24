@@ -150,7 +150,7 @@ To verify that the scope was successfully created, query the details of your API
 curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID
 ```
 
-Query the details of your newly created scope:
+Query the details of your newly created scope (you shoud see `73320ffe-4cb4-4b25-a0a3-83d53d59ce4f` in the `dependent_scopes` field):
 ```bash
 export SCOPE_ID="<copy-paste-your-scope-uuid-here>"
 curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes/$SCOPE_ID
