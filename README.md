@@ -403,7 +403,7 @@ Replace placeholders (`<...>`) with the UUIDs and details from the previous step
 
 Load the updated fixture file into the Gateway database.
 
-**Docker:**
+**Option 1: Docker:**
 
 Make sure the fixture `json` files are updated within the running container. You can do this by editing the files directly within the container:
 ```bash
@@ -423,7 +423,7 @@ docker-compose -f docker-compose.yml exec inference-gateway python manage.py loa
 # Or: docker-compose ... exec inference-gateway python manage.py loaddata fixtures/federated_endpoints.json
 ```
 
-**Bare Metal:**
+**Option 2: Bare Metal:**
 ```bash
 python manage.py loaddata fixtures/endpoints.json
 # Or: python manage.py loaddata fixtures/federated_endpoints.json
