@@ -116,6 +116,39 @@ To handle authorization within the API, the Gateway needs to be registered as a 
     *   Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
 6.  After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `GLOBUS_APPLICATION_ID`, and the secret will be for `GLOBUS_APPLICATION_SECRET`.
 
+**Add a Globus Scope to your Service API Application**
+
+A scope is needed for users to generate an access token to access the inference service. First export the API client credentials in a terminal:
+```bash
+export CLIENT_ID="<Your-Gateway-Service-API-Globus-App-Client-UUID>"
+export CLIENT_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
+```
+
+Make a request to Globus Auth to attach a scope to your API client:
+```bash
+curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
+    https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
+     -H "Content-Type: application/json" \
+     -d '{
+            "scope": {
+                "name": "Action Provider - all",
+                "description": "Access to Facility API prototype.",
+                "scope_suffix": "action_all"
+            }
+         }'
+```
+
+To verify that the scope was successfully created, query the details of your API client, and look for the UUID in the `scopes` field:
+```bash
+curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID
+```
+
+Query the details of your newly created scope:
+```bash
+export SCOPE_ID="<copy-paste-your-scope-uuid-here>"
+curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes/$SCOPE_ID
+```
+
 **Service Account Application**
 
 To handle the communication between the Gateway API and the compute resources (the Inference Backend), you need to create a Globus **Service Account application**. This application represents the Globus identity that will own the Globus Compute endpoints.
