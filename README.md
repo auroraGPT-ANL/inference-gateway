@@ -124,7 +124,7 @@ export CLIENT_ID="<Your-Gateway-Service-API-Globus-App-Client-UUID>"
 export CLIENT_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 ```
 
-Make a request to Globus Auth to attach a scope to your API client:
+Make a request to Globus Auth to attach an `action_all` scope to your API client. The `curl` command below will also embed a dependent Globus Group scope to the main scope, which is needed for the API to query the user's Group memberships during the authorization process.
 ```bash
 curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
     https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
@@ -133,7 +133,14 @@ curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
             "scope": {
                 "name": "Action Provider - all",
                 "description": "Access to Facility API prototype.",
-                "scope_suffix": "action_all"
+                "scope_suffix": "action_all",
+                "dependent_scopes": [
+                    {
+                        "scope": "73320ffe-4cb4-4b25-a0a3-83d53d59ce4f",
+                        "optional": false,
+                        "requires_refresh_token": true
+                    }
+                ]
             }
          }'
 ```
