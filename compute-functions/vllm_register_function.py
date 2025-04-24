@@ -31,7 +31,7 @@ def vllm_inference_function(parameters):
         # Determine the port based on the URL parameter
         api_port = parameters['model_params'].pop('api_port')
 
-        base_url = f"https://127.0.0.1:{api_port}/v1/"
+        base_url = f"http://127.0.0.1:{api_port}/v1/"
         url = base_url + openai_endpoint
 
         # Prepare the payload

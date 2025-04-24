@@ -12,11 +12,18 @@
                     "cluster": "local",
                     "framework": "vllm",
                     "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
-                    "function_uuid": "c0b3e315-5294-47be-87e4-d5efd96d524d",
+                    "function_uuid": "b9779cbe-c6d3-45ee-b68d-9012530cfa82",
                     "endpoint_slug": "local-vllm-meta-llamameta-llama-31-8b-instruct",
                     "api_port": 8001
+                },
+                {
+                    "cluster": "sophia",
+                    "framework": "vllm",
+                    "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
+                    "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
+                    "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
+                    "api_port": 8001
                 }
-                
             ]
         }
     }
