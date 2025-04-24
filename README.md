@@ -27,6 +27,7 @@ FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables
   - [Gateway (Docker or Bare Metal)](#gateway-docker-or-bare-metal)
   - [Inference Backend (Globus Compute Endpoint)](#inference-backend-globus-compute-endpoint)
 - [Verifying the Setup](#verifying-the-setup)
+- [Benchmarking](#benchmarking)
 - [Production Considerations (Nginx)](#production-considerations-nginx)
 - [Monitoring](#monitoring)
 - [Troubleshooting](#troubleshooting)
@@ -544,22 +545,6 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
 
 2.  **Send Request using cURL**: You can adjust the model name and payload as appropriate.
 
-    Example with a standard, non-federated Globus Compute endpoint (assuming `endpoints.json` was used):
-
-    ```bash
-    # Example targeting a specific vLLM endpoint on the 'local' cluster for OPT-125m
-    curl -X POST http://127.0.0.1:8000/resource_server/local/vllm/v1/chat/completions \\
-          -H "Authorization: Bearer $MY_TOKEN" \\
-          -H "Content-Type: application/json" \\
-          -d '{
-            "model": "facebook/opt-125m",
-            "messages": [
-              {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
-            ],
-            "max_tokens": 150
-          }'
-    ```
-
     Example with a federated Globus Compute endpoint (assuming `federated_endpoints.json` was used):
 
     ```bash
@@ -576,7 +561,51 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
           }'
     ```
 
+    Example with a standard, non-federated Globus Compute endpoint (assuming `endpoints.json` was used):
+
+    ```bash
+    # Example targeting a specific vLLM endpoint on the 'local' cluster for OPT-125m
+    curl -X POST http://127.0.0.1:8000/resource_server/local/vllm/v1/chat/completions \\
+          -H "Authorization: Bearer $MY_TOKEN" \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "model": "facebook/opt-125m",
+            "messages": [
+              {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
+            ],
+            "max_tokens": 150
+          }'
+    ```
+
 A successful response will be a JSON object containing the model's completion.
+
+## Benchmarking
+
+A benchmark script is provided in `examples/load-testing/benchmark-serving.py` (adapted from vLLM's benchmarks) to test the performance of your deployed endpoints.
+
+1.  **Download Dataset**: The script often uses the ShareGPT dataset. You can download it manually or let the script attempt to download it. A common location to place it might be `examples/load-testing/ShareGPT_V3_unfiltered_cleaned_split.json`.
+    ```bash
+    # Example: Download ShareGPT dataset (check the script for the exact URL if needed)
+    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json -P examples/load-testing/
+    ```
+
+2.  **Run Benchmark**: Execute the script, pointing it to your gateway's API endpoint.
+    ```bash
+    # Example: Benchmark local federated endpoint for opt-125m
+    python examples/load-testing/benchmark-serving.py \
+        --backend vllm \
+        --model facebook/opt-125m \
+        --base-url http://127.0.0.1:8000/resource_server/v1/chat/completions \
+        --dataset-name sharegpt \
+        --dataset-path examples/load-testing/ShareGPT_V3_unfiltered_cleaned_split.json \
+        --output-file benchmark_results_local_opt125m.jsonl \
+        --num-prompts 100 # Adjust as needed
+        # Add --request-rate or --max-concurrency for more controlled tests
+        # Add --disable-ssl-verification if using self-signed certs locally
+        # Add --disable-stream if benchmarking a non-streaming endpoint
+    ```
+
+    You can adapt the `--base-url` to point to other OpenAI-compatible endpoints (like the OpenAI API itself, Anthropic, etc., potentially requiring environment variables like `OPENAI_API_KEY`). See the script's arguments (`--help`) for more options.
 
 ## Production Considerations (Nginx)
 
@@ -637,6 +666,10 @@ The Grafana dashboard includes:
 - System metrics (CPU, memory, disk I/O via Node Exporter)
 - Database metrics (connection counts, query performance via PostgreSQL Exporter)
 - Custom Gateway metrics (inference rates, token counts - requires metrics endpoint in Gateway)
+
+## Example Usage Documentation
+
+For an example of how user-facing documentation might look for a deployed instance of this gateway, see the [ALCF Inference Endpoints documentation](https://github.com/argonne-lcf/inference-endpoints).
 
 ## Troubleshooting
 
