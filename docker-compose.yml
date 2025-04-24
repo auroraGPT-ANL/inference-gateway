@@ -93,7 +93,7 @@ services:
     ports:
       - "9187:9187"
     environment:
-      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://${PGUSER}:${PGPASSWORD}@postgres:5432/${PGDATABASE}?sslmode=disable
     restart: unless-stopped
     depends_on:
       - postgres
