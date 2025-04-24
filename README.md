@@ -311,31 +311,61 @@ globus-compute-endpoint configure my-compute-endpoint
     *   Include scheduler options (`#PBS`, `#SBATCH`), `nodes_per_block`, `walltime`, etc.
 *   `strategy`: Configure how tasks are managed. -->
 
-See [sophia-vllm-config-template.yaml](./compute-endpoints/sophia-vllm-config-template.yaml) for a detailed example.
-See [local-vllm-endpoint.yaml](./compute-endpoints/local-vllm-endpoint.yaml) for an example configured for local execution.
+See [sophia-vllm-config-template.yaml](./compute-endpoints/sophia-villm-config-template-v2.0.yaml) for a configuration example that submits inference tasks through the PBS scheduler on ALCF's Sophia.
+See [local-vllm-endpoint.yaml](./compute-endpoints/local-vllm-endpoint.yaml) for a configuration example that submits tasks on local hardware.
 Refer to [Globus Compute Endpoint Docs](https://globus-compute.readthedocs.io/en/latest/endpoints.html) for all options.
+
+If you adopted the above configuration examples, make sure to edit the following:
+
+*  `allowed_functions`: Make sure the function UUIDs (one per line) are the ones you registered in the [Register Globus Compute Functions](#register-globus-compute-functions) section.
+* `worker_init`, `source <my-path>inference-gateway/compute-endpoints/common_setup.sh`: Make sure you point to your `common_setup.sh` file.
+* 
 
 **After configuring `config.yaml`:**
 
 ```bash
 # Start the endpoint
-globus-compute-endpoint start <my-endpoint-name>
+globus-compute-endpoint start my-compute-endpoint
 
 # Note the Endpoint UUID displayed after starting.
+# You can always recover the UUID by typing `globus-compute-endpoint list`
 ```
 
 **Keep track of the Endpoint UUID.**
 
 ## Connecting Gateway and Backend
 
-Now, tell the Gateway about the available backend endpoints.
-
 ### Update Fixtures
 
 Edit the relevant fixtures file in the Gateway project directory (`inference-gateway/fixtures/`).
 
-*   **For standard, non-federated access:** Edit `endpoints.json`.
-*   **For federated access (recommended):** Edit `federated_endpoints.json`.
+For standard, non-federated access (recommended as a starting point), edit `endpoints.json`.
+
+**Example: `fixtures/endpoints.json`**
+
+```json
+[
+    {
+        "model": "resource_server.endpoint",
+        "pk": 1, // Or next available primary key
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-3-70b-instruct",
+            "cluster": "sophia", // Or wherever your compute endpoint is hosted
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct", // Add more fixture entry to serve other models
+            "api_port": 8000, // Port your vLLM server runs on (within compute node)
+            "endpoint_uuid": "<endpoint-UUID-from-previous-step>",
+            "function_uuid": "<vllm-function-uuid-from-previous-step>",
+            "batch_endpoint_uuid": "<optional-endpoint-for-batch>",
+            "batch_function_uuid": "<optional-function-for-batch>",
+            "allowed_globus_groups": "" // Optional: Restrict this target further
+        }
+    }
+    // Add more Endpoint entries for other models
+]
+```
+
+For federated access (if this option can be implemented), edit `federated_endpoints.json`.
 
 **Example: `fixtures/federated_endpoints.json`**
 
@@ -368,7 +398,7 @@ Edit the relevant fixtures file in the Gateway project directory (`inference-gat
 ]
 ```
 
-Replace placeholders (`<...>`) with the actual UUIDs and details from the previous steps.
+Replace placeholders (`<...>`) with the UUIDs and details from the previous steps.
 
 ### Load Fixtures
 
