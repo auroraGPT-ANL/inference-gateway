@@ -14,7 +14,9 @@ engine:
     min_blocks: 0
     worker_init: |
       # Activate the conda environment
-      conda activate /opt/anaconda3/envs/inference-gateway-py3.11.9-env
+      # conda activate /opt/anaconda3/envs/inference-gateway-py3.11.9-env
+      # Activate your vLLM Python environment here (e.g., using conda or source)
+      # Example: source /path/to/your/vllm-env/bin/activate
       
       # Define the start_model function
       start_model() {
@@ -81,7 +83,7 @@ engine:
       # Script Execution starts here
       export VLLM_CPU_OMP_THREADS_BIND="0-8"
       export VLLM_CPU_KVCACHE_SPACE=8
-      model_name="meta-llama/Meta-Llama-3.1-8B-Instruct"
+      model_name="facebook/opt-125m"
       model_command="vllm serve ${model_name} --max-model-len 4096 --port 8001"
       # Corrected log file name construction
       log_file="$PWD/logfile_local_vllm_${model_name//\//-}_$(hostname).log"

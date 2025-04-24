@@ -3,6 +3,27 @@
         "model": "resource_server.federatedendpoint",
         "pk": 1,
         "fields": {
+            "name": "OPT 125M (Federated)",
+            "slug": "federated-opt-125m",
+            "target_model_name": "facebook/opt-125m",
+            "description": "Federated access point for the facebook/opt-125m model.",
+            "targets": [
+                {
+                    "cluster": "local",
+                    "framework": "vllm",
+                    "model": "facebook/opt-125m",
+                    "endpoint_slug": "local-vllm-facebook-opt-125m",
+                    "endpoint_uuid": "<local-opt-endpoint-UUID>",
+                    "function_uuid": "<local-opt-function-uuid>",
+                    "api_port": 8001
+                }
+            ]
+        }
+    },
+    {
+        "model": "resource_server.federatedendpoint",
+        "pk": 2,
+        "fields": {
             "name": "Meta Llama 3.1 8B Instruct (Federated)",
             "slug": "federated-meta-llama-31-8b-instruct",
             "target_model_name": "meta-llama/Meta-Llama-3.1-8B-Instruct",
@@ -15,7 +36,7 @@
                     "endpoint_slug": "local-vllm-meta-llamameta-llama-31-8b-instruct",
                     "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
                     "function_uuid": "b9779cbe-c6d3-45ee-b68d-9012530cfa82",
-                    "api_port": 8001
+                    "api_port": 8002
                 },
                 {
                     "cluster": "sophia",

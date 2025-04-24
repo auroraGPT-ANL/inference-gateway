@@ -222,8 +222,6 @@ LOGGING = {
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 
 # --- Gateway Specific Settings ---
-MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
-
 # --- Resource Server Configuration ---
 ALLOWED_FRAMEWORKS = {
     "polaris": ["llama-cpp", "vllm"],
@@ -237,8 +235,8 @@ ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 
 ALLOWED_QSTAT_ENDPOINTS = {
     "sophia":{
-        "endpoint_uuid":"23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
-        "function_uuid":"43b124a6-e6c1-4f87-8074-7e3f61267f2a"
+        "endpoint_uuid":os.getenv("SOPHIA_QSTAT_ENDPOINT_UUID"),
+        "function_uuid":os.getenv("SOPHIA_QSTAT_FUNCTION_UUID")
         #"function_uuid":"977414a2-8acc-42c7-a271-f965c39091ee"
     }
 }

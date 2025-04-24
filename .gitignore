@@ -50,3 +50,6 @@ db_backup.sqlite3
 
 #pynb file
 /examples/remote_inference_gateway.ipynb
+
+# vllm
+vllm/

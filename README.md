@@ -224,11 +224,15 @@ PGDATABASE="inferencegateway"
 REDIS_URL="redis://redis:6379/0"
 
 # --- Gateway Specific Settings ---
-MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
+MAX_BATCHES_PER_USER=2 # Max concurrent batch jobs allowed per user
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin
 # GF_SECURITY_ADMIN_PASSWORD=admin
+
+# QSTAT ENDPOINTS
+# SOPHIA_QSTAT_ENDPOINT_UUID=""
+# SOPHIA_QSTAT_FUNCTION_UUID=""
 ```
 
 **Important**: Securely store all of your credentials and secrets, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret.
@@ -274,11 +278,14 @@ All of the instruction below must be done within a Python virtual environment. M
 Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models:
 
 ```bash
+# Create and activate a Python virtual environment (recommended)
+python -m venv vllm-env
+source vllm-env/bin/activate  # On Windows use `vllm-env\Scripts\activate`
+
 # Basic vLLM installation from source
 git clone https://github.com/vllm-project/vllm.git
 cd vllm
 pip install -e .
-
 # For specific hardware acceleration (CUDA, ROCm), follow official docs:
 # https://docs.vllm.ai/en/latest/getting_started/installation.html
 ```
@@ -334,33 +341,21 @@ This endpoint runs on the backend machine, listens for tasks from Globus Compute
 # Ensure you are in the correct Python environment
 
 # Configure a new endpoint (follow prompts)
-# Here we use "my-compute-endpoint" for the name but you can choose another name (e.g. polaris-vllm)
+# Here we use "my-compute-endpoint" for the name but you can choose another name (e.g. local-vllm)
 globus-compute-endpoint configure my-compute-endpoint
 
 # This creates a configuration directory, e.g., ~/.globus_compute/my-compute-endpoint/
 # Edit the config.yaml inside that directory.
 ```
 
-<!-- **Key `config.yaml` settings:**
-
-*   `display_name`: User-friendly name.
-*   `funcx_service_address`: Usually `https://compute.api.globus.org`.
-*   `multi_user`: Set to `False` typically.
-*   `allowed_functions`: **Crucially, add the Function UUIDs** you registered in the previous step here.
-*   `environment`: Specify the conda or virtual environment if needed.
-*   `worker_init`: Commands to run before starting workers (e.g., `module load PrgEnv-nvhpc cuda; conda activate my-hpc-env`).
-*   `provider`: Configure PBSPro, Slurm, Local, etc.
-    *   Include scheduler options (`#PBS`, `#SBATCH`), `nodes_per_block`, `walltime`, etc.
-*   `strategy`: Configure how tasks are managed. -->
-
-See [sophia-vllm-config-template.yaml](./compute-endpoints/sophia-villm-config-template-v2.0.yaml) for a configuration example that submits inference tasks through the PBS scheduler on ALCF's Sophia.
-See [local-vllm-endpoint.yaml](./compute-endpoints/local-vllm-endpoint.yaml) for a configuration example that submits tasks on local hardware.
+# Note on HPC Configuration Examples:
+See [`local-vllm-endpoint.yaml`](./compute-endpoints/local-vllm-endpoint.yaml) for a configuration example that submits tasks on local hardware. For an example of submitting inference tasks through a cluster scheduler like PBS (specifically on ALCF's Sophia cluster), see [`sophia-vllm-config-template-v2.0.yaml`](./compute-endpoints/sophia-villm-config-template-v2.0.yaml). Adapting cluster examples requires understanding the specific HPC environment (scheduler, modules, file paths, etc.).
 Refer to [Globus Compute Endpoint Docs](https://globus-compute.readthedocs.io/en/latest/endpoints.html) for all options.
 
 If you adopted the above configuration examples, make sure to edit the following:
 
 *  `allowed_functions`: Make sure the function UUIDs (one per line) are the ones you registered in the [Register Globus Compute Functions](#register-globus-compute-functions) section.
-* `worker_init`, `source <my-path>inference-gateway/compute-endpoints/common_setup.sh`: Make sure you point to your `common_setup.sh` file.
+* `worker_init`: *Note:* For local setups, you'll typically activate your environment directly (e.g., `source vllm-env/bin/activate`). For cluster setups like the Sophia example, you might use a shared setup script (e.g., `source <my-path>inference-gateway/compute-endpoints/common_setup.sh`). Ensure you point to the correct setup script or activation command for your environment.
 
 **After configuring `config.yaml`:**
 
@@ -380,33 +375,7 @@ globus-compute-endpoint start my-compute-endpoint
 
 Edit the relevant fixtures file in the Gateway project directory (`inference-gateway/fixtures/`).
 
-For standard, non-federated access (recommended as a starting point), edit `endpoints.json`.
-
-**Example: `fixtures/endpoints.json`**
-
-```json
-[
-    {
-        "model": "resource_server.endpoint",
-        "pk": 1, // Or next available primary key
-        "fields": {
-            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
-            "cluster": "sophia", // Or wherever your compute endpoint is hosted
-            "framework": "vllm",
-            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct", // Add more fixture entry to serve other models
-            "api_port": 8000, // Port your vLLM server runs on (within compute node)
-            "endpoint_uuid": "<endpoint-uuid-from-previous-step>",
-            "function_uuid": "<vllm-function-uuid-from-previous-step>",
-            "batch_endpoint_uuid": "<optional-endpoint-for-batch>",
-            "batch_function_uuid": "<optional-function-for-batch>",
-            "allowed_globus_groups": "" // Optional: Restrict this target further
-        }
-    }
-    // Add more Endpoint entries for other models
-]
-```
-
-For federated access (if this option can be implemented), edit `federated_endpoints.json`.
+For federated access, edit `federated_endpoints.json`.
 
 **Example: `fixtures/federated_endpoints.json`**
 
@@ -416,33 +385,62 @@ For federated access (if this option can be implemented), edit `federated_endpoi
         "model": "resource_server.federatedendpoint",
         "pk": 1,
         "fields": {
-            "name": "Meta Llama 3.1 8B Instruct (Federated)",
-            "slug": "federated-meta-llama-31-8b-instruct",
-            "target_model_name": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-            "description": "Federated access point for the Meta Llama 3.1 8B Instruct model across available clusters.",
+            "name": "OPT 125M (Federated)",
+            "slug": "federated-opt-125m",
+            "target_model_name": "facebook/opt-125m", // Model users request
+            "description": "Federated access point for the facebook/opt-125m model.",
             "targets": [
                 {
                     "cluster": "local",
                     "framework": "vllm",
-                    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-                    "endpoint_slug": "local-vllm-meta-llamameta-llama-31-8b-instruct",
-                    "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
-                    "function_uuid": "b9779cbe-c6d3-45ee-b68d-9012530cfa82",
-                    "api_port": 8001
-                },
-                {
-                    "cluster": "sophia",
-                    "framework": "vllm",
-                    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-                    "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
-                    "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-                    "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
-                    "api_port": 8001
+                    "model": "facebook/opt-125m", // Model served by this specific target
+                    "endpoint_slug": "local-vllm-facebook-opt-125m", // Unique ID for this target
+                    "endpoint_uuid": "<local-endpoint-UUID-from-previous-step>",
+                    "function_uuid": "<local-vllm-function-uuid-from-previous-step>",
+                    "api_port": 8001 // Port your local vLLM server runs on
                 }
+                // Add more targets here for the same model on different clusters/frameworks
+                // Example: A target on an HPC cluster like Sophia
+                // {
+                //    "cluster": "sophia",
+                //    "framework": "vllm",
+                //    "model": "facebook/opt-125m", // Assuming OPT-125m is also deployed there
+                //    "endpoint_slug": "sophia-vllm-facebook-opt-125m",
+                //    "endpoint_uuid": "<sophia-endpoint-UUID>",
+                //    "function_uuid": "<sophia-vllm-function-UUID>",
+                //    "api_port": 8000 // Port on Sophia's compute node
+                // }
             ]
         }
     }
-] 
+    // Add more FederatedEndpoint entries for other models
+]
+```
+
+For standard, non-federated access, edit `endpoints.json`.
+
+**Example: `fixtures/endpoints.json`**
+
+```json
+[
+    {
+        "model": "resource_server.endpoint",
+        "pk": 1, // Or next available primary key
+        "fields": {
+            "endpoint_slug": "local-vllm-facebook-opt-125m", // Example for local OPT-125m
+            "cluster": "local", // Or wherever your compute endpoint is hosted
+            "framework": "vllm",
+            "model": "facebook/opt-125m", // Model served by this endpoint
+            "api_port": 8001, // Example port for local vLLM server
+            "endpoint_uuid": "<local-endpoint-uuid-from-previous-step>",
+            "function_uuid": "<local-vllm-function-uuid-from-previous-step>",
+            "batch_endpoint_uuid": "<optional-endpoint-for-batch>",
+            "batch_function_uuid": "<optional-function-for-batch>",
+            "allowed_globus_groups": "" // Optional: Restrict this target further
+        }
+    }
+    // Add more Endpoint entries for other models/clusters
+]
 ```
 
 Replace placeholders (`<...>`) with the UUIDs and details from the previous steps.
@@ -546,35 +544,35 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
 
 2.  **Send Request using cURL**: You can adjust the model name and payload as appropriate.
 
-    Example with a standard, non-federated Globus Compute endpoint:
+    Example with a standard, non-federated Globus Compute endpoint (assuming `endpoints.json` was used):
 
     ```bash
-    # Example using the federated endpoint for Llama 3.1 8B
-    curl -X POST http://127.0.0.1:8000/resource_server/sophia/vllm/v1/chat/completions \
-          -H "Authorization: Bearer $MY_TOKEN" \
-          -H "Content-Type: application/json" \
+    # Example targeting a specific vLLM endpoint on the 'local' cluster for OPT-125m
+    curl -X POST http://127.0.0.1:8000/resource_server/local/vllm/v1/chat/completions \\
+          -H "Authorization: Bearer $MY_TOKEN" \\
+          -H "Content-Type: application/json" \\
           -d '{
-            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "model": "facebook/opt-125m",
             "messages": [
               {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
             ],
-            "max_tokens": 10
+            "max_tokens": 150
           }'
     ```
 
-    Example with a federated Globus Compute endpoints:
+    Example with a federated Globus Compute endpoint (assuming `federated_endpoints.json` was used):
 
     ```bash
-    # Example using the federated endpoint for Llama 3.1 8B
-    curl -X POST http://127.0.0.1:8000/resource_server/v1/chat/completions \
-          -H "Authorization: Bearer $MY_TOKEN" \
-          -H "Content-Type: application/json" \
+    # Example using the federated endpoint for OPT-125m
+    curl -X POST http://127.0.0.1:8000/resource_server/v1/chat/completions \\
+          -H "Authorization: Bearer $MY_TOKEN" \\
+          -H "Content-Type: application/json" \\
           -d '{
-            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "model": "facebook/opt-125m",
             "messages": [
               {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
             ],
-            "max_tokens": 10
+            "max_tokens": 150
           }'
     ```
 
