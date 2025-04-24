@@ -18,12 +18,9 @@ CLI_AUTH_CLIENT_ID = os.getenv("CLI_AUTH_CLIENT_ID", "58fdd3bc-e1c3-4ce5-80ea-8d
 # Inference gateway Application Client ID (reads from .env, MUST BE SET)
 GATEWAY_CLIENT_ID = os.getenv("GLOBUS_APPLICATION_ID")
 if not GATEWAY_CLIENT_ID:
-    # Provide a more specific default or raise error if critical
-    # For now, using the original hardcoded value as a fallback placeholder,
-    # but users should really set GLOBUS_APPLICATION_ID in .env
-    print("WARNING: GLOBUS_APPLICATION_ID not found in .env. Using fallback value. Please set it in .env.", file=sys.stderr) # To stderr
-    GATEWAY_CLIENT_ID = os.getenv("GLOBUS_APPLICATION_ID", "681c10cc-f684-4540-bcd7-0b4df3bc26ef")
+    raise Exception("GLOBUS_APPLICATION_ID must be set in the .env file.")
 
+# Define the Service API scope
 GATEWAY_SCOPE = f"https://auth.globus.org/scopes/{GATEWAY_CLIENT_ID}/action_all"
 
 # Path where access and refresh tokens are stored (uses original logic based on CLI_AUTH_CLIENT_ID and APP_NAME)
