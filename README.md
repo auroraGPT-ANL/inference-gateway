@@ -132,7 +132,7 @@ curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
      -d '{
             "scope": {
                 "name": "Action Provider - all",
-                "description": "Access to Facility API prototype.",
+                "description": "Access to inference service.",
                 "scope_suffix": "action_all",
                 "dependent_scopes": [
                     {
@@ -231,7 +231,7 @@ MAX_BATCHES_PER_USER=5 # Max concurrent batch jobs allowed per user
 # GF_SECURITY_ADMIN_PASSWORD=admin
 ```
 
-**Important:** Securely store all of your credentials and secrets, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret.
+**Important**: Securely store all of your credentials and secrets, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret.
 
 ### Initialize Gateway Database
 
@@ -388,12 +388,12 @@ For standard, non-federated access (recommended as a starting point), edit `endp
         "model": "resource_server.endpoint",
         "pk": 1, // Or next available primary key
         "fields": {
-            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-3-70b-instruct",
+            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
             "cluster": "sophia", // Or wherever your compute endpoint is hosted
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3.1-8B-Instruct", // Add more fixture entry to serve other models
             "api_port": 8000, // Port your vLLM server runs on (within compute node)
-            "endpoint_uuid": "<endpoint-UUID-from-previous-step>",
+            "endpoint_uuid": "<endpoint-uuid-from-previous-step>",
             "function_uuid": "<vllm-function-uuid-from-previous-step>",
             "batch_endpoint_uuid": "<optional-endpoint-for-batch>",
             "batch_function_uuid": "<optional-function-for-batch>",
@@ -536,7 +536,25 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
     *   **Token Validity:** Access tokens are valid for 48 hours. Refresh tokens allow getting new access tokens without re-logging in via browser, but they expire after 6 months of inactivity. Some institutions or policies might enforce re-authentication more frequently (e.g., weekly).
 
 
-2.  **Send Request using cURL**: Replace `$MY_TOKEN` (or paste the token if you didn't export it) and adjust the model name and payload.
+2.  **Send Request using cURL**: You can adjust the model name and payload as appropriate.
+
+    Example with a standard, non-federated Globus Compute endpoint:
+
+    ```bash
+    # Example using the federated endpoint for Llama 3.1 8B
+    curl -X POST http://127.0.0.1:8000/resource_server/sophia/vllm/v1/chat/completions \
+          -H "Authorization: Bearer $MY_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "messages": [
+              {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
+            ],
+            "max_tokens": 150
+          }'
+    ```
+
+    Example with a federated Globus Compute endpoints:
 
     ```bash
     # Example using the federated endpoint for Llama 3.1 8B
