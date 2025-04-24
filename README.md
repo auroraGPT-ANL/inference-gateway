@@ -414,8 +414,10 @@ docker-compose -f docker-compose.yml exec inference-gateway /bin/bash
 or by transfering the edited local file directly into the container:
 ```bash
 docker cp fixtures/endpoints.json inference-gateway_inference-gateway_1:/app/fixtures/
+# Or: docker cp fixtures/federated_endpoints.json inference-gateway_inference-gateway_1:/app/fixtures/
 ```
 
+Load the fixtures into the database:
 ```bash
 docker-compose -f docker-compose.yml exec inference-gateway python manage.py loaddata fixtures/endpoints.json
 # Or: docker-compose ... exec inference-gateway python manage.py loaddata fixtures/federated_endpoints.json
