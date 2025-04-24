@@ -514,7 +514,7 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
         python inference-auth-token.py authenticate
         ```
         This stores refresh and access tokens locally (typically in `~/.globus/app/...`).
-    *   **Force Re-authentication:** If you need to change Globus accounts or encounter permission errors possibly related to expired sessions or policy changes, log out via `https://app.globus.org/logout` and force re-authentication:
+    *   **Force Re-authentication:** If you need to change Globus accounts or encounter permission errors possibly related to expired sessions or policy changes, log out via [https://app.globus.org/logout](https://app.globus.org/logout) and force re-authentication:
         ```bash
         python inference-auth-token.py authenticate --force
         ```
