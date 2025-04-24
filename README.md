@@ -274,8 +274,10 @@ All of the instruction below must be done within a Python virtual environment. M
 Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models:
 
 ```bash
-# Basic vLLM installation
-pip install vllm
+# Basic vLLM installation from source
+git clone https://github.com/vllm-project/vllm.git
+cd vllm
+pip install -e .
 
 # For specific hardware acceleration (CUDA, ROCm), follow official docs:
 # https://docs.vllm.ai/en/latest/getting_started/installation.html
@@ -412,29 +414,35 @@ For federated access (if this option can be implemented), edit `federated_endpoi
 [
     {
         "model": "resource_server.federatedendpoint",
-        "pk": 1, // Or next available primary key
+        "pk": 1,
         "fields": {
             "name": "Meta Llama 3.1 8B Instruct (Federated)",
             "slug": "federated-meta-llama-31-8b-instruct",
-            "target_model_name": "meta-llama/Meta-Llama-3.1-8B-Instruct", // Model name users request
-            "description": "Federated access point for Llama 3.1 8B Instruct model.",
+            "target_model_name": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "description": "Federated access point for the Meta Llama 3.1 8B Instruct model across available clusters.",
             "targets": [
                 {
-                    "cluster": "polaris", // Your cluster name
+                    "cluster": "local",
                     "framework": "vllm",
-                    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct", // Model served by this specific target
-                    "endpoint_slug": "polaris-vllm-llama-31-8b-instruct", // Unique identifier for this target
-                    "endpoint_uuid": "<Endpoint-UUID-from-previous-step>",
-                    "function_uuid": "<vllm-function-uuid-from-previous-step>",
-                    "api_port": 8000, // Port your vLLM server runs on (within compute node)
-                    "allowed_globus_groups": "" // Optional: Restrict this target further
+                    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+                    "endpoint_slug": "local-vllm-meta-llamameta-llama-31-8b-instruct",
+                    "endpoint_uuid": "709d14ce-339a-4a70-a8ac-d13503c236cc",
+                    "function_uuid": "b9779cbe-c6d3-45ee-b68d-9012530cfa82",
+                    "api_port": 8001
+                },
+                {
+                    "cluster": "sophia",
+                    "framework": "vllm",
+                    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+                    "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
+                    "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
+                    "function_uuid": "95bde74f-fed5-4009-bc3f-659d6165840e",
+                    "api_port": 8001
                 }
-                // Add more targets here for the same model on different clusters/frameworks
             ]
         }
     }
-    // Add more FederatedEndpoint entries for other models
-]
+] 
 ```
 
 Replace placeholders (`<...>`) with the UUIDs and details from the previous steps.
@@ -550,7 +558,7 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
             "messages": [
               {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
             ],
-            "max_tokens": 150
+            "max_tokens": 10
           }'
     ```
 
@@ -566,7 +574,7 @@ Once both the Gateway and at least one Backend Compute Endpoint (with its infere
             "messages": [
               {"role": "user", "content": "Explain the concept of Globus Compute in simple terms."}
             ],
-            "max_tokens": 150
+            "max_tokens": 10
           }'
     ```
 
