@@ -508,8 +508,8 @@ Verify the associated inference server (e.g., vLLM) is started by the endpoint's
 Once both the Gateway and at least one Backend Compute Endpoint (with its inference server) are running, you can send a test request. You'll need a valid Globus authentication token obtained for the gateway's scope.
 
 1.  **Get a Token using the Helper Script**:
-    *   Ensure your `.env` file has `GLOBUS_APPLICATION_ID` (for the gateway) and `CLI_AUTH_CLIENT_ID` (for the helper script, a default public one is provided) set. You might also configure `CLI_ALLOWED_DOMAINS` if needed.
-    *   **Authenticate (First time or if tokens expire):** Run the authentication script. This will open a browser window for Globus login. You might need to select a specific identity provider (e.g., your institution's SSO) if configured via `CLI_ALLOWED_DOMAINS` or required by gateway policies.
+    *   Ensure your `.env` file has `GLOBUS_APPLICATION_ID` (for the gateway) and `CLI_AUTH_CLIENT_ID` (for the helper script, a default public one is provided) set. You also need to configure `CLI_ALLOWED_DOMAINS` to target your specific identity provider (e.g. your institution's SSO). By default, without specifying `CLI_ALLOWED_DOMAINS`, the only allowed providers are `anl.gov` and `alcf.anl.gov`.
+    *   **Authenticate (First time or if tokens expire):** Run the authentication script. This will open a browser window for Globus login.
         ```bash
         python inference-auth-token.py authenticate
         ```
