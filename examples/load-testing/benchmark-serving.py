@@ -1,12 +1,3 @@
-"""
-Benchmark online serving with dynamic requests.
-
-Usage:
-python3 -m sglang.bench_serving --backend sglang --num-prompt 10
-
-python3 -m sglang.bench_serving --backend sglang --dataset-name random --num-prompts 3000 --random-input 1024 --random-output 1024 --random-range-ratio 0.5
-"""
-
 import argparse
 import asyncio
 import json
