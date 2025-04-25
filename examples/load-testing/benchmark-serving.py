@@ -31,8 +31,6 @@ AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 ASSISTANT_SUFFIX = "Assistant:"
 
 global args
-
-
 @dataclass
 class RequestFuncInput:
     prompt: str
