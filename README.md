@@ -357,7 +357,7 @@ globus-compute-endpoint configure my-compute-endpoint
 # Edit the config.yaml inside that directory.
 ```
 
-# Note on HPC Configuration Examples:
+### Note on HPC Configuration Examples:
 See [`local-vllm-endpoint.yaml`](./compute-endpoints/local-vllm-endpoint.yaml) for a configuration example that submits tasks on local hardware. For an example of submitting inference tasks through a cluster scheduler like PBS (specifically on ALCF's Sophia cluster), see [`sophia-vllm-config-template-v2.0.yaml`](./compute-endpoints/sophia-villm-config-template-v2.0.yaml). Adapting cluster examples requires understanding the specific HPC environment (scheduler, modules, file paths, etc.).
 Refer to [Globus Compute Endpoint Docs](https://globus-compute.readthedocs.io/en/latest/endpoints.html) for all options.
 
