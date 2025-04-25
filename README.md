@@ -342,7 +342,7 @@ python qstat_register_function.py
 
 **Important**: Keep track of the Function UUIDs generated.
 
-### Configure and Start a Globus Compute Endpoint
+### Configure a Globus Compute Endpoint
 
 This endpoint runs on the backend machine, listens for tasks from Globus Compute, and executes the registered functions.
 
