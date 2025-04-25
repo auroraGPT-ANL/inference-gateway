@@ -34,7 +34,7 @@ FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables
 
 ## System Architecture
 
-![System Architecture](./inference_gateway_architecture_focused.png)
+![System Architecture](./first_architecture.png)
 
 The Inference Gateway consists of several components:
 - **API Gateway**: [Django](https://www.djangoproject.com/)-based [REST](https://www.django-rest-framework.org/)/[Ninja](https://django-ninja.dev/) API that handles authorization and request routing.
