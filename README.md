@@ -274,14 +274,22 @@ This section covers setting up the components on the machine where the AI models
 
 All of the instruction below must be done within a Python virtual environment. Make sure to use a **virtual environment with the same Python version as the one used to deploy Gateway API** (Python 3.11 in this example). This will avoid version mismatch errors when using Globus Compute.
 
+```bash
+# Example 1 with conda
+conda create -n vllm-env python=3.11 -y
+conda activate vllm-env
+
+# Example 2 with python venv
+python3.11 -m venv vllm-env
+source vllm-env/bin/activate  # On Windows use `vllm-env\Scripts\activate`
+```
+
 ### Install Inference Server (e.g., vLLM) and Globus Compute
 
 Choose and install an inference serving framework. vLLM is recommended for performance with many transformer models:
 
 ```bash
-# Create and activate a Python virtual environment (recommended)
-python -m venv vllm-env
-source vllm-env/bin/activate  # On Windows use `vllm-env\Scripts\activate`
+# Make sure you have activated your virtual environment
 
 # Basic vLLM installation from source
 git clone https://github.com/vllm-project/vllm.git
