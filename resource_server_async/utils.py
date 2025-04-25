@@ -22,25 +22,22 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
+from django.conf import settings # Import settings
+# Import models to load configuration dynamically
+# from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
+from collections import defaultdict
+import logging # Add logging
 
-# Constants
-ALLOWED_FRAMEWORKS = {
-    "polaris": ["llama-cpp", "vllm"],
-    "sophia": ["vllm","infinity"]
-}
-ALLOWED_OPENAI_ENDPOINTS = {
-    "polaris": ["chat/completions", "completions", "embeddings"],
-    "sophia": ["chat/completions", "completions", "embeddings"]
-}
-ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
+log = logging.getLogger(__name__) # Add logger
 
-ALLOWED_QSTAT_ENDPOINTS = {
-    "sophia":{
-        "endpoint_uuid":"23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
-        "function_uuid":"977414a2-8acc-42c7-a271-f965c39091ee"
-    }
-}
+# --- Removed Configuration Loading ---
 
+
+# Constants are now loaded from settings.py
+ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
+ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
+ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
+ALLOWED_QSTAT_ENDPOINTS = settings.ALLOWED_QSTAT_ENDPOINTS
 
 # Batch list filter
 class BatchStatusEnum(str, Enum):
@@ -65,8 +62,8 @@ def validate_cluster_framework(cluster: str, framework: str):
         return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
     
     # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS[cluster]:
-        return f"Error: {framework} framework not supported. Currently supporting {ALLOWED_FRAMEWORKS[cluster]}."
+    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
+        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
 
     # No error message if the inputs are valid
     return ""
@@ -82,12 +79,12 @@ def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
         return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
     
     # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS[cluster]:
-        return f"Error: {framework} framework not supported. Currently supporting {ALLOWED_FRAMEWORKS[cluster]}."
+    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
+        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
     
     # Error message if openai endpoint not available
-    if not openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[cluster]:
-        return f"Error: {openai_endpoint} openai endpoint not supported. Currently supporting {ALLOWED_OPENAI_ENDPOINTS[cluster]}."
+    if not openai_endpoint in ALLOWED_OPENAI_ENDPOINTS.get(cluster, []): # Use .get for safety
+        return f"Error: {openai_endpoint} openai endpoint not supported for cluster {cluster}. Currently supporting {ALLOWED_OPENAI_ENDPOINTS.get(cluster, [])}."
 
     # No error message if the inputs are valid
     return ""
@@ -228,14 +225,15 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     Returns result, task_uuid, error_message, error_code
     """
 
-    # Gather the qstat endpoint info
-    if cluster in ALLOWED_QSTAT_ENDPOINTS:
-        endpoint_slug = f"{cluster}/jobs"
-        endpoint_uuid = ALLOWED_QSTAT_ENDPOINTS[cluster]["endpoint_uuid"]
-        function_uuid = ALLOWED_QSTAT_ENDPOINTS[cluster]["function_uuid"]
-    else:
-        return None, None, f"Error: no qstat endpoint exists for cluster {cluster}.", None
-    
+    # Gather the qstat endpoint info using the loaded config
+    qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
+    if not qstat_config:
+        return None, None, f"Error: no qstat endpoint configuration exists for cluster {cluster}.", None
+
+    endpoint_slug = f"{cluster}/jobs"
+    endpoint_uuid = qstat_config["endpoint_uuid"]
+    function_uuid = qstat_config["function_uuid"]
+
     # Get the status of the qstat endpoint
     # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
     endpoint_status, error_message = get_endpoint_status(

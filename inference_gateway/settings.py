@@ -140,8 +140,8 @@ WSGI_APPLICATION = 'inference_gateway.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('POSTGRES_DB', 'mydatabase'),
-        'USER': os.getenv('POSTGRES_USER', 'myusername'),
+        'NAME': os.getenv('PGDATABASE', 'mydatabase'),
+        'USER': os.getenv('PGUSER', 'myusername'),
         'PASSWORD': '',  # Leave this empty to use .pgpass
         'HOST': os.getenv('PGHOST', 'localhost'),
         'PORT': os.getenv('PGPORT', '5432'),
@@ -217,3 +217,31 @@ LOGGING = {
         },
     },
 }
+
+# Static files directory for deployment
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+
+# --- Gateway Specific Settings ---
+# --- Resource Server Configuration ---
+ALLOWED_FRAMEWORKS = {
+    "polaris": ["llama-cpp", "vllm"],
+    "sophia": ["vllm","infinity"]
+}
+ALLOWED_OPENAI_ENDPOINTS = {
+    "polaris": ["chat/completions", "completions", "embeddings"],
+    "sophia": ["chat/completions", "completions", "embeddings"]
+}
+ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
+
+ALLOWED_QSTAT_ENDPOINTS = {
+    "sophia":{
+        "endpoint_uuid":os.getenv("SOPHIA_QSTAT_ENDPOINT_UUID"),
+        "function_uuid":os.getenv("SOPHIA_QSTAT_FUNCTION_UUID")
+        #"function_uuid":"977414a2-8acc-42c7-a271-f965c39091ee"
+    }
+}
+
+
+# --- Optional: Grafana Admin Credentials (for Docker setup) ---
+# GF_SECURITY_ADMIN_USER=admin
+# GF_SECURITY_ADMIN_PASSWORD=admin

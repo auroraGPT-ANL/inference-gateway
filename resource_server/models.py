@@ -176,6 +176,46 @@ class Batch(models.Model):
         return f"Batch - <{self.username} - {self.created_at}>"
 
 
+# Represents a federated model accessible via a single name,
+# potentially served by multiple concrete endpoints.
+class FederatedEndpoint(models.Model):
+
+    # User-friendly name for the federated model offering
+    name = models.CharField(max_length=200)
+
+    # Unique slug for internal use and potentially URLs
+    slug = models.SlugField(max_length=250, unique=True)
+
+    # The canonical model name that users will request (e.g., 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+    # Should match the 'model' field in the user's request body.
+    # Indexing for faster lookups.
+    target_model_name = models.CharField(max_length=250, unique=True, db_index=True)
+
+    # Store the list of potential concrete targets directly as JSON.
+    # Each item in the list should be a dictionary containing:
+    # { 
+    #   "cluster": "cluster_name", 
+    #   "framework": "framework_name", 
+    #   "endpoint_uuid": "uuid", 
+    #   "function_uuid": "uuid", 
+    #   "api_port": port_number, 
+    #   "allowed_globus_groups": "group_str" (optional) 
+    # }
+    targets = models.JSONField(default=list)
+
+    # Description (optional)
+    description = models.TextField(blank=True, default="")
+
+    def __str__(self):
+        return f"<FederatedEndpoint {self.slug} ({self.target_model_name})>"
+
+    # Automatically generate slug if not provided
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+
 # Log for file path imports
 #class File(models.Model):
 #

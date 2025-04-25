@@ -30,7 +30,7 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch#, File
+from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, FederatedEndpoint
 
 # Async tools
 from asgiref.sync import sync_to_async
@@ -913,6 +913,263 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     )
     if len(error_message) > 0:
         return await get_response(db_data, error_message, error_code)
+    db_data["task_uuid"] = task_uuid
+
+    # Return Globus Compute results
+    return await get_response(db_data, result, 200)
+
+
+# Federated Inference (POST) - Chooses cluster/framework automatically
+@router.post("/v1/{path:openai_endpoint}")
+async def post_federated_inference(request, openai_endpoint: str, *args, **kwargs):
+    """
+    POST request to automatically select an appropriate Globus Compute endpoint
+    based on model availability and cluster status, abstracting cluster/framework.
+    """
+
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        return await get_plain_response(atv_response.error_message, atv_response.error_code)
+
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not access user's Globus Group memberships: {e}", 400)
+
+    # Start the data dictionary for the database entry
+    db_data = {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "sync": True,
+        "endpoint_slug": "federated", # Mark as federated request initially
+        "openai_endpoint": openai_endpoint
+    }
+
+    # Strip the last forward slash if needed
+    if openai_endpoint[-1] == "/":
+        openai_endpoint = openai_endpoint[:-1]
+
+    # Validate and build the inference request data - crucial for getting the model name
+    data = validate_request_body(request, openai_endpoint)
+    if "error" in data.keys():
+        return await get_response(db_data, data['error'], 400) # Use get_response to log failure
+
+    # Update the database with the input text from user and specific OpenAI endpoint
+    db_data["prompt"] = json.dumps(extract_prompt(data["model_params"]))
+    db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
+    requested_model = data["model_params"]["model"] # Model name is needed for filtering
+
+    log.info(f"Federated request for model: {requested_model} - user: {atv_response.username}")
+
+    # --- Endpoint Selection Logic ---
+    selected_endpoint = None
+    error_message = "No suitable endpoint found for the requested model."
+    error_code = 503 # Service Unavailable by default
+
+    try:
+        # 1. Find the FederatedEndpoint definition for the requested model
+        try:
+            get_fed_endpoint_async = sync_to_async(FederatedEndpoint.objects.get)
+            federated_definition = await get_fed_endpoint_async(target_model_name=requested_model)
+            log.info(f"Found FederatedEndpoint '{federated_definition.slug}' definition for model {requested_model}.")
+        except FederatedEndpoint.DoesNotExist:
+            error_message = f"Error: No federated endpoint definition found for model '{requested_model}'."
+            error_code = 404 # Not Found
+            raise ValueError(error_message)
+        except Exception as e:
+            error_message = f"Error retrieving federated definition for model '{requested_model}': {e}"
+            error_code = 500
+            raise ValueError(error_message)
+
+        # Parse the list of targets from the FederatedEndpoint
+        targets = federated_definition.targets
+        if not targets:
+            error_message = f"Error: Federated definition '{federated_definition.slug}' has no associated targets."
+            error_code = 500 # Configuration error
+            raise ValueError(error_message)
+
+        # 2. Filter targets accessible by the user
+        accessible_targets = []
+        for target in targets:
+            allowed_groups, msg = extract_group_uuids(target.get("allowed_globus_groups", ""))
+            if len(msg) > 0:
+                log.warning(f"Skipping target {target['cluster']} due to group parsing error: {msg}")
+                continue
+            if len(allowed_groups) == 0 or len(set(user_group_uuids).intersection(allowed_groups)) > 0:
+                accessible_targets.append(target)
+
+        if not accessible_targets:
+            error_message = f"Error: User not authorized to access any target for model '{requested_model}'."
+            error_code = 401
+            raise ValueError(error_message)
+        
+        log.info(f"Found {len(accessible_targets)} accessible targets for federated model {requested_model}.")
+
+        # Get Globus Compute client (needed for status checks)
+        try:
+            gcc = globus_utils.get_compute_client_from_globus_app()
+            gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443) # Needed for qstat
+        except Exception as e:
+            error_message = f"Error: Could not get Globus Compute client/executor for status checks: {e}"
+            error_code = 500
+            raise ConnectionError(error_message)
+
+        # 2. Prioritize targets based on status (Running/Queued > Online > Fallback)
+        targets_with_status = []
+        qstat_cache = {} # Cache qstat results per cluster
+
+        for target in accessible_targets:
+            cluster = target["cluster"]
+            endpoint_slug = target["endpoint_slug"]
+
+            # Check Globus endpoint status first
+            gc_status, gc_error = globus_utils.get_endpoint_status(
+                endpoint_uuid=target["endpoint_uuid"], client=gcc, endpoint_slug=endpoint_slug
+            )
+            if len(gc_error) > 0:
+                log.warning(f"Could not get Globus status for {endpoint_slug}: {gc_error}. Skipping.")
+                continue
+            
+            is_online = gc_status["status"] == "online"
+            model_job_status = "unknown" # e.g., running, queued, stopped, unknown
+            free_nodes = -1 # Default to unknown
+
+            # Check qstat if endpoint is online and cluster supports it
+            if is_online and cluster in ALLOWED_QSTAT_ENDPOINTS:
+                if cluster not in qstat_cache:
+                    # Fetch qstat details only once per cluster per request
+                    qstat_result_str, _, q_err, q_code = await get_qstat_details(
+                        cluster, gcc, gce, timeout=30 # Shorter timeout for selection
+                    )
+                    if len(q_err) > 0 or q_code != 200:
+                        log.warning(f"Could not get qstat for cluster {cluster}: {q_err} (Code: {q_code}). Status checks degraded.")
+                        qstat_cache[cluster] = {"error": True, "data": {}}
+                    else:
+                        try:
+                             qstat_data = json.loads(qstat_result_str)
+                             qstat_cache[cluster] = {
+                                 "error": False, 
+                                 "data": qstat_data,
+                                 "free_nodes": qstat_data.get('cluster_status', {}).get('free_nodes', -1)
+                             }
+                        except json.JSONDecodeError:
+                            log.warning(f"Could not parse qstat JSON for cluster {cluster}. Status checks degraded.")
+                            qstat_cache[cluster] = {"error": True, "data": {}, "free_nodes": -1}
+                
+                # Parse cached qstat data for this specific model/endpoint
+                if not qstat_cache[cluster]["error"]:
+                    qstat_data = qstat_cache[cluster]["data"]
+                    free_nodes = qstat_cache[cluster]["free_nodes"] # Get free nodes count from cache
+                    found_in_qstat = False
+                    for state in ["running", "queued"]:
+                        if state in qstat_data:
+                            for job in qstat_data[state]:
+                                # Check if the job matches cluster, framework, and serves the model
+                                if (job.get("Cluster") == cluster and
+                                    job.get("Framework") == target["framework"] and
+                                    requested_model in job.get("Models Served", "").split(",")):
+                                    model_job_status = "queued" if state == "queued" else job.get("Model Status", "running")
+                                    found_in_qstat = True
+                                    break # Found in this state
+                        if found_in_qstat: break # Found in qstat overall
+                    if not found_in_qstat:
+                         model_job_status = "stopped" # qstat ran, but model not listed
+            
+            elif not is_online:
+                 model_job_status = "offline" # Globus endpoint itself is offline
+
+            targets_with_status.append({
+                "target": target,
+                "is_online": is_online,
+                "job_status": model_job_status, # running, queued, stopped, offline, unknown
+                "free_nodes": free_nodes # -1 if unknown
+            })
+
+        # Selection Algorithm:
+        priority1_running = [t for t in targets_with_status if t["job_status"] == "running"]
+        priority1_queued = [t for t in targets_with_status if t["job_status"] == "queued"]
+        priority2_online_free = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] > 0]
+        priority3_online_other = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] <= 0]
+        
+        # TODO: Add smarter selection within priorities (e.g., load balancing, lowest queue)
+        # For now, just take the first available in priority order.
+
+        if priority1_running:
+            selected_endpoint = priority1_running[0]["target"]
+            log.info(f"Selected running endpoint: {selected_endpoint['endpoint_slug']}")
+        elif priority1_queued:
+            selected_endpoint = priority1_queued[0]["target"]
+            log.info(f"Selected queued endpoint: {selected_endpoint['endpoint_slug']}")
+        elif priority2_online_free:
+             selected_endpoint = priority2_online_free[0]["target"]
+             log.info(f"Selected online endpoint on cluster with free nodes: {selected_endpoint['endpoint_slug']}")
+        elif priority3_online_other: # Online, but couldn't determine job status via qstat or no free nodes
+            selected_endpoint = priority3_online_other[0]["target"]
+            log.info(f"Selected online endpoint (no free nodes or unknown status): {selected_endpoint['endpoint_slug']}")
+        else:
+            # Fallback: First accessible endpoint overall (even if offline/unknown, submit will handle it)
+            # This case should be rare if accessible_endpoints is not empty
+            if accessible_targets:
+                selected_endpoint = accessible_targets[0]
+                log.warning(f"No ideal endpoint found. Falling back to first accessible concrete endpoint: {selected_endpoint['endpoint_slug']}")
+            else:
+                # This should not happen based on earlier checks, but safeguard anyway.
+                 error_message = f"Federated Error: No *accessible* concrete endpoints remained after status checks for model '{requested_model}'."
+                 error_code = 500
+                 raise RuntimeError(error_message)
+
+
+    except (ValueError, ConnectionError, RuntimeError) as e:
+        # Errors raised during selection logic (already contain message/code)
+        log.error(f"Federated selection failed: {e}")
+        # error_message and error_code are set before raising
+        return await get_response(db_data, error_message, error_code)
+    except Exception as e:
+        # Catch-all for unexpected errors during selection
+        error_message = f"Unexpected error during endpoint selection: {e}"
+        error_code = 500
+        log.exception(error_message) # Log traceback
+        return await get_response(db_data, error_message, error_code)
+
+    # --- Execution with Selected Endpoint ---
+    if not selected_endpoint:
+        # Should be caught above, but final safety check
+        return await get_response(db_data, "Internal Server Error: Endpoint selection failed unexpectedly.", 500)
+
+    # Update db_data with the *actual* endpoint chosen
+    db_data["endpoint_slug"] = selected_endpoint["endpoint_slug"]
+
+    # Prepare data for the specific chosen endpoint
+    try:
+        data["model_params"]["api_port"] = selected_endpoint["api_port"]
+        # Ensure the model name in the request matches the endpoint's model (case might differ)
+        data["model_params"]["model"] = selected_endpoint["model"]
+    except Exception as e:
+        return await get_response(db_data, f"Error processing selected endpoint data for {selected_endpoint['endpoint_slug']}: {e}", 500)
+
+    # Check Globus status *again* right before submission (could have changed)
+    # Use the same gcc client from before
+    final_status, final_error = globus_utils.get_endpoint_status(
+        endpoint_uuid=selected_endpoint["endpoint_uuid"], client=gcc, endpoint_slug=selected_endpoint["endpoint_slug"]
+    )
+    if len(final_error) > 0:
+        return await get_response(db_data, f"Error confirming status for selected endpoint {selected_endpoint['endpoint_slug']}: {final_error}", 500)
+    if not final_status["status"] == "online":
+        return await get_response(db_data, f"Error: Selected endpoint {selected_endpoint['endpoint_slug']} went offline before submission.", 503)
+    
+    resources_ready = int(final_status["details"].get("managers", 0)) > 0
+
+    # Submit task to the chosen endpoint and wait for result
+    db_data["timestamp_submit"] = timezone.now()
+    result, task_uuid, submit_error_message, submit_error_code = await globus_utils.submit_and_get_result(
+        gce, selected_endpoint["endpoint_uuid"], selected_endpoint["function_uuid"], resources_ready, data=data
+    )
+    if len(submit_error_message) > 0:
+        # Submission failed, log with the chosen endpoint slug
+        return await get_response(db_data, submit_error_message, submit_error_code)
     db_data["task_uuid"] = task_uuid
 
     # Return Globus Compute results
