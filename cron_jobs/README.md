@@ -35,3 +35,21 @@ Make sure you set execution permission:
 ```bash
 chmod u+x /home/webportal/inference-gateway/cron_jobs/refresh_materialized_views.sh
 ```
+
+### Check Endpoint Status
+
+This is to periodically check if all compute endpoints are online. It alerts admin by email when endpoints become offline.
+
+On the VM, as the `webportal` user, add a crontab with the following command:
+```bash
+crontab -e
+```
+and include the following line to execute the update command every 12 hours:
+```bash
+0 */12 * * * /home/webportal/inference-gateway/cron_jobs/check_endpoints.sh
+```
+
+Make sure you set execution permission:
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/check_endpoints.sh
+```
