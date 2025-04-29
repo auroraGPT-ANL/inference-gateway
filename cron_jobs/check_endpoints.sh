@@ -8,7 +8,7 @@ admin_emails="bcote@anl.gov atanikanti@anl.gov"
 
 # Collect the status of all endpoints in the .env file
 # This will print one line per endpoint (endpoint_name endpoint_status)
-data=$(python get_endpoint_status.py)
+data=$(/home/webportal/inference-gateway/.venv/bin/python get_endpoint_status.py)
 
 # Filter lines based on the status
 offline_endpoints=$(echo "$data" | grep 'offline')
