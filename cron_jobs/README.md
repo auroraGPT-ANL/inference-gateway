@@ -48,8 +48,6 @@ sophia-vllm-qwen-qvq-72b-preview:94248103-c719-4320-ac6b-6a885bf61d99
 sophia-vllm-qwen-qwq-32b-endpoint:11509894-55f4-4c22-8866-d0382cab7f18
 sophia-vllm-auroragpt-endpoint:4f1275f4-e7f3-4f1f-8254-85141f42af49
 sophia-vllm-allenai-Llama-3.1-Tulu-3-405B:9ce1abd4-ee0b-475b-a90a-716f79c18af4
-sophia-vllm-deepseek-r1:712bd6f6-7f1c-45cd-9672-81d579faf4db
-sophia-vllm-deepseek-v3:c8e147c8-5a53-438d-a286-d625560a252a
 sophia-vllm-llama3.3-70b-instruct:c3daad56-7af1-4ba4-bca4-63e4ce72f268
 sophia-infinity-nv-embed-v2:da5f2dbb-f265-4c61-a62a-2c1ec44c29eb
 sophia-vllm-llama3.2-90B-vision-instruct:499a85ea-c9d0-400e-a836-aef6c0f2d43b
