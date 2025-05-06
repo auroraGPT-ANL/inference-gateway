@@ -74,7 +74,7 @@ class UtilsPydanticModelsTestCase(APITestCase):
             # Make sure the pydantic model raises a validation error
             try:
                 PYDANTIC_MODELS[model](**invalid_params)
-                self.fail(f"The following data was supposed to be invalid, but was flagged as valid: {valid_params}")
+                self.fail(f"The following data was supposed to be invalid, but was flagged as valid: {invalid_params}")
             except ValidationError:
                 pass
 
