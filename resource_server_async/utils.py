@@ -2,13 +2,10 @@ from ninja import FilterSchema
 from django.utils import timezone
 from django.db import IntegrityError
 from enum import Enum
-from utils.serializers import (
-    OpenAICompletionsParamSerializer, 
-    OpenAIChatCompletionsParamSerializer, 
-    OpenAIEmbeddingsParamSerializer,
-    BatchParamSerializer,
-    #OpenAIFileUploadParamSerializer
-)
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
+from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from utils.pydantic_models.batch import BatchPydantic
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
@@ -115,30 +112,20 @@ def extract_prompt(model_params):
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
         
-    # Select the appropriate data validation serializer based on the openai endpoint
+    # Select the appropriate pydantic model for data validation
     if "chat/completions" in openai_endpoint:
-        serializer_class = OpenAIChatCompletionsParamSerializer
+        pydantic_class = OpenAIChatCompletionsPydantic
     elif "completion" in openai_endpoint:
-        serializer_class = OpenAICompletionsParamSerializer
+        pydantic_class = OpenAICompletionsPydantic
     elif "embeddings" in openai_endpoint:
-        serializer_class = OpenAIEmbeddingsParamSerializer
+        pydantic_class = OpenAIEmbeddingsPydantic
     else:
         return {"error": f"Error: {openai_endpoint} endpoint not supported."}
-        
-    # Decode request body into a dictionary
-    try:
-        model_params = json.loads(request.body.decode("utf-8"))
-    except:
-        return {"error": f"Error: Request body cannot be decoded."}
-        
-    # Send an error if the input data is not valid
-    try:
-        serializer = serializer_class(data=model_params)
-        is_valid = serializer.is_valid(raise_exception=True)
-    except ValidationError as e:
-        return {"error": f"Error: Could not validate data: {e}"}
-    except Exception as e:
-        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+    
+    # Decode and validate request body
+    model_params = validate_body(request, pydantic_class)
+    if "error" in model_params.keys():
+        return model_params
 
     # Add the 'url' parameter to model_params
     model_params['openai_endpoint'] = openai_endpoint
@@ -150,7 +137,7 @@ def validate_request_body(request, openai_endpoint):
 # Validate batch body
 def validate_batch_body(request):
     """Build data dictionary for inference batch request if user inputs are valid."""
-    return validate_body(request, BatchParamSerializer)
+    return validate_body(request, BatchPydantic)
 
 
 # Validate file body
@@ -160,8 +147,8 @@ def validate_batch_body(request):
 
 
 # Validate body
-def validate_body(request, serializer_class):
-    """Build data dictionary from user inputs if valid from given parameter serializer."""
+def validate_body(request, pydantic_class):
+    """Validate body data from incoming user requests against a given pydantic model."""
                 
     # Decode request body into a dictionary
     try:
@@ -171,14 +158,13 @@ def validate_body(request, serializer_class):
 
     # Send an error if the input data is not valid
     try:
-        serializer = serializer_class(data=params)
-        _ = serializer.is_valid(raise_exception=True)
+        _ = pydantic_class(**params)
     except ValidationError as e:
         return {"error": f"Error: Could not validate data: {e}"}
     except Exception as e:
-        return {"error": f"Error: Something went wrong in validating with serializer: {e}"}
+        return {"error": f"Error: Data validation went wrong with pydantic model: {e}"}
 
-    # Build request data if nothing wrong was caught
+    # Return decoded request body data if nothing wrong was caught
     return params
 
 

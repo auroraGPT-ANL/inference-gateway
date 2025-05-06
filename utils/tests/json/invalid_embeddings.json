@@ -64,5 +64,11 @@
         "model": "text-embedding-ada-002",
         "input": "this is my question?",
         "user": 1.23
+    },
+
+    {
+        "model": "text-embedding-ada-002",
+        "input": "this is my question?",
+        "extra": 1
     }
 ]
