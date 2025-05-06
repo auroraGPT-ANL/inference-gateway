@@ -1221,5 +1221,24 @@
                 }
             }
         }
+    },
+
+    {
+        "model": "VAR_model_id",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello!"
+          }
+        ],
+        "prediction": {
+            "content": [
+                {
+                    "text": "text goes here",
+                    "type": "invalid type"
+                }
+            ], 
+            "type": "content"
+        }
     }
 ]

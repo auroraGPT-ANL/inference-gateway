@@ -375,7 +375,7 @@
             "content": [
                 {
                     "text": "text goes here",
-                    "type": "type goes here"
+                    "type": "text"
                 }
             ], 
             "type": "content"
@@ -394,11 +394,11 @@
             "content": [
                 {
                     "text": "text goes here",
-                    "type": "type goes here"
+                    "type": "text"
                 },
                 {
                     "text": "another text goes here",
-                    "type": "another type goes here"
+                    "type": "text"
                 }
             ], 
             "type": "content"

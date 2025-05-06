@@ -31,6 +31,10 @@ class ReasoningEffort(str, Enum):
 class PredictionType(str, Enum):
     content = "content"
 
+# Prediction - content - type
+class PredictionContentType(str, Enum):
+    text = "text"
+
 # Response_format - text - type
 class TextType(str, Enum):
     text = "text"
@@ -163,9 +167,10 @@ class BaseModelExtraForbid(BaseModel):
         extra = 'forbid'
 
 # Prediction - content
+# TODO: Do more vetting on what is allowed (e.g. text)
 class PredictionContent(BaseModelExtraForbid):
     text: str
-    type: str
+    type: PredictionContentType
 
 # Prediction
 class Prediction(BaseModelExtraForbid):
