@@ -1,6 +1,8 @@
+from django.conf import settings
 from django.core.management import call_command
 from resource_server.models import Endpoint
 import json
+import uuid
 
 # Tools to test with Django Ninja
 from django.test import TestCase
@@ -21,6 +23,9 @@ globus_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_
 globus_utils.get_compute_executor = mock_utils.get_compute_executor
 asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
+
+# Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
+settings.MAX_BATCHES_PER_USER = 1000
 
 # Constants
 from resource_server_async.utils import ALLOWED_CLUSTERS, ALLOWED_FRAMEWORKS, ALLOWED_OPENAI_ENDPOINTS
@@ -62,6 +67,8 @@ class ResourceServerViewTestCase(TestCase):
             self.valid_params["chat/completions"] = json.load(json_file)
         with open(f"{base_path}/valid_embeddings.json") as json_file:
             self.valid_params["embeddings"] = json.load(json_file)
+        with open(f"{base_path}/valid_batch.json") as json_file:
+            self.valid_params["batch"] = json.load(json_file)
 
         # Load invalid test input data (OpenAI format)
         self.invalid_params = {}
@@ -71,6 +78,8 @@ class ResourceServerViewTestCase(TestCase):
             self.invalid_params["chat/completions"] = json.load(json_file)
         with open(f"{base_path}/invalid_embeddings.json") as json_file:
             self.invalid_params["embeddings"] = json.load(json_file)
+        with open(f"{base_path}/invalid_batch.json") as json_file:
+            self.invalid_params["batch"] = json.load(json_file)
 
 
     # Test get_list_endpoints (GET) 
@@ -115,7 +124,7 @@ class ResourceServerViewTestCase(TestCase):
     # Test post_inference view (POST)
     def test_post_inference_view(self):
 
-        # Make sure POST requests fail when targetting an unsupported cluster, framewor, or openai endpoint
+        # Make sure POST requests fail when targetting an unsupported cluster, framework, or openai endpoint
         for wrong_url in self.__get_wrong_endpoint_urls():
             response = self.client.post(wrong_url, headers=self.headers)
             self.assertEqual(response.status_code, 400)
@@ -154,6 +163,61 @@ class ResourceServerViewTestCase(TestCase):
 
                     # Make sure POST requests fail when providing invalid inputs
                     for invalid_params in self.invalid_params[openai_endpoint]:
+                        response = self.client.post(url, data=json.dumps(invalid_params), headers=headers, **self.kwargs)
+                        self.assertEqual(response.status_code, 400)
+
+                # Make sure users can't access private endpoint if not in allowed groups
+                if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
+                    response = self.client.post(url, data=json.dumps(valid_params), headers=self.headers, **self.kwargs)
+                    self.assertEqual(response.status_code, 401)
+
+    
+    # Test post_batch_inference view (POST)
+    def test_post_batch_inference_view(self):
+
+        # Make sure POST requests fail when targetting an unsupported cluster or framework
+        for wrong_url in self.__get_wrong_batch_urls():
+            response = self.client.post(wrong_url, headers=self.headers)
+            self.assertEqual(response.status_code, 400)
+
+        # For each endpoint that support batch in the database ...
+        for endpoint in Endpoint.objects.all():
+            if len(endpoint.batch_endpoint_uuid) > 0:
+            
+                # Build the targeted Django URL
+                url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/batches"
+
+                # Make sure POST requests fail if something is wrong with the authentication
+                self.__verify_headers_failures(url=url, method=self.client.post)
+
+                # Make sure non-POST requests are not allowed
+                for method in [self.client.get, self.client.put, self.client.delete]:
+                    response = method(url)
+                    self.assertEqual(response.status_code, 405)
+
+                # If the endpoint can be accessed by the mock access token ...
+                if endpoint.allowed_globus_groups in ["", mock_utils.MOCK_ALLOWED_GROUP]:
+                    headers = self.premium_headers
+
+                    # For each valid set of input parameters ...
+                    for valid_params in self.valid_params["batch"]:
+
+                        # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
+                        valid_params["model"] = endpoint.model
+
+                        # Overwrite the input file to make it unique (otherwise will encounter "already used" error)
+                        valid_params["input_file"] = f"/path/{str(uuid.uuid4())}"
+
+                        # Make sure POST requests succeed
+                        response = self.client.post(url, data=json.dumps(valid_params), headers=headers, **self.kwargs)
+                        self.assertEqual(response.status_code, 200)
+
+                        # Check whether the response makes sense (do not check batch_id, it's randomly generated in the view)
+                        response_json = self.__get_response_json(response)
+                        self.assertEqual(response_json["input_file"], valid_params["input_file"])
+
+                    # Make sure POST requests fail when providing invalid inputs
+                    for invalid_params in self.invalid_params["batch"]:
                         response = self.client.post(url, data=json.dumps(invalid_params), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 400)
 
@@ -227,6 +291,26 @@ class ResourceServerViewTestCase(TestCase):
         framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
         endpoint = "unsupported-endpoint"
         wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/{endpoint}/",)
+
+        # Return list of unsupported URLs
+        return wrong_urls
+    
+
+    # Get wrong batch URLs
+    def __get_wrong_batch_urls(self):
+
+        # Declare list of URLS with unsupported cluster and framework
+        wrong_urls = []
+
+        # Unsupported cluster
+        cluster = "unsupported-cluster"
+        framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
+        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/batches",)
+
+        # Unsupported framework
+        cluster = ALLOWED_CLUSTERS[0]
+        framework = "unsupported-framework"
+        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/batches",)
 
         # Return list of unsupported URLs
         return wrong_urls

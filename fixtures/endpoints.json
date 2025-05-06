@@ -279,7 +279,9 @@
             "api_port": 8000,
             "endpoint_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "batch_endpoint_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "batch_function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
