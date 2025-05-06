@@ -510,12 +510,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if "error" in batch_data.keys():
         return await get_plain_response(batch_data['error'], 400)
 
-    # Strip the last forward slash of endpoint if needed
-    #if batch_data["endpoint"][-1] == "/":
-    #    batch_data["endpoint"] = batch_data["endpoint"][:-1]
-
     # Make sure the URL inputs point to an available endpoint 
-    #error_message = validate_url_inputs(cluster, framework, batch_data["endpoint"])
     error_message = validate_cluster_framework(cluster, framework)
     if len(error_message):
         return await get_plain_response(error_message, 400)
@@ -648,7 +643,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     try:
         db_data["globus_task_uuids"] = ""
         for _, task_uuids in batch_response["tasks"].items():
-                db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
+            db_data["globus_task_uuids"] += ",".join(task_uuids) + ","
         db_data["globus_task_uuids"] = db_data["globus_task_uuids"][:-1]
     except Exception as e:
         return await get_batch_response(db_data, f"Error: Batch submitted but no task UUID recovered: {e}", 400, db_Model=Batch)
