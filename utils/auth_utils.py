@@ -24,6 +24,7 @@ class atv_response:
     is_valid: bool
     name: str = ""
     username: str = ""
+    user_id: str = ""
     user_group_uuids: list = field(default_factory=lambda: [])
     error_message: str = ""
     error_code: int = 0
@@ -154,7 +155,7 @@ def check_session_info(introspection):
     try:
 
         # If there is an authorized authentication (or if no AUTHORIZED_IDP_UUIDS was provided) ...
-        for _, auth in introspection["session_info"]["authentications"].items():
+        for user_id, auth in introspection["session_info"]["authentications"].items():
             if auth["idp"] in settings.AUTHORIZED_IDP_UUIDS or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
 
                 # Extract the username tied to the authorized identity provider
@@ -163,14 +164,14 @@ def check_session_info(introspection):
                         auth_username = identity_set["username"]
 
                 # Return successful check along with username
-                return True, auth_username, ""
+                return True, auth_username, user_id, ""
             
     # Revoke access if something went wrong during the check
     except Exception as e:
-        return False, None, f"Error: Could not inspect session info: {e}"
+        return False, None, None, f"Error: Could not inspect session info: {e}"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_NAMES}"
+    return False, None, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_NAMES}"
 
 
 # Validate access token sent by user
@@ -206,7 +207,7 @@ def validate_access_token(request):
         return atv_response(is_valid=False, error_message="Error: Access token expired.", error_code=401)
     
     # Make sure the authentication was made by an authorized identity provider
-    successful, auth_username, error_message = check_session_info(introspection)
+    successful, auth_username, user_id, error_message = check_session_info(introspection)
     if not successful:
         return atv_response(is_valid=False, error_message=error_message, error_code=403)
 
@@ -233,6 +234,7 @@ def validate_access_token(request):
         is_valid=True,
         name=introspection["name"],
         username=auth_username,
+        user_id=user_id,
         user_group_uuids=user_groups
     )
 
