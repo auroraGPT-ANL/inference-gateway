@@ -5,8 +5,9 @@ from enum import Enum
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
-from utils.pydantic_models.batch import BatchPydantic
+from utils.pydantic_models.batch import BatchPydantic, UploadedBatchFilePydantic
 from rest_framework.exceptions import ValidationError
+from resource_server.models import Batch, Endpoint
 import json
 from uuid import UUID
 from asgiref.sync import sync_to_async
@@ -132,27 +133,6 @@ def validate_request_body(request, openai_endpoint):
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
 
-
-# Get serializer class
-def get_serializer_class(openai_endpoint):
-    """Return serializer based on the OpenAI endpoint."""
-
-    # Chat completions
-    if "chat/completions" in openai_endpoint:
-        return OpenAIChatCompletionsParamSerializer, ""
-    
-    # Completions
-    if "completion" in openai_endpoint:
-        return  OpenAICompletionsParamSerializer, ""
-    
-    # Embeddings
-    if "embeddings" in openai_endpoint:
-        return OpenAIEmbeddingsParamSerializer, ""
-    
-    # Error if endpoint not supported
-    return None, f"Error: {openai_endpoint} endpoint not supported."
-
-
 # Validate batch body
 def validate_batch_body(request):
     """Build data dictionary for inference batch request if user inputs are valid."""
@@ -185,25 +165,6 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
-
-
-# Validate input parameters
-def validate_params(serializer_class, params):
-    """Validate input parameters against a given serializer class."""
-
-    # Validate parameters
-    try:
-        serializer = serializer_class(data=params)
-        _ = serializer.is_valid(raise_exception=True)
-
-    # Return error message if something went wrong during the validation
-    except ValidationError as e:
-        return False, f"Error: Could not validate data: {e}"
-    except Exception as e:
-        return False, f"Error: Something went wrong in validating with serializer: {e}"
-
-    # Return True (valid) with no error message
-    return True, ""
 
 
 # Extract group UUIDs from an allowed_globus_groups model field
@@ -476,3 +437,98 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
         raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
     except Exception as e:
         raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
+
+# Read uploaded file
+async def read_uploaded_file(file):
+    
+    # Try to read the file
+    try:
+        data = await sync_to_async(file.read)()
+    except Exception as e:
+        raise Exception(f"Error: Could not read uploaded file: {e}")
+    
+    # Decode request body into a list of input entries, and return data
+    try:
+        return data.decode("utf-8").split("\n")
+    except Exception as e:
+        raise Exception(f"Error: Could not decode uploaded file: {e}")
+
+
+# Validate uploaded batch data
+def validate_uploaded_batch_data(data):
+
+    # Make sure data is a list
+    if not isinstance(data, list):
+        raise Exception("Error: uploaded data must be a list.")
+
+    # For each entry ...
+    for i_entry in range(len(data)):
+
+        # Base error message
+        base_error = f"Error: line {i_entry+1} in uploaded file"
+
+        # Convert the entry string into a dictionary
+        try:
+            entry_dict = json.loads(data[i_entry])
+        except Exception as e:
+            raise Exception(f"{base_error}: Could not convert to dictionary: {e}")
+
+        # Validate entry
+        try:
+            _ = UploadedBatchFilePydantic(**entry_dict)
+        except ValidationError as e:
+            raise ValidationError(f"{base_error}: {e}", 400)
+        except Exception as e:
+            raise Exception(f"{base_error}: Data validation went wrong: {e}", 400)
+        
+
+# Validate number of active batches
+async def validate_number_of_active_batches(username):
+    
+    # Collect the number of active batches associated with the given username
+    try:
+        number_of_active_batches = 0
+        async for batch in Batch.objects.filter(username=username, status__in=["pending", "running"]):
+            number_of_active_batches += 1
+    except Exception as e:
+        raise Exception(f"Error: Could not query active batches owned by user: {e}")
+
+    # Raise an error if the user is not allowed to submit another batch
+    if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
+        raise Exception(f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded.")
+    
+
+# Get endpoint object from slug
+async def get_endpoint_from_slug(endpoint_slug):
+
+    # Find endpoint in the database and return the object
+    try:
+        return await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+    
+    # Raise errors if the endpoint does not exist
+    except Endpoint.DoesNotExist:
+        raise Endpoint.DoesNotExist(f"Error: The requested endpoint {endpoint_slug} does not exist.")
+    
+    # Raise errors if something went wrong more broadly
+    except Exception as e:
+        raise Exception(f"Error: Could not extract endpoint and function UUIDs: {e}")
+    
+
+# Validate whether the user can access a given endpoint
+def validate_user_access(atv_response, endpoint):
+
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+    except Exception as e:
+        raise Exception(f"Error: Could access user's Globus Group memberships: {e}")
+    
+    # Extract the list of allowed group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        raise Exception(error_message)
+    
+    # Block access if the user is not a member of at least one of the required groups
+    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
+        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+            raise Exception(f"Error: Permission denied to endpoint {endpoint.endpoint_slug}.")
