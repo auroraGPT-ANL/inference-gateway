@@ -479,7 +479,7 @@ class Message(BaseModelExtraForbid):
         return values
 
 # OpenAI chat completions
-# https://platform..com/docs/api-reference/chat/create
+# https://platform.openai.com/docs/api-reference/chat/create
 class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
 
     #messages: List[Union[
