@@ -224,7 +224,7 @@ class ResourceServerViewTestCase(TestCase):
                 # Make sure users can't access private endpoint if not in allowed groups
                 if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
                     response = self.client.post(url, data=json.dumps(valid_params), headers=self.headers, **self.kwargs)
-                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(response.status_code, 400)
 
 
     # Verify headers failures
