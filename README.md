@@ -194,15 +194,6 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 POLARIS_ENDPOINT_ID="<Your-Service-Account-Globus-App-Client-UUID>"
 POLARIS_ENDPOINT_SECRET="<Your-Service-Account-Globus-App-Client-Secret>"
 
-# --- Globus Flows Management ---
-# Globus Flow ID to submit batch workflow with uploaded input file
-GLOBUS_BATCH_FLOW_ID="<Your-Registered-Flow-UUID>"
-
-FLOW_ADMINISTRATORS='
-urn:globus:auth:identity:<Your-First-Admin-Globus-User-UUID>
-urn:globus:auth:identity:<Your-Second-Admin-Globus-User-UUID>
-'
-
 # --- CLI Authentication Helper ---
 # Public Client ID used by the inference-auth-token.py script for user authentication
 CLI_AUTH_CLIENT_ID="58fdd3bc-e1c3-4ce5-80ea-8d6b87cfb944" # Default public client, replace if needed
@@ -243,6 +234,22 @@ MAX_BATCHES_PER_USER=2 # Max concurrent batch jobs allowed per user
 # QSTAT ENDPOINTS
 # SOPHIA_QSTAT_ENDPOINT_UUID=""
 # SOPHIA_QSTAT_FUNCTION_UUID=""
+
+# --- Globus Flows management for batch inference with uploaded files ---
+# Registered flow UUID (transfer + compute + share)
+GLOBUS_BATCH_FLOW_ID="<your-registered-globus-flow-UUID>"
+# Transfer endpoints details
+SOURCE_COLLECTION_ID="<your-source-guest-collection-UUID>"
+DESTINATION_COLLECTION_ID="<your-destination-guest-collection-UUID>"
+DESTINATION_COLLECTION_BASE_PATH="</your/full/path/to/the/base/of/your/guest/collection>"
+# Data sharing step details
+FLOW_SHARE_COMPUTE_ENDPOINT_ID="<your-globus-compute-endpoint-uuid-for-sharing-results>"
+FLOW_SHARE_COMPUTE_FUNCTION_ID="<your-globus-compute-function-uuid-for-sharing-results>"
+# Who is able to monitor and terminate the flow runs
+FLOW_ADMINISTRATORS='
+urn:globus:auth:identity:<your-first-admin-globus-account-uuid>
+urn:globus:auth:identity:<your-second-admin-globus-account-uuid>
+'
 ```
 
 **Important**: Securely store all of your credentials and secrets, especially in production. The `CLI_AUTH_CLIENT_ID` is typically a public client and doesn't need to be kept secret.
