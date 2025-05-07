@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.files.storage import default_storage
+from rest_framework.exceptions import ValidationError
 import uuid
 import json
 from django.utils import timezone
@@ -17,7 +18,6 @@ from logging_config import LOGGING_CONFIG
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-from utils.serializers import UploadFileParamSerializer
 from utils.auth_utils import validate_access_token
 import utils.globus_utils as globus_utils
 from resource_server_async.utils import (
@@ -26,10 +26,13 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
-    validate_params,
-    #validate_file_body,
+    validate_uploaded_batch_data,
+    validate_number_of_active_batches,
+    validate_user_access,
+    read_uploaded_file,
     extract_group_uuids,
     get_qstat_details,
+    get_endpoint_from_slug,
     update_batch_status_result,
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -44,7 +47,7 @@ from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, Feder
 from asgiref.sync import sync_to_async
 
 # Ninja API
-from ninja import NinjaAPI, Router, Query, File
+from ninja import NinjaAPI, Router, Query, File, Form, Schema
 from ninja.files import UploadedFile
 api = NinjaAPI(urls_namespace='resource_server_async_api')
 router = Router()
@@ -53,64 +56,82 @@ router = Router()
 endpoint_cache = {}
 
 # Schema to validate request data when uploading files
-from ninja import Form, Schema
-class InputParams(Schema):
-    input_file: str
-    output_folder_path: str
+class UploadBatchInputParams(Schema):
     model: str
 
 
 # Upload file test (POST)
 @router.post("/{cluster}/{framework}/v1/upload-batches")
-async def post_upload_file_test(request, 
+async def post_upload_batch_inference(request, 
                                 cluster: str, framework: str, 
-                                details: Form[InputParams] = Form(...),
+                                details: Form[UploadBatchInputParams] = Form(...),
                                 file: UploadedFile = File(...)):
-    """POST request to upload a file (development test)."""
+    """Batch inference via uploading an input file."""
 
-    print(cluster, framework)
-    print(details)
     # TODO: collect file name
     #{'name': file.name, 'len': len(input_entries)}
-    # TODO: Check permissions
 
     # Check if request is authenticated
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
-
-    # TODO: Make a validation utils function for the uploaded file
-
-    # Try to read the file
-    try:
-        data = await sync_to_async(file.read)()
-    except Exception as e:
-        return await get_plain_response(f"Error: Could not read uploaded file: {e}", 400)
     
-    # Decode request body into a list of input entries
+    # Raise an error if the allowed quota per user would be exceeded
     try:
-        data = data.decode("utf-8").split("\n")
+        await validate_number_of_active_batches(atv_response.username)
     except Exception as e:
-        return await get_plain_response(f"Error: Could not decode uploaded file: {e}", 400)
+        return await get_plain_response(str(e), 400)
+
+    # Make sure the URL inputs point to an available cluster and framework 
+    error_message = validate_cluster_framework(cluster, framework)
+    if len(error_message):
+        return await get_plain_response(error_message, 400)
+
+    # Build the requested endpoint slug
+    endpoint_slug = slugify(" ".join([cluster, framework, details.model]))
+
+    # Extract targetted endpoint from database
+    try:
+        endpoint = await get_endpoint_from_slug(endpoint_slug)
+    except (Endpoint.DoesNotExist, Exception) as e:
+        return await get_plain_response(str(e), 400)
     
-    # For each entry ...
-    input_entries = []
-    for i_entry in range(len(data)):
+    # Raise an error if the user is not allowed to access this model
+    try:
+        validate_user_access(atv_response, endpoint)
+    except Exception as e:
+        return await get_plain_response(str(e), 400)
+    
+    # Make sure the endpoint has batch UUIDs
+    if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
+        return await get_plain_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501)
+    
+    # Get Globus Compute client (using the endpoint identity)
+    try:
+        gcc = globus_utils.get_compute_client_from_globus_app()
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not get the Globus Compute client: {e}", 500)
 
-        # Base error message
-        base_error = f"Error: line {i_entry+1} in uploaded file"
+    # Make sure the batch endpoint is online
+    endpoint_slug = f"{endpoint_slug}/batch"
+    endpoint_status, error_message = globus_utils.get_endpoint_status(
+        endpoint_uuid=endpoint.batch_endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug)
+    if len(error_message) > 0:
+        return await get_plain_response(error_message, 500)
+    if not endpoint_status["status"] == "online":
+        return await get_plain_response(f"Error: Endpoint {endpoint_slug} is offline.", 503)
 
-        # Convert the entry string into a dictionary
-        try:
-            entry_dict = json.loads(data[i_entry])
-        except Exception as e:
-            error_message = f"{base_error}: Could not convert to dictionary: {e}"
-            return await get_plain_response(error_message, 400)
-
-        # Validate entry
-        is_valid, error_message = validate_params(UploadFileParamSerializer, entry_dict)
-        if not is_valid:
-            return await get_plain_response(f"{base_error}: {error_message}", 400)
+    # Read and decode the uploaded file
+    try:
+        data = await read_uploaded_file(file)
+    except Exception as e:
+        return await get_plain_response(str(e), 400)
+    
+    # Validate uploaded data
+    try:
+        validate_uploaded_batch_data(data)
+    except (ValidationError, Exception) as e:
+        return await get_plain_response(e.args[0], 400)
         
     # Save validated file to local storage
     # TODO delete saved file after the flow is done
@@ -121,6 +142,8 @@ async def post_upload_file_test(request,
         file_name = default_storage.save(f"uploaded_files/{batch_id}.{file.name}", file)
     except Exception as e:
         return await get_plain_response("Error: Could not write file to local storage.", 400)
+    
+    # START FLOW HERE
 
     # Prepare response data
     response = {
@@ -129,7 +152,6 @@ async def post_upload_file_test(request,
     }
     
     # Clear memory
-    del input_entries
     del file
 
     return await get_plain_response(response, 200)
@@ -400,27 +422,20 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
         "task_uuids": ""
     }
 
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships: {e}", 400)
+    # Build the endpoint slug
+    endpoint_slug = slugify(" ".join([cluster, framework, model]))
 
     # Get the requested endpoint from the database
-    endpoint_slug = slugify(" ".join([cluster, framework, model]))
     try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-    except Endpoint.DoesNotExist:
-        return await get_list_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
-    except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+        endpoint = await get_endpoint_from_slug(endpoint_slug)
+    except (Endpoint.DoesNotExist, Exception) as e:
+        return await get_list_response(db_data, str(e), 400)
     
-    # Error message if user is not allowed to see the endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        return await get_list_response(db_data, json.dumps(error_message), 400)
-    if len(allowed_globus_groups) > 0 and len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
-        return await get_list_response(db_data, f"Error: User not authorized to access endpoint {endpoint_slug}", 401)
+    # Raise an error if the user is not allowed to access this model
+    try:
+        validate_user_access(atv_response, endpoint)
+    except Exception as e:
+        return await get_plain_response(str(e), 400)
 
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -570,23 +585,12 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
         return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    
-    # Gather the list of Globus Group memberships of the authenticated user
+        
+    # Raise an error if the allowed quota per user would be exceeded
     try:
-        user_group_uuids = atv_response.user_group_uuids
+        await validate_number_of_active_batches(atv_response.username)
     except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
-    
-    # Reject request if the allowed quota per user would be exceeded
-    try:
-        number_of_active_batches = 0
-        async for batch in Batch.objects.filter(username=atv_response.username, status__in=["pending", "running"]):
-            number_of_active_batches += 1
-        if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
-            error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
-            return await get_plain_response(error_message, 400)
-    except Exception as e:
-        return await get_plain_response(f"Error: Could not query active batches owned by user: {e}", 400)
+        return await get_plain_response(str(e), 400)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
@@ -617,24 +621,18 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
-    
-    # Pull the targetted endpoint from database to check if user is permitted to run this model
+
+    # Extract targetted endpoint from database
     try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-    except Endpoint.DoesNotExist:
-        return await get_plain_response(f"Error: Endpoint {endpoint_slug} does not exist.", 400)
+        endpoint = await get_endpoint_from_slug(endpoint_slug)
+    except (Endpoint.DoesNotExist, Exception) as e:
+        return await get_plain_response(str(e), 400)
+    
+    # Raise an error if the user is not allowed to access this model
+    try:
+        validate_user_access(atv_response, endpoint)
     except Exception as e:
-        return await get_plain_response(f"Error: Could not extract endpoint: {e}", 400)
-    
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        return await get_plain_response(error_message, 401)
-    
-    # Block access if the user is not a member of at least one of the required groups
-    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_plain_response(f"Permission denied to endpoint {endpoint_slug}.", 401)
+        return await get_plain_response(str(e), 400)
         
     # Make sure the endpoint has batch UUIDs
     if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
