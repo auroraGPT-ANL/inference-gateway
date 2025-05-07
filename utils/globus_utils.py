@@ -175,3 +175,21 @@ def get_batch_status(task_uuids_comma_separated):
     # Other errors that could be un-related to the task execution (e.g. Globus connection)
     except Exception as e:
         return None, f"Error: Could not recover batch status: {e}", 500
+    
+
+# Get authenticated Globus Flows Client using secret
+@cached(cache=TTLCache(maxsize=1024, ttl=60*60))
+def get_specific_flow_client_from_globus_app(flow_id) -> globus_sdk.GlobusHTTPResponse:
+    """Create and return an authenticated Globus Flows client using the Globus SDK ClientApp."""
+
+    # Try to create and return the Flows client
+    try:
+        return globus_sdk.SpecificFlowClient(
+            flow_id=flow_id,
+            app=globus_sdk.ClientApp(
+                client_id=settings.POLARIS_ENDPOINT_ID,
+                client_secret=settings.POLARIS_ENDPOINT_SECRET
+            )
+        )
+    except Exception as e:
+        raise ResourceServerError(f"Error: Could not create Flows client: {e}")
