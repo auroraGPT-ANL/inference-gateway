@@ -193,6 +193,8 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 # Client ID and Secret of the Globus Service Account application
 POLARIS_ENDPOINT_ID="<Your-Service-Account-Globus-App-Client-UUID>"
 POLARIS_ENDPOINT_SECRET="<Your-Service-Account-Globus-App-Client-Secret>"
+# Globus Flow ID to submit batch workflow with uploaded input file
+GLOBUS_BATCH_FLOW_ID="<Your-Registered-Flow-UUID>"
 
 # --- CLI Authentication Helper ---
 # Public Client ID used by the inference-auth-token.py script for user authentication
