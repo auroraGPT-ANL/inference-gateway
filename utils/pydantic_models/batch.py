@@ -58,3 +58,11 @@ class UploadedBatchFilePydantic(BaseModelExtraForbid):
         
         # Return values if nothing wrong happened in the valudation step
         return values
+
+
+# Batch status
+class BatchStatusEnum(str, Enum):
+    pending = 'pending'
+    running = 'running'
+    failed = 'failed'
+    completed = 'completed'

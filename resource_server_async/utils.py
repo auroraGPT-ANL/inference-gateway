@@ -5,7 +5,7 @@ from enum import Enum
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
-from utils.pydantic_models.batch import BatchPydantic, UploadedBatchFilePydantic
+from utils.pydantic_models.batch import BatchPydantic, UploadedBatchFilePydantic, BatchStatusEnum
 from rest_framework.exceptions import ValidationError
 from resource_server.models import Batch, Endpoint
 import json
@@ -17,6 +17,7 @@ from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
     get_batch_status,
+    get_flow_status,
     get_compute_client_from_globus_app,
     get_compute_executor
 )
@@ -37,15 +38,8 @@ ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
 ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
 ALLOWED_QSTAT_ENDPOINTS = settings.ALLOWED_QSTAT_ENDPOINTS
 
-# Batch list filter
-class BatchStatusEnum(str, Enum):
-    pending = 'pending'
-    running = 'running'
-    failed = 'failed'
-    completed = 'completed'
 class BatchListFilter(FilterSchema):
     status: BatchStatusEnum = None
-
 
 # Exception to raise in case of errors
 class ResourceServerError(Exception):
@@ -244,6 +238,15 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
 
 # Update batch status result
 async def update_batch_status_result(batch, cross_check=False):
+    """Reroute base on how the batch was submitted."""
+    if isinstance(batch.globus_flow_run_uuid, str):
+        if len(batch.globus_flow_run_uuid) > 0:
+            return await update_batch_flow_status_result(batch, cross_check=cross_check)
+    return await update_batch_compute_status_result(batch, cross_check=cross_check)
+
+
+# Update batch compute status result
+async def update_batch_compute_status_result(batch, cross_check=False):
     """
     From a database Batch object, query batch status from Globus
     if necessary, update the "status" and "result" fields in the
@@ -349,6 +352,82 @@ async def update_batch_status_result(batch, cross_check=False):
             await update_database(db_object=batch)
         except Exception as e:
             return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
+
+    # Return the new status if nothing went wrong
+    return batch.status, batch.result, "", 200
+
+
+# Update batch flow status result
+async def update_batch_flow_status_result(batch, cross_check=False):
+    """
+    From a database Batch object, query the Flow run status from Globus
+    if necessary, update the "status" and "result" fields in the
+    database, and return the batch details.
+
+    Arguments
+    ---------
+        batch: batch object from the Batch database model
+        cross_check: If True, will cross check Globus status with qstat function
+
+    Returns
+    -------
+        status, result, "", 200 OR "", "", error_message, error_code
+    """
+
+    # Skip all of the Globus task status check if the batch already completed or failed
+    if batch.status in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
+        return batch.status, batch.result, "", 200
+
+    # Get the Globus batch status response
+    status_response, error_message, code = get_flow_status(batch.globus_flow_run_uuid)
+
+
+    # Return error message if something went wrong
+    if len(error_message) > 0:
+        return "", "", error_message, code
+
+    #TODO: Figure out how to make the cron job work. Here if it was running but not here anymore#
+    #      It could be that the flow is completing and/or the 3rd step is ongoing (we cannot make it fail if that's the case)
+    # OR!!! Simply add a time buffer like "if (timezone.now() - batch.in_progress_at).seconds > ???:"
+    # !!! MAKE sure in_progress_at gets populated when status is set to Running
+    # Collect latest batch status
+    try:
+
+        # Pending or running (running would come from the cron tab)
+        if status_response["status"] == BatchStatusEnum.pending.value:
+            batch_status = batch.status # Keep the one from the database in case it got switched to "running"
+            batch.in_progress_at = timezone.now()
+
+        # Failed
+        elif status_response["status"] == BatchStatusEnum.failed.value:
+            batch_status = BatchStatusEnum.failed.value
+            batch.failed_at = timezone.now()
+            batch.error = status_response["error_message"]
+
+        # Completed
+        elif status_response["status"] == BatchStatusEnum.completed.value:
+            batch_status = BatchStatusEnum.completed.value
+            batch.completed_at = timezone.now()
+            batch.result = {
+                "metrics": status_response["compute_result"]["metrics"],
+                "data_access_url": status_response["data_access_url"]
+            }
+
+        # Failed
+        else:
+            batch_status = "failed"
+            batch.failed_at = timezone.now()
+
+    # Error if something went wrong while parsing the batch status response
+    except Exception as e:
+        return "", "", f"Error: Could not assign flow status: {e}", 400
+    
+    # Update batch status in the database
+    try:
+        batch.status = batch_status
+        await update_database(db_object=batch)
+    except Exception as e:
+        return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
 
     # Return the new status if nothing went wrong
     return batch.status, batch.result, "", 200
