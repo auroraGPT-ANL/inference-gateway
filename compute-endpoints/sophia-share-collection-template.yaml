@@ -11,6 +11,10 @@ engine:
     max_blocks: 1
     min_blocks: 0
     type: LocalProvider
+    worker_init: |
+      module use /soft/modulefiles
+      module load conda
+      conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.8.2
   type: GlobusComputeEngine
 allowed_functions:
-  - eeba0058-b9a6-44ec-a529-883488794b0e
+  - e4b4c5ef-c8de-43f1-969c-071c9de61442
