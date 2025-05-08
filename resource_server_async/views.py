@@ -107,6 +107,21 @@ async def post_upload_batch_inference(request,
     if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
         return await get_plain_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501)
     
+    # Start the data dictionary for the database entry
+    # The actual database entry creation is performed in the get_response() function
+    batch_id = str(uuid.uuid4())
+    db_data = {
+        "batch_id": batch_id,
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "created_at": timezone.now(),
+        "cluster": cluster,
+        "framework": framework,
+        "model": details.model,
+        "status": "failed", # First assume it fails, overwrite if successful
+        "input_file": file.name
+    }
+    
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
@@ -139,9 +154,8 @@ async def post_upload_batch_inference(request,
     #       have a cron job that look over files and check if batch id is completed/failed, then delete file
     # TODO delete saved file on Eagle as the last step of the Flow
     try:
-        batch_id = str(uuid.uuid4())
         file_name = f"{batch_id}.{file.name}"
-        file_path = default_storage.save(f"uploaded_files/{file_name}", file)
+        _ = default_storage.save(f"uploaded_files/{file_name}", file)
     except Exception as e:
         return await get_plain_response("Error: Could not write file to local storage.", 400)
     
@@ -172,26 +186,26 @@ async def post_upload_batch_inference(request,
             label=f"Batch-{batch_id}",
             run_managers=settings.FLOW_ADMINISTRATORS
         )
+        db_data["status"] = "pending"
     except Exception as e:
         return await get_plain_response(f"Error: Could not start the batch flow: {str(e)}", 400)
-
-    # Collect the flow run UUID
+    
+    # Extract the Globus Flow run UUID from submission
     try:
-        flow_run_id = flow_run["run_id"]
+        db_data["globus_flow_run_uuid"] = flow_run["run_id"]
     except Exception as e:
-        return await get_plain_response(f"Error: Could extract the flow run ID: {e}", 400)
-
-    # Prepare response data
-    response = {
-        'name': file.name,
-        'len': len(data),
-        "flow_id": flow_run_id
-    }
+        return await get_batch_response(db_data, f"Error: Flow started but no run UUID recovered: {e}", 400, db_Model=Batch)
     
     # Clear memory
     del file
 
-    return await get_plain_response(response, 200)
+    # Create batch entry in the database and return response to the user
+    response = {
+        "batch_id": db_data["batch_id"],
+        "input_file": db_data["input_file"],
+        "status": db_data["status"]
+    }
+    return await get_batch_response(db_data, json.dumps(response), 200, db_Model=Batch)
 
 
 # List Endpoints (GET)
