@@ -438,8 +438,10 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
     except Exception as e:
         raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
 
+
 # Read uploaded file
 async def read_uploaded_file(file):
+    """Read and decode a file uploaded through the API."""
     
     # Try to read the file
     try:
@@ -456,6 +458,7 @@ async def read_uploaded_file(file):
 
 # Validate uploaded batch data
 def validate_uploaded_batch_data(data):
+    """Make sure data from uploaded batch input file respect the pydantic validation."""
 
     # Make sure data is a list
     if not isinstance(data, list):
@@ -484,6 +487,7 @@ def validate_uploaded_batch_data(data):
 
 # Validate number of active batches
 async def validate_number_of_active_batches(username):
+    """Make sure users can't run more batches than allowed."""
     
     # Collect the number of active batches associated with the given username
     try:
@@ -500,6 +504,7 @@ async def validate_number_of_active_batches(username):
 
 # Get endpoint object from slug
 async def get_endpoint_from_slug(endpoint_slug):
+    """Extract an endpoint object from the database given its slug."""
 
     # Find endpoint in the database and return the object
     try:
@@ -516,6 +521,7 @@ async def get_endpoint_from_slug(endpoint_slug):
 
 # Validate whether the user can access a given endpoint
 def validate_user_access(atv_response, endpoint):
+    """Make sure a user has the permission to access a given endpoint based on Globus Group membership."""
 
     # Gather the list of Globus Group memberships of the authenticated user
     try:
@@ -532,3 +538,44 @@ def validate_user_access(atv_response, endpoint):
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
             raise Exception(f"Error: Permission denied to endpoint {endpoint.endpoint_slug}.")
+
+
+# Get batch flow inputs
+def get_batch_flow_input(file_name=None, username=None, user_id=None, 
+    batch_id=None, model=None, endpoint_id=None, function_id=None):
+    """Prepare the flow_input dictionary to run the batch Globus Flow."""
+
+    # Define and return the flow input 
+    return {
+        "input": {
+            "source": {
+                "id": settings.SOURCE_COLLECTION_ID,
+                "path": file_name  
+            },
+            "destination": {
+                "id": settings.DESTINATION_COLLECTION_ID,
+                "path": f"/uploaded_files/{file_name}"
+            },
+            "compute_inference": {
+                "endpoint": endpoint_id,
+                "function": function_id,
+                "arguments": [
+                    {
+                        "model_params": {
+                            "input_file": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/uploaded_files/{file_name}",
+                            "model": model,
+                            "output_folder_path": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/batch_results/{username}/"
+                        },
+                        "batch_id": batch_id,
+                        "username": username,
+                    }
+                ]
+            },
+            "share_results": {
+                "endpoint": settings.FLOW_SHARE_COMPUTE_ENDPOINT_ID,
+                "function": settings.FLOW_SHARE_COMPUTE_FUNCTION_ID,
+                "user_id": user_id,
+                "username": username
+            }
+        }
+    }

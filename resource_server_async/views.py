@@ -35,6 +35,7 @@ from resource_server_async.utils import (
     get_endpoint_from_slug,
     update_batch_status_result,
     update_database,
+    get_batch_flow_input,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
 )
@@ -139,16 +140,52 @@ async def post_upload_batch_inference(request,
     # TODO delete saved file on Eagle as the last step of the Flow
     try:
         batch_id = str(uuid.uuid4())
-        file_name = default_storage.save(f"uploaded_files/{batch_id}.{file.name}", file)
+        file_name = f"{batch_id}.{file.name}"
+        file_path = default_storage.save(f"uploaded_files/{file_name}", file)
     except Exception as e:
         return await get_plain_response("Error: Could not write file to local storage.", 400)
     
-    # START FLOW HERE
+    # Get specific Globus Flow client (using the endpoint identity)
+    try:
+        specific_flow_client = globus_utils.get_specific_flow_client_from_globus_app(settings.GLOBUS_BATCH_FLOW_ID)
+    except Exception as e:
+        return await get_plain_response(str(e), 400)
+        
+    # Prepare the inputs to run the flow
+    try:
+        flow_input = get_batch_flow_input(
+            file_name=file_name, 
+            username=atv_response.username,
+            user_id=atv_response.user_id,
+            batch_id=batch_id,
+            model=details.model,
+            endpoint_id=endpoint.batch_endpoint_uuid,
+            function_id=endpoint.batch_function_uuid
+        )
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not get batch flow input: {str(e)}", 400)
+    
+    # Start the flow
+    try:
+        flow_run = specific_flow_client.run_flow(
+            body=flow_input,
+            label=f"Batch-{batch_id}",
+            run_managers=settings.FLOW_ADMINISTRATORS
+        )
+    except Exception as e:
+        return await get_plain_response(f"Error: Could not start the batch flow: {str(e)}", 400)
+
+    # Collect the flow run UUID
+    try:
+        flow_run_id = flow_run["run_id"]
+    except Exception as e:
+        return await get_plain_response(f"Error: Could extract the flow run ID: {e}", 400)
 
     # Prepare response data
     response = {
         'name': file.name,
-        'len': len(data)
+        'len': len(data),
+        "flow_id": flow_run_id
     }
     
     # Clear memory
