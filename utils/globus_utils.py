@@ -254,7 +254,7 @@ def get_flow_status(globus_flow_run_uuid):
     # Extract error message if the flow failed
     if status == BatchStatusEnum.failed.value:
         try:
-            error_message = f"FlowFailed: {json.dumps(flow_run['details'])}", 400
+            error_message = f"FlowFailed: {json.dumps(flow_run['details']['description'])}"
         except Exception as e:
             return None, f"Error: Could not extract failed flow details: {e}", 400
     
