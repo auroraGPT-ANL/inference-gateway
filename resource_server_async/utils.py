@@ -381,7 +381,6 @@ async def update_batch_flow_status_result(batch, cross_check=False):
     # Get the Globus batch status response
     status_response, error_message, code = get_flow_status(batch.globus_flow_run_uuid)
 
-
     # Return error message if something went wrong
     if len(error_message) > 0:
         return "", "", error_message, code
@@ -395,7 +394,10 @@ async def update_batch_flow_status_result(batch, cross_check=False):
 
         # Pending or running (running would come from the cron tab)
         if status_response["status"] == BatchStatusEnum.pending.value:
-            batch_status = batch.status # Keep the one from the database in case it got switched to "running"
+            if cross_check:
+                batch_status = await cross_check_status(batch, from_flow=True)
+            else:
+                batch_status = batch.status # Keep the one from the database in case it got switched to "running"
             batch.in_progress_at = timezone.now()
 
         # Failed
@@ -435,12 +437,14 @@ async def update_batch_flow_status_result(batch, cross_check=False):
 
 # Cross check status
 # TODO: Remove this function once Globus status includes "task lost"
-async def cross_check_status(batch):
+async def cross_check_status(batch, from_flow=False):
     """
     This verifies whether a Globus task is pending or lost due to an endpoint
     restart or a compute node failure. This is not 100% accurate, but it serves
     as a temporary improvement while Globus addresses the open ticket on improving
-    the communication between Globus and AMQP when tasks are lost.
+    the communication between Globus and AMQP when tasks are lost. If from_flow==True,
+    it will only check if the task is running, it will not assign the status to "failed"
+    since the flow can move on to other steps after running the inference computation.
     Returns: status
     """
 
@@ -478,17 +482,20 @@ async def cross_check_status(batch):
         # Set status to "running" if an HPC job is running for the targetted batch
         if str(batch.batch_id) in running_batch_ids:
             return "running"
-            
-        # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
-        if not batch.batch_id in running_batch_ids and batch.status == "running":
-            return "failed"
         
-        # Set status to "failed" if batch is pending, but nothing is queued or running
-        # Do not fail just because nothing is in the HPC queue. If a batch is running,
-        # it is possible that the targetted batch is in the Globus queue in the cloud.
-        if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
-            if (timezone.now() - batch.created_at).seconds > 10:
+        # If the status is not for a Flow (meaning we can safely determine if it failed)
+        if not from_flow:
+            
+            # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
+            if not batch.batch_id in running_batch_ids and batch.status == "running":
                 return "failed"
+            
+            # Set status to "failed" if batch is pending, but nothing is queued or running
+            # Do not fail just because nothing is in the HPC queue. If a batch is running,
+            # it is possible that the targetted batch is in the Globus queue in the cloud.
+            if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
+                if (timezone.now() - batch.created_at).seconds > 10:
+                    return "failed"
 
     # Preserve current status if no further investigation can be done    
     except Exception as e:
