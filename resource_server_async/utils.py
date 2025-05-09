@@ -630,15 +630,16 @@ def get_batch_flow_input(file_name=None, username=None, user_id=None,
     """Prepare the flow_input dictionary to run the batch Globus Flow."""
 
     # Define and return the flow input 
+    # Note: Folder paths must end with "/"
     return {
         "input": {
             "source": {
                 "id": settings.SOURCE_COLLECTION_ID,
-                "path": file_name  
+                "path": f"{batch_id}/"
             },
             "destination": {
                 "id": settings.DESTINATION_COLLECTION_ID,
-                "path": f"/uploaded_files/{file_name}"
+                "path": f"/uploaded_files/{batch_id}/"
             },
             "compute_inference": {
                 "endpoint": endpoint_id,
@@ -646,9 +647,9 @@ def get_batch_flow_input(file_name=None, username=None, user_id=None,
                 "arguments": [
                     {
                         "model_params": {
-                            "input_file": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/uploaded_files/{file_name}",
+                            "input_file": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/uploaded_files/{batch_id}/{file_name}",
                             "model": model,
-                            "output_folder_path": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/batch_results/{username}/"
+                            "output_folder_path": f"{settings.DESTINATION_COLLECTION_BASE_PATH}/batch_results/{username}/{batch_id}/"
                         },
                         "batch_id": batch_id,
                         "username": username,
