@@ -376,7 +376,10 @@ async def update_batch_flow_status_result(batch, cross_check=False):
 
     # Skip all of the Globus task status check if the batch already completed or failed
     if batch.status in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
-        return batch.status, batch.result, "", 200
+        try:
+            return batch.status, json.loads(batch.result.replace("'", '"')), "", 200
+        except:
+            return batch.status, batch.result, "", 200
 
     # Get the Globus batch status response
     status_response, error_message, code = get_flow_status(batch.globus_flow_run_uuid)
@@ -385,39 +388,35 @@ async def update_batch_flow_status_result(batch, cross_check=False):
     if len(error_message) > 0:
         return "", "", error_message, code
 
-    #TODO: Figure out how to make the cron job work. Here if it was running but not here anymore#
-    #      It could be that the flow is completing and/or the 3rd step is ongoing (we cannot make it fail if that's the case)
-    # OR!!! Simply add a time buffer like "if (timezone.now() - batch.in_progress_at).seconds > ???:"
-    # !!! MAKE sure in_progress_at gets populated when status is set to Running
     # Collect latest batch status
     try:
 
         # Pending or running (running would come from the cron tab)
         if status_response["status"] == BatchStatusEnum.pending.value:
             if cross_check:
-                batch_status = await cross_check_status(batch, from_flow=True)
+                batch.status = await cross_check_status(batch, from_flow=True)
             else:
-                batch_status = batch.status # Keep the one from the database in case it got switched to "running"
+                pass # Keep the one from the database in case it got switched to "running"
             batch.in_progress_at = timezone.now()
 
         # Failed
         elif status_response["status"] == BatchStatusEnum.failed.value:
-            batch_status = BatchStatusEnum.failed.value
+            batch.status = BatchStatusEnum.failed.value
             batch.failed_at = timezone.now()
             batch.error = status_response["error_message"]
 
         # Completed
         elif status_response["status"] == BatchStatusEnum.completed.value:
-            batch_status = BatchStatusEnum.completed.value
+            batch.status = BatchStatusEnum.completed.value
             batch.completed_at = timezone.now()
             batch.result = {
-                "metrics": status_response["compute_result"]["metrics"],
-                "data_access_url": status_response["data_access_url"]
+                "data_access_url": status_response["data_access_url"],
+                "metrics": status_response["compute_result"]["metrics"]
             }
 
         # Failed
         else:
-            batch_status = "failed"
+            batch.status = "failed"
             batch.failed_at = timezone.now()
 
     # Error if something went wrong while parsing the batch status response
@@ -426,7 +425,6 @@ async def update_batch_flow_status_result(batch, cross_check=False):
     
     # Update batch status in the database
     try:
-        batch.status = batch_status
         await update_database(db_object=batch)
     except Exception as e:
         return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400

@@ -261,7 +261,7 @@ def get_flow_status(globus_flow_run_uuid):
     # Extract results if the flow completed
     elif status == BatchStatusEnum.completed.value:
         try:
-            compute_result = flow_run["details"]["output"]["ComputeInference_output"]["details"]["result"][0]
+            compute_result = json.loads(flow_run["details"]["output"]["ComputeInference_output"]["details"]["result"][0])
         except Exception as e:
             return None, f"Error: Could not extract compute result from completed flow: {e}", 400
         try:
