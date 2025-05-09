@@ -1,0 +1,12 @@
+[Unit]
+Description=Globus Connect Personal to transfer input batch file from the VM to HPC facilities
+After=network.target
+
+[Service]
+User=webportal
+Group=webportal
+WorkingDirectory=/home/webportal/globus_personal_connect/globusconnectpersonal-3.2.6
+ExecStart=/home/webportal/globus_personal_connect/globusconnectpersonal-3.2.6/globusconnectpersonal -start -debug
+
+[Install]
+WantedBy=multi-user.target
