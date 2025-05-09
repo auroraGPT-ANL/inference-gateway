@@ -150,12 +150,9 @@ async def post_upload_batch_inference(request,
         return await get_plain_response(e.args[0], 400)
         
     # Save validated file to local storage
-    # TODO delete saved file after the flow is done
-    #       have a cron job that look over files and check if batch id is completed/failed, then delete file
-    # TODO delete saved file on Eagle as the last step of the Flow
+    # TODO delete saved file on Eagle as the last step of the Flow?
     try:
-        file_name = f"{batch_id}.{file.name}"
-        _ = default_storage.save(f"uploaded_files/{file_name}", file)
+        _ = default_storage.save(f"uploaded_files/{batch_id}/{file.name}", file)
     except Exception as e:
         return await get_plain_response("Error: Could not write file to local storage.", 400)
     
@@ -168,7 +165,7 @@ async def post_upload_batch_inference(request,
     # Prepare the inputs to run the flow
     try:
         flow_input = get_batch_flow_input(
-            file_name=file_name, 
+            file_name=file.name, 
             username=atv_response.username,
             user_id=atv_response.user_id,
             batch_id=batch_id,
