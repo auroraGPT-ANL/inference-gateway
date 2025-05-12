@@ -17,4 +17,4 @@ engine:
       conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.8.2
   type: GlobusComputeEngine
 allowed_functions:
-  - e4b4c5ef-c8de-43f1-969c-071c9de61442
+  - 565f0771-2f23-4fbb-9468-ca797e7a1571
