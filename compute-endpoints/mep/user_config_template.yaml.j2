@@ -4,8 +4,8 @@
 {% set reservation = reservation | trim('"') -%}
 
 {# Import data #}
-{% from '/home/openinference_svc/.globus_compute/sophia-inference-mep/configs.j2' import configs -%}
-{% from '/home/openinference_svc/.globus_compute/sophia-inference-mep/macros.j2' import get_worker_init -%}
+{% from 'configs.j2' import configs -%}
+{% from 'macros.j2' import get_worker_init -%}
 
 amqp_port: 443
 display_name: {{ endpoint_slug }}
