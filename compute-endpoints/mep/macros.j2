@@ -1,4 +1,4 @@
 {% macro get_worker_init(endpoint_slug) -%}
-{% set file_path = "/home/openinference_svc/.globus_compute/sophia-inference-mep/worker_inits/worker_init_" + endpoint_slug + ".yaml" -%}
+{% set file_path = "worker_inits/worker_init_" + endpoint_slug + ".yaml" -%}
 {% include file_path %}
 {%- endmacro -%}
