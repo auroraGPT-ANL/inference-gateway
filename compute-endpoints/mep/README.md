@@ -1,5 +1,7 @@
 # Inference Globus Multi-User Endpoint
 
+In order to benefit from external Jinja template files, make sure your Globus Compute Endpoint is upgraded to the latest version.
+
 ## Setup virtual environment
 
 Create conda environment with Python 3.11.9 (in sync with CELS VM backend)
@@ -20,4 +22,9 @@ pip install globus-compute-endpoint==2.34.0
 Create the multi-user endpoint
 ```bash
 globus-compute-endpoint configure sophia-inference-mep --multi-user
+```
+
+Start the multi-user endpoint
+```bash
+globus-compute-endpoint start sophia-inference-mep --debug
 ```
