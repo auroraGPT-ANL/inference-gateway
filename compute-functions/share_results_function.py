@@ -27,7 +27,7 @@ def share_batch_results(parameters):
 
     # Define constants
     USER_FOLDER = f"/batch_results/{parameters.username}/"
-    RESULTS_FOLDER = results_file.split(USER_FOLDER)[1].split("/")[0]
+    RESULTS_FOLDER = os.path.dirname(results_file.split(USER_FOLDER)[1])
     GUEST_COLLECTION_ID = "5d64d93a-1293-4dae-a8c6-39d51daf2dd3" # InferenceUpload - Eagle
 
     # Load Globus application credentials to manage the Guest collection
