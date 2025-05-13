@@ -27,6 +27,9 @@ class Endpoint(models.Model):
     endpoint_uuid = models.CharField(max_length=100)
     function_uuid = models.CharField(max_length=100)
 
+    # Configuration key for MEPs in order to customize the templates
+    mep_config_key = models.CharField(max_length=100, default="", blank=True)
+
     # Globus Compute batch-request UUIDs
     batch_endpoint_uuid = models.CharField(max_length=100, default="", blank=True)
     batch_function_uuid = models.CharField(max_length=100, default="", blank=True)
