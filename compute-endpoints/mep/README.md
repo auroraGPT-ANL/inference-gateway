@@ -24,7 +24,30 @@ Create the multi-user endpoint
 globus-compute-endpoint configure sophia-inference-mep --multi-user
 ```
 
-Start the multi-user endpoint
+Test the multi-user endpoint
 ```bash
 globus-compute-endpoint start sophia-inference-mep --debug
+```
+
+## Run multi-user endpoint in the background
+
+Using `nohup`:
+```bash
+nohup globus-compute-endpoint start sophia-inference-mep & echo $! > ~/nohup_mep.pid
+```
+
+Check if the process is running:
+```bash
+mep_pid=$(cat ~/nohup_mep.pid)
+ps $mep_pid
+```
+
+Stop the process:
+```bash
+kill <process_id>
+```
+
+Force kill if needed:
+```bash
+kill -9 <process_id>
 ```
