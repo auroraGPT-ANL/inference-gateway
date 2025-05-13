@@ -1,6 +1,6 @@
 {# Strip extra string quotes ("") that get added to the input strings #}
 {# '"sophia-vllm-..."' --> 'sophia-vllm-...' #}
-{% set endpoint_slug = endpoint_slug | trim('"') -%}
+{% set config_key = config_key | trim('"') -%}
 {% set reservation = reservation | trim('"') -%}
 
 {# Import data #}
@@ -8,13 +8,13 @@
 {% from 'macros.j2' import get_worker_init -%}
 
 amqp_port: 443
-display_name: {{ endpoint_slug }}
+display_name: {{ config_key }}
 engine:
   type: GlobusComputeEngine
-  max_retries_on_system_failure: {{ configs[endpoint_slug].max_retries_on_system_failure | default(2)}}
-  max_workers_per_node: {{ configs[endpoint_slug].max_workers_per_node | default(100) }}
+  max_retries_on_system_failure: {{ configs[config_key].max_retries_on_system_failure | default(2)}}
+  max_workers_per_node: {{ configs[config_key].max_workers_per_node | default(100) }}
   job_status_kwargs:
-    max_idletime: {{ configs[endpoint_slug].max_idletime | default(7200) }}
+    max_idletime: {{ configs[config_key].max_idletime | default(7200) }}
   address:
     type: address_by_interface
     ifname: ens10f0
@@ -22,22 +22,22 @@ engine:
     type: PBSProProvider
     launcher:
       type: SimpleLauncher
-    account: {{ configs[endpoint_slug].account | default("argonne_tpc") }}
-    select_options: {{ configs[endpoint_slug].select_options | default("ngpus=8") }}
+    account: {{ configs[config_key].account | default("argonne_tpc") }}
+    select_options: {{ configs[config_key].select_options | default("ngpus=8") }}
     scheduler_options: '#PBS -l filesystems=home:eagle'
     {% if reservation | length > 0 -%}
     queue: {{ reservation }}
     {% else -%}
-    queue: {{ configs[endpoint_slug].queue | default("by-node") }}
+    queue: {{ configs[config_key].queue | default("by-node") }}
     {% endif -%}
     init_blocks: 0
-    max_blocks: {{ configs[endpoint_slug].max_blocks | default(1) }}
+    max_blocks: {{ configs[config_key].max_blocks | default(1) }}
     min_blocks: 0
-    nodes_per_block: {{ configs[endpoint_slug].nodes_per_block | default(1) }}
+    nodes_per_block: {{ configs[config_key].nodes_per_block | default(1) }}
     walltime: 24:00:00 
-    {{ get_worker_init(endpoint_slug) }}
+    {{ get_worker_init(config_key) }}
 
 allowed_functions:
-{% for function_uuid in configs[endpoint_slug].allowed_functions | default(["not-a-uuid"]) -%}
+{% for function_uuid in configs[config_key].allowed_functions | default(["not-a-uuid"]) -%}
   - {{ function_uuid }}
 {% endfor %}
