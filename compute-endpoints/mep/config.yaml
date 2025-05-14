@@ -3,5 +3,5 @@ identity_mapping_config_path: /home/openinference_svc/.globus_compute/sophia-inf
 multi_user: true
 allowed_functions:
   - 31014303-b0c0-480e-9531-963bfc323f6d # print_variables
-  - 3073ed77-6a17-4e85-826a-e1dca5309e01 # inference vllm
+  - 95bde74f-fed5-4009-bc3f-659d6165840e # inference vllm
   - 12d8339d-28eb-412b-ae37-d7b612f3f44d # inference infinity
