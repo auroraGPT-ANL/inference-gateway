@@ -78,7 +78,8 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
 
 
 # Submit function and wait for result
-async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*28):
+async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, 
+                                data=None, timeout=60*28, mep_config=None):
     """
     Assign endpoint UUID to the executor, submit task to the endpoint,
     wait for the result asynchronously, and return the result or the
@@ -88,6 +89,14 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
 
     # Assign endpoint UUID to the executor 
     gce.endpoint_id = endpoint_uuid
+
+    # Assing multi-user endpoint configuration (if needed)
+    # TODO: Will this work if thereafter the executor is used for a single-user endpoint?
+    if not isinstance(mep_config, type(None)):
+        if isinstance(mep_config, dict):
+            gce.user_endpoint_config = mep_config
+        else:
+            return None, None, "Error: MEP configuration must be a dictionary.", 400
 
     # Submit Globus Compute task and collect the future object
     # NOTE: Do not await here, the submit* function return the future "immediately"
