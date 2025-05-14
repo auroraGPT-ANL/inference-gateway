@@ -27,6 +27,7 @@ from resource_server_async.utils import (
     #validate_file_body,
     extract_group_uuids,
     get_qstat_details,
+    get_mep_config,
     update_batch_status_result,
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -906,11 +907,13 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
+    # Prepare multi-user endpoint configuration (if needed)
+    mep_config = get_mep_config(endpoint)
+
     # Submit task and wait for result
     db_data["timestamp_submit"] = timezone.now()
     result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-        gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
-    )
+        gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data, mep_config=mep_config)
     if len(error_message) > 0:
         return await get_response(db_data, error_message, error_code)
     db_data["task_uuid"] = task_uuid

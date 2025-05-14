@@ -438,3 +438,18 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
         raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
     except Exception as e:
         raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
+
+
+# Get multi-user endpoint configuration
+def get_mep_config(endpoint):
+
+    # Set the configuration if the endpoint is a multi-user endpoint
+    if len(endpoint.mep_config_key) > 0:
+        return {
+            "config_key": endpoint.mep_config_key,
+            "reservation": ""
+        }
+    
+    # Return None when using a single-user endpoint
+    else:
+        return None
