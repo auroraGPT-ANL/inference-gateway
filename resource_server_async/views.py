@@ -69,9 +69,6 @@ async def post_upload_batch_inference(request,
                                 file: UploadedFile = File(...)):
     """Batch inference via uploading an input file."""
 
-    # TODO: collect file name
-    #{'name': file.name, 'len': len(input_entries)}
-
     # Check if request is authenticated
     atv_response = validate_access_token(request)
     if not atv_response.is_valid:
@@ -143,6 +140,10 @@ async def post_upload_batch_inference(request,
     except Exception as e:
         return await get_plain_response(str(e), 400)
     
+    # Error if the file includes more lines than what is permitted
+    if len(data) > 150000:
+        return await get_plain_response("Error: Uploaded file must have at most 150,000 lines.", 400)
+    
     # Validate uploaded data
     try:
         validate_uploaded_batch_data(data)
@@ -150,7 +151,6 @@ async def post_upload_batch_inference(request,
         return await get_plain_response(e.args[0], 400)
         
     # Save validated file to local storage
-    # TODO delete saved file on Eagle as the last step of the Flow?
     try:
         _ = default_storage.save(f"uploaded_files/{batch_id}/{file.name}", file)
     except Exception as e:
