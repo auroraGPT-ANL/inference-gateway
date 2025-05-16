@@ -5,7 +5,7 @@ engine:
   max_workers_per_node: 1
   address:
     type: address_by_interface
-    ifname: ens10f0
+    ifname: bond0.2210
   provider:
     init_blocks: 1
     max_blocks: 1
