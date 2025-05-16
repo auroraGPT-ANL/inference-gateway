@@ -8,7 +8,7 @@ engine:
     max_idletime: 86400
   address:
     type: address_by_interface
-    ifname: ens10f0
+    ifname: bond0.2210
   provider:
     type: PBSProProvider
     launcher:
