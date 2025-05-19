@@ -8,6 +8,8 @@ from concurrent.futures import Future
 ACTIVE = "-ACTIVE"
 EXPIRED = "-EXPIRED"
 HAS_PREMIUM_ACCESS = "-HAS-PREMIUM-ACCESS"
+
+# Constants related to API responses
 MOCK_RESPONSE = "mock response"
 
 # Globus Group UUID for premium access test
@@ -108,6 +110,25 @@ class MockClient():
     def get_result(self, task_uuid):
         return MOCK_RESPONSE
     
+    # Mock create batch
+    def create_batch(self):
+        return MockBatch()
+    
+    # Mock batch run
+    def batch_run(self, endpoint_id=None, batch=None):
+        return {
+            "request_id": str(uuid.uuid4()),
+            "tasks": {
+                "1": [str(uuid.uuid4()), str(uuid.uuid4())]
+            }
+        }
+    
+
+# Mock Globus batch object
+class MockBatch():
+    def add(self, function_id=None, args=None):
+        pass
+
 
 # Mock Globus SDK Executor
 class MockExecutor():

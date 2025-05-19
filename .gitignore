@@ -7,6 +7,7 @@ create_pg_backup_log.log
 pg_backup/
 formatted_results.txt
 logs_march_20_21.json
+email.out
 
 # VS code
 .vscode/
