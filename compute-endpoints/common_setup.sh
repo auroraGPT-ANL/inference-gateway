@@ -68,7 +68,7 @@ setup_environment_sglang() {
     export NCCL_SOCKET_IFNAME='infinibond0'
     export OMP_NUM_THREADS=4
     export VLLM_IMAGE_FETCH_TIMEOUT=60
-    export HF_TOKEN='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'
+    export HF_TOKEN=''
 
     # Set path to common setup script
     export COMMON_SETUP_SCRIPT='/home/openinference_svc/sophia_common_scripts.sh'
