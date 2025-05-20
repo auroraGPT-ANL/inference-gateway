@@ -538,7 +538,7 @@
         "model": "resource_server.endpoint",
         "pk": 38,
         "fields": {
-            "endpoint_slug": "sophia-vllm-salesforce-sfr-embedding-mistral",
+            "endpoint_slug": "sophia-vllm-salesforcesfr-embedding-mistral",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "Salesforce/SFR-Embedding-Mistral",
@@ -552,7 +552,7 @@
         "model": "resource_server.endpoint",
         "pk": 39,
         "fields": {
-            "endpoint_slug": "sophia-vllm-mistral-7b-instruct-v03-embed",
+            "endpoint_slug": "sophia-vllm-mistralaimistral-7b-instruct-v03-embed",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "mistralai/Mistral-7B-Instruct-v0.3-embed",
@@ -566,7 +566,7 @@
         "model": "resource_server.endpoint",
         "pk": 40,
         "fields": {
-            "endpoint_slug": "sophia-vllm-qwen-qwen3-32b",
+            "endpoint_slug": "sophia-vllm-qwenqwen3-32b",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "Qwen/Qwen3-32B",
@@ -580,7 +580,7 @@
         "model": "resource_server.endpoint",
         "pk": 41,
         "fields": {
-            "endpoint_slug": "sophia-vllm-qwen-qwen3-235b-a22b",
+            "endpoint_slug": "sophia-vllm-qwenqwen3-235b-a22b",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "Qwen/Qwen3-235B-A22B",
@@ -594,7 +594,7 @@
         "model": "resource_server.endpoint",
         "pk": 42,
         "fields": {
-            "endpoint_slug": "sophia-vllm-google-gemma-3-27b-it",
+            "endpoint_slug": "sophia-vllm-googlegemma-3-27b-it",
             "cluster": "sophia",
             "framework": "vllm",
             "model": "google/gemma-3-27b-it",
