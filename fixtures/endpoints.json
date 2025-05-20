@@ -552,10 +552,10 @@
         "model": "resource_server.endpoint",
         "pk": 39,
         "fields": {
-            "endpoint_slug": "sophia-vllm-mistral-7b-instruct-v03",
+            "endpoint_slug": "sophia-vllm-mistral-7b-instruct-v03-embed",
             "cluster": "sophia",
             "framework": "vllm",
-            "model": "mistralai/Mistral-7B-Instruct-v0.3",
+            "model": "mistralai/Mistral-7B-Instruct-v0.3-embed",
             "api_port": 8001,
             "endpoint_uuid": "e0ea324f-7722-4810-affe-5b7ef0994c2a",
             "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
