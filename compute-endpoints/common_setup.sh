@@ -19,21 +19,59 @@ setup_environment() {
     module load conda
 
     # Source the Conda initialization script directly
-    conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.7.1/
+    #conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.8.2/
 
+    conda activate /eagle/argonne_tpc/inference-gateway/envs/vllmv0.8.5.post1
     # Set environment variables
     export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
     export HF_HOME='/eagle/argonne_tpc/model_weights/'
+    export HF_HUB_CACHE='/eagle/argonne_tpc/model_weights/hub'
     export RAY_TMPDIR='/tmp'
     export NCCL_SOCKET_IFNAME='infinibond0'
+    export OMP_NUM_THREADS=4
     export VLLM_IMAGE_FETCH_TIMEOUT=60
     export HF_TOKEN=''
+    export USE_FASTSAFETENSOR='true'
     ulimit -c unlimited
 
     # Set path to common setup script
     export COMMON_SETUP_SCRIPT='/home/openinference_svc/sophia_common_scripts.sh'
 
     #export PATH="/home/raffenet/software/hydra-4.2.3/bin/mpiexec:$PATH"
+
+    echo "Environment setup complete."
+}
+
+setup_environment_sglang() {
+    echo "Setting up the environment..."
+
+    # Set proxy configurations
+    export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+    export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+    export http_proxy="http://proxy.alcf.anl.gov:3128"
+    export https_proxy="http://proxy.alcf.anl.gov:3128"
+    export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+
+    # Load modules and activate the conda environment
+    source /etc/profile.d/modules.sh
+    source /etc/profile  # Initialize environment properly
+    module use /soft/modulefiles
+    module load conda
+
+    # Source the Conda initialization script directly
+    conda activate /eagle/argonne_tpc/inference-gateway/envs/sglangv0.4.4/
+
+     # Set environment variables
+    export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
+    export HF_HOME='/eagle/argonne_tpc/model_weights/'
+    export RAY_TMPDIR='/tmp'
+    export NCCL_SOCKET_IFNAME='infinibond0'
+    export OMP_NUM_THREADS=4
+    export VLLM_IMAGE_FETCH_TIMEOUT=60
+    export HF_TOKEN=''
+
+    # Set path to common setup script
+    export COMMON_SETUP_SCRIPT='/home/openinference_svc/sophia_common_scripts.sh'
 
     echo "Environment setup complete."
 }
@@ -60,7 +98,7 @@ setup_environment_infinity(){
     # Set environment variables
     export HF_DATASETS_CACHE='/eagle/argonne_tpc/model_weights/'
     export HF_HOME='/eagle/argonne_tpc/model_weights/'
-    export NCCL_SOCKET_IFNAME='infinibond0'
+    export NCCL_SOCKET_IFNAME='bond0'
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     ulimit -c unlimited
 

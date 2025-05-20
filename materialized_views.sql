@@ -48,3 +48,35 @@ CREATE MATERIALIZED VIEW public.mv_monthly_usage AS
    FROM resource_server_log
   GROUP BY (date_trunc('month'::text, resource_server_log.timestamp_receive))
   ORDER BY (date_trunc('month'::text, resource_server_log.timestamp_receive));;
+
+DROP MATERIALIZED VIEW IF EXISTS public.mv_total_token_counts CASCADE;
+
+CREATE MATERIALIZED VIEW public.mv_total_token_counts AS
+SELECT
+    -- Sum prompt_tokens, converting the JSON text value to bigint
+    SUM((r.result::jsonb -> 'usage' ->> 'prompt_tokens')::bigint) AS total_prompt_tokens,
+
+    -- Sum completion_tokens, converting the JSON text value to bigint
+    SUM((r.result::jsonb -> 'usage' ->> 'completion_tokens')::bigint) AS total_completion_tokens,
+
+    -- Optionally, sum the total_tokens provided in the usage object as well
+    SUM((r.result::jsonb -> 'usage' ->> 'total_tokens')::bigint) AS grand_total_tokens
+FROM
+    resource_server_log r
+WHERE
+    -- Filter for successful requests
+    r.response_status = 200
+    -- Ensure the result field is not null or empty
+    AND r.result IS NOT NULL
+    AND r.result <> ''
+    -- Crucially, ensure the 'usage' key exists and is a JSON object
+    AND jsonb_typeof(r.result::jsonb -> 'usage') = 'object'
+    -- Add checks to ensure the token fields exist within 'usage' and contain valid numeric strings
+    -- This prevents errors if the JSON structure is missing keys or has non-numeric values
+    AND r.result::jsonb -> 'usage' ->> 'prompt_tokens' ~ '^[0-9]+$'
+    AND r.result::jsonb -> 'usage' ->> 'completion_tokens' ~ '^[0-9]+$'
+    -- Optional check for total_tokens if you are summing it directly
+    AND r.result::jsonb -> 'usage' ->> 'total_tokens' ~ '^[0-9]+$';
+
+-- Example command to refresh the view (run periodically)
+-- REFRESH MATERIALIZED VIEW public.mv_total_token_counts;
