@@ -486,6 +486,18 @@
         }
       ],
       "max_completion_tokens": 1
+  },
+
+  {
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "messages": [
+          {
+              "role": "system",
+              "content": "this is my question?",
+              "name": "optional string"
+          }
+      ],
+      "stream": false
   }
 
 ]
