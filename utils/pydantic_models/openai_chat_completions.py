@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, AfterValidator, model_validator
-from typing import List, Optional, Union, Dict, Annotated, Any, Literal
+from typing import List, Optional, Union, Dict, Annotated, Any
 from enum import Enum
 
 # Extra validation for the metadata field
