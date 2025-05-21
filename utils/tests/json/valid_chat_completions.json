@@ -509,17 +509,6 @@
       }
     ],
     "extra_body": {"use_beam_search": true}
-  },
-
-  {
-    "model": "meta-llama/Meta-Llama-3-8B-Instruct",
-    "messages": [
-      {
-        "role": "system",
-        "content": "this is my question?"
-      }
-    ],
-    "extra_body": {"use_beam_search": true}
   }
 
 ]
