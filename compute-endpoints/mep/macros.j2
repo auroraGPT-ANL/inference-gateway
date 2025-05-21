@@ -1,4 +1,0 @@
-{% macro get_worker_init(config_key) -%}
-{% set file_path = "worker_inits/worker_init_" + config_key + ".yaml" -%}
-{% include file_path %}
-{%- endmacro -%}
