@@ -511,6 +511,7 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     seed: Optional[int] = Field(default=None, ge=-9223372036854775808, le=9223372036854775807)
     service_tier: Optional[ServiceTier] = Field(default=ServiceTier.auto.value)
     stop: Optional[Union[str, List[str]]] = Field(default=None)
+    stream: Optional[bool] = Field(default=False)
     store: Optional[bool] = Field(default=False)
     temperature: Optional[float] = Field(default=1, ge=0, le=2)
     tool_choice: Optional[Union[ToolChoice, ToolChoiceObject]] = Field(default=None)
@@ -539,6 +540,11 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
         if isinstance(values.stop, list):
             if len(values.stop) < 1 or len(values.stop) > 4:
                 raise ValueError("'stop' list must have between 1 to 4 items.")
+            
+        # Raise error if stream == True, since we do not have the capability yet
+        if isinstance(values.stream, bool):
+            if values.stream == True:
+                raise ValueError("'stream' is currently not available and the value must be set to False.")
 
         # Return values if nothing wrong happened in the valudation step
         return values

@@ -1240,5 +1240,29 @@
             ], 
             "type": "content"
         }
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "system",
+                "content": "this is my question?",
+                "name": "optional string"
+            }
+        ],
+        "stream": [1,2,3]
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "messages": [
+            {
+                "role": "system",
+                "content": "this is my question?",
+                "name": "optional string"
+            }
+        ],
+        "stream": "hello this is not a boolean"
     }
 ]
