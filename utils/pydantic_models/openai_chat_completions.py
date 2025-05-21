@@ -166,6 +166,10 @@ class BaseModelExtraForbid(BaseModel):
     class Config:
         extra = 'forbid'
 
+# vLLM extra_body field
+class ExtraBody(BaseModelExtraForbid):
+    use_beam_search: bool
+
 # Prediction - content
 # TODO: Do more vetting on what is allowed (e.g. text)
 class PredictionContent(BaseModelExtraForbid):
@@ -486,7 +490,6 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     #    ToolMessage]
     #]
     messages: List[Message]
-
     model: str = Field(..., min_length=1)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
     logit_bias: Optional[Dict[str, float]] = Field(default=None)
@@ -500,14 +503,12 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     prediction: Optional[Prediction] = Field(default_factory=dict)
     presence_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
     reasoning_effort: Optional[ReasoningEffort] = Field(default=ReasoningEffort.medium.value)
-     
     #response_format: Optional[Union[
     #    ResponseFormatText,
     #    ResponseFormatJsonSchema,
     #    ResponseFormatJsonObject]
     #] = Field(default_factory=dict)
     response_format: Optional[ResponseFormat] = Field(default_factory=dict)
-    
     seed: Optional[int] = Field(default=None, ge=-9223372036854775808, le=9223372036854775807)
     service_tier: Optional[ServiceTier] = Field(default=ServiceTier.auto.value)
     stop: Optional[Union[str, List[str]]] = Field(default=None)
@@ -520,6 +521,9 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     top_p: Optional[float] = Field(default=1, ge=0, le=1)
     user: Optional[str] = Field(default=None)
     web_search_options: Optional[WebSearchOptions] = Field(default_factory=dict)
+
+    # vLLM extra options relative to OpenAI
+    extra_body: Optional[ExtraBody] = Field(default=None)  
 
     # Extra validations
     @model_validator(mode='after')
