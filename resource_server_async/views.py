@@ -10,6 +10,11 @@ from django.db import IntegrityError
 import logging
 log = logging.getLogger(__name__)
 
+# Force Uvicorn to add timestamps in the Gunicorn access log
+import logging.config
+from logging_config import LOGGING_CONFIG
+logging.config.dictConfig(LOGGING_CONFIG)
+
 # Local utils
 from utils.auth_utils import validate_access_token
 import utils.globus_utils as globus_utils

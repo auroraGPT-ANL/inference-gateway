@@ -71,6 +71,8 @@ jobs:
           echo 'PGPASSWORD=mypassword' >> .env
           echo 'PGHOST=localhost' >> .env
           echo 'PGPORT=5432' >> .env
+          echo 'ENV=development' >> .env
+          mkdir logs/
           python3 manage.py migrate
           python3 manage.py loaddata fixtures/endpoints.json
       
