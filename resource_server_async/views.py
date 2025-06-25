@@ -1,3 +1,6 @@
+from ninja import NinjaAPI, Router, Query
+from ninja.throttling import AnonRateThrottle, AuthRateThrottle
+from asgiref.sync import sync_to_async
 from django.conf import settings
 import uuid
 import json
@@ -37,12 +40,19 @@ log.info("Utils functions loaded.")
 # Django database
 from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, FederatedEndpoint
 
-# Async tools
-from asgiref.sync import sync_to_async
-
 # Ninja API
-from ninja import NinjaAPI, Router, Query
-api = NinjaAPI(urls_namespace='resource_server_async_api')
+if settings.RUNNING_AUTOMATED_TEST_SUITE:
+    api = NinjaAPI(
+        urls_namespace='resource_server_async_api',
+    )
+else:
+    api = NinjaAPI(
+        urls_namespace='resource_server_async_api',
+        throttle=[
+            AnonRateThrottle('50/s'),
+            AuthRateThrottle('50/s'),
+        ],
+    )
 router = Router()
 
 # Simple in-memory cache for endpoint lookups
