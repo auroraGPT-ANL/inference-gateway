@@ -49,8 +49,8 @@ else:
     api = NinjaAPI(
         urls_namespace='resource_server_async_api',
         throttle=[
-            AnonRateThrottle('1/s'),
-            AuthRateThrottle('1/s'),
+            AnonRateThrottle('50/s'),
+            AuthRateThrottle('50/s'),
         ],
     )
 router = Router()
