@@ -1,3 +1,4 @@
+from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 from django.conf import settings
 import uuid
 import json
@@ -42,7 +43,13 @@ from asgiref.sync import sync_to_async
 
 # Ninja API
 from ninja import NinjaAPI, Router, Query
-api = NinjaAPI(urls_namespace='resource_server_async_api')
+api = NinjaAPI(
+    urls_namespace='resource_server_async_api',
+    throttle=[
+        AnonRateThrottle('50/s'),
+        AuthRateThrottle('50/s'),
+    ],
+)
 router = Router()
 
 # Simple in-memory cache for endpoint lookups
