@@ -23,10 +23,32 @@ services:
       - ./staticfiles:/app/staticfiles
       - ./logs:/var/log/inference-service
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
     networks:
       - monitoring
+    command: ["./wait-for-it.sh", "pgbouncer", "6432", "--", "gunicorn", "inference_gateway.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:7000", "--workers", "5", "--threads", "4", "--timeout", "1800", "--log-level", "debug", "--access-logfile", "/var/log/inference-service/backend_gateway.access.log", "--error-logfile", "/var/log/inference-service/backend_gateway.error.log", "--capture-output"]
+
+  pgbouncer:
+    image: edoburu/pgbouncer
+    container_name: pgbouncer
+    env_file:
+      - .env
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring
+    command: ["./wait-for-it.sh", "postgres", "5432", "--", "pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
 
   postgres:
     image: postgres:15
@@ -37,11 +59,21 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7
     networks:
       - monitoring
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   prometheus:
     image: prom/prometheus:latest
