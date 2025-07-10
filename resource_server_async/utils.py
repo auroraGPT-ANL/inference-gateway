@@ -10,8 +10,9 @@ from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
 from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
-from cachetools import TTLCache
+# from asyncache import cached as asynccached # Replaced with manual async cache
+# from cachetools import TTLCache # Replaced with manual async cache
+from django.core.cache import cache
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -22,6 +23,7 @@ from utils.globus_utils import (
 from django.conf import settings # Import settings
 # Import models to load configuration dynamically
 # from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
+from resource_server.models import Endpoint
 from collections import defaultdict
 import logging # Add logging
 
@@ -201,8 +203,38 @@ def extract_group_uuids(globus_groups):
     return group_uuids, ""
 
 
+# Async cache helpers
+cache_get = sync_to_async(cache.get, thread_sensitive=True)
+cache_set = sync_to_async(cache.set, thread_sensitive=True)
+
+
+async def get_all_endpoints_from_cache():
+    """
+    Retrieves all endpoint objects from the cache if available,
+    otherwise fetches them from the database and caches the result.
+    """
+    cache_key = "all_endpoints_list"
+    endpoint_list = await cache_get(cache_key)
+    if endpoint_list:
+        log.info("Using cached endpoint list.")
+        return endpoint_list
+
+    try:
+        log.info("Fetching all endpoints from DB and caching.")
+        # Using sync_to_async for the database call
+        get_endpoints_async = sync_to_async(list, thread_sensitive=True)
+        endpoint_list = await get_endpoints_async(Endpoint.objects.all())
+        # Cache for 2 minute
+        await cache_set(cache_key, endpoint_list, 60*2)
+        return endpoint_list
+    except Exception as e:
+        log.error(f"Error fetching/caching endpoints: {e}")
+        # In case of error, returning an empty list to avoid breaking the caller
+        return []
+
+
 # Get qstat details
-@asynccached(TTLCache(maxsize=1024, ttl=30))
+# @asynccached(TTLCache(maxsize=1024, ttl=30)) # Replaced
 async def get_qstat_details(cluster, gcc, gce, timeout=60):
     """
     Collect details on all jobs running/submitted on a given cluster.
@@ -210,6 +242,12 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     make sure the outcome gets cached.
     Returns result, task_uuid, error_message, error_code
     """
+    # Check cache first
+    cache_key = f"qstat_details:{cluster}"
+    cached_result = await cache_get(cache_key)
+    if cached_result:
+        log.info(f"Using cached qstat details for {cluster}.")
+        return cached_result
 
     # Gather the qstat endpoint info using the loaded config
     qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
@@ -239,8 +277,10 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     if len(error_message) > 0:
         return None, task_uuid, error_message, error_code
 
-    # Return qstat result without error_message
-    return result, task_uuid, "", 200
+    # Cache and return result
+    response_tuple = (result, task_uuid, error_message, error_code)
+    await cache_set(cache_key, response_tuple, 30)
+    return response_tuple
 
 
 # Update batch status result

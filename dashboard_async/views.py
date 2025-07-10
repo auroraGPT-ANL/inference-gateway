@@ -5,9 +5,11 @@ from django.utils.timezone import now
 from django.http import HttpResponse
 from django.core.cache import cache
 from django.template.loader import get_template
+from django.views.decorators.cache import cache_page
 from asgiref.sync import sync_to_async
 from ninja import NinjaAPI, Router
 from resource_server.models import Endpoint, Log, Batch
+from resource_server_async.utils import get_all_endpoints_from_cache
 import re
 import logging
 
@@ -142,8 +144,7 @@ async def get_metrics(request):
 async def get_endpoints(request):
     """Fetch active endpoints asynchronously."""
     try:
-        endpoints_query = Endpoint.objects.all()
-        endpoints = await sync_to_async(list)(endpoints_query)
+        endpoints = await get_all_endpoints_from_cache()
         endpoint_details = [
             {"model": ep.model, "cluster": ep.cluster, "framework": ep.framework}
             for ep in endpoints
@@ -155,6 +156,7 @@ async def get_endpoints(request):
 
 
 @router.get("/analytics")
+@cache_page(60 * 2)  # Cache for 2 minutes
 async def analytics_view(request):
     """Render the analytics dashboard asynchronously."""
     try:

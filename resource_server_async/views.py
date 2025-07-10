@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.http import HttpResponse
 from django.db import IntegrityError
+from django.core.cache import cache
 
 # Tool to log access requests
 import logging
@@ -26,6 +27,7 @@ from resource_server_async.utils import (
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
+    get_all_endpoints_from_cache,
 )
 log.info("Utils functions loaded.")
 
@@ -40,8 +42,8 @@ from ninja import NinjaAPI, Router, Query
 api = NinjaAPI(urls_namespace='resource_server_async_api')
 router = Router()
 
-# Simple in-memory cache for endpoint lookups
-endpoint_cache = {}
+# Simple in-memory cache for endpoint lookups - Replaced with Django's shared cache
+# endpoint_cache = {}
 
 # List Endpoints (GET)
 @router.get("/list-endpoints")
@@ -61,7 +63,7 @@ async def get_list_endpoints(request):
 
     # Collect endpoints objects from the database
     try:
-        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
+        endpoint_list = await get_all_endpoints_from_cache()
     except Exception as e:
         return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
 
@@ -145,7 +147,7 @@ async def get_list_endpoints_detailed(request):
 
     # Collect endpoints objects from the database
     try:
-        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
+        endpoint_list = await get_all_endpoints_from_cache()
     except Exception as e:
         return await get_list_response(db_data, f"Error: Could not access Endpoint database entries: {e}", 400)
     
@@ -836,19 +838,19 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     log.info(f"endpoint_slug: {endpoint_slug} - user: {atv_response.username}")
     db_data["endpoint_slug"] = endpoint_slug
 
-    # Try to get endpoint from the simple in-memory cache
-    if endpoint_slug in endpoint_cache:
-        endpoint = endpoint_cache[endpoint_slug]
-        log.info(f"Retrieved endpoint {endpoint_slug} from in-memory cache.")
+    # Try to get endpoint from the shared cache
+    endpoint = cache.get(endpoint_slug)
+    if endpoint:
+        log.info(f"Retrieved endpoint {endpoint_slug} from cache.")
     else:
         # If not in cache, fetch from DB asynchronously
         try:
             get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
             endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
 
-            # Store the fetched endpoint in the cache
-            endpoint_cache[endpoint_slug] = endpoint
-            log.info(f"Fetched endpoint {endpoint_slug} from DB and added to in-memory cache.")
+            # Store the fetched endpoint in the cache for 10 minutes
+            cache.set(endpoint_slug, endpoint, 600)
+            log.info(f"Fetched endpoint {endpoint_slug} from DB and added to cache.")
 
         except Endpoint.DoesNotExist:
             return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
@@ -862,16 +864,14 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     except Exception as e:
          # If there was an error processing the data (e.g., attribute missing),
          # it might be safer to remove it from the cache to force a refresh on next request.
-        if endpoint_slug in endpoint_cache:
-            del endpoint_cache[endpoint_slug]
+        cache.delete(endpoint_slug)
         return await get_response(db_data, f"Error processing endpoint data for {endpoint_slug}: {e}", 400)
 
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
         # Remove from cache if group extraction fails, as the cached data might be problematic
-        if endpoint_slug in endpoint_cache:
-            del endpoint_cache[endpoint_slug]
+        cache.delete(endpoint_slug)
         return await get_response(db_data, error_message, 401)
     
     # Block access if the user is not a member of at least one of the required groups
