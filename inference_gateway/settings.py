@@ -143,17 +143,17 @@ WSGI_APPLICATION = 'inference_gateway.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('PGDATABASE', 'mydatabase'),
-        'USER': os.getenv('PGUSER', 'myusername'),
-        'PASSWORD': '',  # Leave this empty to use .pgpass
-        'HOST': os.getenv('PGHOST', 'localhost'),
-        'PORT': os.getenv('PGPORT', '5432'),
+        'NAME': os.getenv('PGDATABASE', 'postgres'),
+        'USER': os.getenv('PGUSER', 'postgres'),
+        'PASSWORD': os.getenv('PGPASSWORD', 'postgres'),
+        'HOST': os.getenv('PGHOST', 'pgbouncer'),  # Connect to the pgbouncer service
+        'PORT': os.getenv('PGPORT', '6432'),       # Default PgBouncer port
         "OPTIONS": {
-            "connect_timeout": 10,  # Connection timeout in seconds
+            "connect_timeout": 10,
         },
-        "CONN_MAX_AGE": 300,
+        "CONN_MAX_AGE": 0,
         "ATOMIC_REQUESTS": False,
-        "CONN_HEALTH_CHECKS": True,
+        "CONN_HEALTH_CHECKS": False,
     }
 }
 
@@ -200,6 +200,25 @@ STATIC_URL = '/static/'
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 100,
+                "retry_on_timeout": True,
+            }
+        }
+    }
+}
+
+# Optional: This is to ensure Django sessions are stored in Redis
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
 
 
 LOGGING = {
