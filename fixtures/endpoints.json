@@ -265,7 +265,8 @@
             "endpoint_uuid": "1e0ff07b-6468-496c-8024-5cb3911517ab",
             "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3"
+            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -401,7 +402,8 @@
             "endpoint_uuid": "c8e147c8-5a53-438d-a286-d625560a252a",
             "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3"
+            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -414,7 +416,8 @@
             "model": "deepseek-ai/DeepSeek-R1",
             "api_port": 8000,
             "endpoint_uuid": "712bd6f6-7f1c-45cd-9672-81d579faf4db",
-            "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41"
+            "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -489,7 +492,8 @@
             "endpoint_uuid": "94248103-c719-4320-ac6b-6a885bf61d99",
             "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3"
+            "batch_function_uuid": "3afabfdd-1acc-47f1-8de7-cb1ae85af5c3",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
