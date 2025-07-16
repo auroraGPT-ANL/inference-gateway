@@ -36,6 +36,7 @@ asyncache = "^0.3.1"
 globus-compute-common = "^0.5.0"
 h11 = "0.16.0"
 urllib3 = "2.5.0"
+requests = "2.32.4"
 
 [build-system]
 requires = ["poetry-core"]
