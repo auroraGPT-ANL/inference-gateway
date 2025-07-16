@@ -2,6 +2,7 @@ from django.db import models
 from django.utils.text import slugify
 import uuid
 from django.utils.timezone import now
+from django.core.exceptions import ValidationError
 
 # Details of a given Globus Compute endpoint
 class Endpoint(models.Model):
@@ -213,6 +214,28 @@ class FederatedEndpoint(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+
+# Details of the latest jobs/ URL (qstat function) status
+class ModelStatus(models.Model):
+
+    # Targetted cluster where the models run
+    cluster = models.CharField(max_length=128, unique=True)
+
+    # Full raw response from the qstat function
+    result = models.TextField(default="", blank=True)
+
+    # Error message if something goes wrong
+    error = models.TextField(default="", blank=True)
+
+    # Timestamp to keep track of the last qstat query
+    timestamp = models.DateTimeField(default=now)
+
+    # Error if more than one entry
+    def save(self, *args, **kwargs):
+        if not self.pk and self.__class__.objects.exists():
+            raise ValidationError(f"Only one instance of {self.__class__.__name__} is allowed.")
         super().save(*args, **kwargs)
 
 
