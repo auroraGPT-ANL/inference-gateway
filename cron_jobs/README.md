@@ -79,3 +79,21 @@ Make sure you set execution permission:
 ```bash
 chmod u+x /home/webportal/inference-gateway/cron_jobs/check_endpoints.sh
 ```
+
+### Query Match Status
+
+This is to periodically query the qstat endpoint for each inference cluster, and add the result in the database so that the jobs/ URL can reuse the cached information instead of re-trigerring the qstat function.
+
+On the VM, as the `webportal` user, add a crontab with the following command:
+```bash
+crontab -e
+```
+and include the following line to execute the update command every minute:
+```bash
+*/1 * * * * /home/webportal/inference-gateway/cron_jobs/query_model_status.sh
+```
+
+Make sure you set execution permission:
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/query_model_status.sh
+```
