@@ -28,6 +28,9 @@ load_dotenv(override=True)
 # Django secret key
 SECRET_KEY = os.getenv("SECRET_KEY")
 
+# Define whether we are in the automated test suite mode
+RUNNING_AUTOMATED_TEST_SUITE = os.getenv("RUNNING_AUTOMATED_TEST_SUITE", "False").lower() in ("true", "1", "t")
+
 # Globus App credentials
 GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
 GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
