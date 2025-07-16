@@ -23,21 +23,14 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     -------
         globus_compute_sdk.Client: Compute client to operate Globus Compute
     """
-    cache_key = "get_compute_client_from_globus_app"
-    cached_client = cache.get(cache_key)
-    if cached_client:
-        return cached_client
-    
     # Try to create and return the Compute client
     try:
-        client = Client(
+        return Client(
             app=globus_sdk.ClientApp(
                 client_id=settings.POLARIS_ENDPOINT_ID,
                 client_secret=settings.POLARIS_ENDPOINT_SECRET
             )
         )
-        cache.set(cache_key, client, timeout=60 * 60)
-        return client
     except Exception as e:
         raise ResourceServerError("Exception in creating client. Error",e)
 
@@ -51,16 +44,9 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     -------
         globus_compute_sdk.Executor: Compute Executor to operate Globus Compute
     """
-    cache_key = f"get_compute_executor:{endpoint_id}:{amqp_port}"
-    cached_executor = cache.get(cache_key)
-    if cached_executor:
-        return cached_executor
-
     # Try to create and return the Compute executor
     try:
-        executor = Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port)
-        cache.set(cache_key, executor, timeout=60 * 10)
-        return executor
+        return Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port)
     except Exception as e:
         raise ResourceServerError("Exception in creating executor. Error", e)
 
@@ -116,7 +102,8 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
     # Clear cache if the Executor is shut down in order for subsequent requests to work
     except Exception as e:
         if "is shutdown" in str(e):
-            cache.delete_pattern("get_compute_executor:*")
+            # The executor is not cached anymore, so there is nothing to clear
+            # cache.delete_pattern("get_compute_executor:*")
             time.sleep(2)
         return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
 
