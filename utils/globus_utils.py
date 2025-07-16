@@ -36,7 +36,12 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 
 # Get authenticated Compute Executor using existing client
+<<<<<<< HEAD
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
+=======
+@cached(cache=executor_cache)
+def get_compute_executor(endpoint_id=None, client=None, amqp_port=443, batch_size=1, api_burst_limit=1):
+>>>>>>> main
     """
     Create and return an authenticated Compute Executor using using existing client.
 
@@ -46,7 +51,13 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     """
     # Try to create and return the Compute executor
     try:
-        return Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port)
+        return Executor(
+            endpoint_id=endpoint_id,
+            client=client,
+            amqp_port=amqp_port,
+            batch_size=batch_size, 
+            api_burst_limit=api_burst_limit
+        )
     except Exception as e:
         raise ResourceServerError("Exception in creating executor. Error", e)
 
