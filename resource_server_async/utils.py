@@ -234,7 +234,7 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
                     return latest_status.result, "", "", 200
                 
         # Continue as normal if this fails so that user can have an up-to-date response
-        except Exception:
+        except Exception as e:
             return None, None, f"Error: Could not recover qstat details from database: {e}", 500
 
     # Get Globus Compute client and executor
