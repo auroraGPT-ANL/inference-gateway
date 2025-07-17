@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from ninja import NinjaAPI, Router
 from resource_server.models import Endpoint, Log, Batch
 from resource_server_async.utils import get_all_endpoints_from_cache
+from utils.cache import async_redis_cache
 import re
 import logging
 
@@ -122,18 +123,12 @@ def fetch_metrics():
 
 
 @router.get("/metrics")
+@async_redis_cache(60)
 async def get_metrics(request):
     """Get dashboard metrics. Caches results for 60 seconds."""
-    cache_key = "dashboard_metrics"
-    metrics = cache.get(cache_key)
-    if metrics:
-        log.info("Fetching metrics from cache...")
-        return metrics
-
     try:
         log.info("Fetching metrics from DB (async)...")
         metrics = await sync_to_async(fetch_metrics, thread_sensitive=True)()
-        cache.set(cache_key, metrics, 60)  # Cache for 60 seconds
         return metrics
     except Exception as e:
         log.error(f"Error fetching metrics: {e}")

@@ -10,9 +10,7 @@ from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
 from asgiref.sync import sync_to_async
-# from asyncache import cached as asynccached # Replaced with manual async cache
-# from cachetools import TTLCache # Replaced with manual async cache
-from django.core.cache import cache
+from utils.cache import async_redis_cache
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -203,29 +201,17 @@ def extract_group_uuids(globus_groups):
     return group_uuids, ""
 
 
-# Async cache helpers
-cache_get = sync_to_async(cache.get, thread_sensitive=True)
-cache_set = sync_to_async(cache.set, thread_sensitive=True)
-
-
+@async_redis_cache(ttl=60 * 2)
 async def get_all_endpoints_from_cache():
     """
     Retrieves all endpoint objects from the cache if available,
     otherwise fetches them from the database and caches the result.
     """
-    cache_key = "all_endpoints_list"
-    endpoint_list = await cache_get(cache_key)
-    if endpoint_list:
-        log.info("Using cached endpoint list.")
-        return endpoint_list
-
     try:
         log.info("Fetching all endpoints from DB and caching.")
         # Using sync_to_async for the database call
         get_endpoints_async = sync_to_async(list, thread_sensitive=True)
         endpoint_list = await get_endpoints_async(Endpoint.objects.all())
-        # Cache for 2 minute
-        await cache_set(cache_key, endpoint_list, 60*2)
         return endpoint_list
     except Exception as e:
         log.error(f"Error fetching/caching endpoints: {e}")
@@ -233,8 +219,28 @@ async def get_all_endpoints_from_cache():
         return []
 
 
+@async_redis_cache(ttl=60 * 10)
+async def get_endpoint_by_slug_from_cache(endpoint_slug):
+    """
+    Retrieves a single endpoint object from the cache if available,
+    otherwise fetches it from the database and caches the result.
+    """
+    try:
+        log.info(f"Fetching endpoint {endpoint_slug} from DB and caching.")
+        get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+        endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
+        return endpoint
+    except Endpoint.DoesNotExist:
+        # Return None if not found. The view will handle the 404.
+        return None
+    except Exception as e:
+        log.error(f"Error fetching/caching endpoint {endpoint_slug}: {e}")
+        # Re-raise the exception to be handled by the view
+        raise e
+
+
 # Get qstat details
-# @asynccached(TTLCache(maxsize=1024, ttl=30)) # Replaced
+@async_redis_cache(ttl=30, validator=lambda r: r is not None and r[2] == "")
 async def get_qstat_details(cluster, gcc, gce, timeout=60):
     """
     Collect details on all jobs running/submitted on a given cluster.
@@ -242,13 +248,6 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     make sure the outcome gets cached.
     Returns result, task_uuid, error_message, error_code
     """
-    # Check cache first
-    cache_key = f"qstat_details:{cluster}"
-    cached_result = await cache_get(cache_key)
-    if cached_result:
-        log.info(f"Using cached qstat details for {cluster}.")
-        return cached_result
-
     # Gather the qstat endpoint info using the loaded config
     qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
     if not qstat_config:
@@ -278,9 +277,7 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
         return None, task_uuid, error_message, error_code
 
     # Cache and return result
-    response_tuple = (result, task_uuid, error_message, error_code)
-    await cache_set(cache_key, response_tuple, 30)
-    return response_tuple
+    return result, task_uuid, error_message, error_code
 
 
 # Update batch status result

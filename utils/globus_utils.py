@@ -4,7 +4,8 @@ from django.conf import settings
 import globus_sdk
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
-from django.core.cache import cache
+from cachetools import TTLCache, cached
+from utils.cache import redis_cache
 
 import logging
 log = logging.getLogger(__name__)
@@ -14,7 +15,11 @@ log = logging.getLogger(__name__)
 class ResourceServerError(Exception):
     pass
 
+client_cache = TTLCache(maxsize=1024, ttl=60 * 60)
+executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
+
 # Get authenticated Compute Client using secret
+@cached(cache=client_cache)
 def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
@@ -36,12 +41,8 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 
 # Get authenticated Compute Executor using existing client
-<<<<<<< HEAD
-def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
-=======
 @cached(cache=executor_cache)
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443, batch_size=1, api_burst_limit=1):
->>>>>>> main
     """
     Create and return an authenticated Compute Executor using using existing client.
 
@@ -51,18 +52,13 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443, batch_siz
     """
     # Try to create and return the Compute executor
     try:
-        return Executor(
-            endpoint_id=endpoint_id,
-            client=client,
-            amqp_port=amqp_port,
-            batch_size=batch_size, 
-            api_burst_limit=api_burst_limit
-        )
+        return Executor(endpoint_id=endpoint_id, client=client, amqp_port=amqp_port, batch_size=batch_size, api_burst_limit=api_burst_limit)
     except Exception as e:
         raise ResourceServerError("Exception in creating executor. Error", e)
 
 
 # Get endpoint status
+@redis_cache(ttl=60, validator=lambda r: r is not None and r[1] == "")
 def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
     """
     Query the status of a Globus Compute endpoint. It caches the 
@@ -70,23 +66,12 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
     from Globus services when sereval incoming requests target 
     an endpoint that is offline.
     """
-    cache_key = f"get_endpoint_status:{endpoint_uuid}:{endpoint_slug}"
-    cached_status = cache.get(cache_key)
-    if cached_status:
-        return cached_status
-
     try:
-        status = client.get_endpoint_status(endpoint_uuid), ""
-        cache.set(cache_key, status, timeout=60)
-        return status
+        return client.get_endpoint_status(endpoint_uuid), ""
     except globus_sdk.GlobusAPIError as e:
-        result = None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-        cache.set(cache_key, result, timeout=60)
-        return result
+        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
     except Exception as e:
-        result = None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
-        cache.set(cache_key, result, timeout=60)
-        return result
+        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
 
 
 # Submit function and wait for result
@@ -113,8 +98,7 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
     # Clear cache if the Executor is shut down in order for subsequent requests to work
     except Exception as e:
         if "is shutdown" in str(e):
-            # The executor is not cached anymore, so there is nothing to clear
-            # cache.delete_pattern("get_compute_executor:*")
+            executor_cache.clear()
             time.sleep(2)
         return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
 
@@ -144,32 +128,25 @@ def get_task_uuid(future):
     
 
 # Get batch status
+@redis_cache(ttl=30, validator=lambda r: r is not None and r[1] == "")
 def get_batch_status(task_uuids_comma_separated):
     """
     Get status and results (if available) of all Globus tasks 
     associated with a batch object. Return error message instead
     of rasing exeptions so that the response can be cached.
     """
-    cache_key = f"get_batch_status:{task_uuids_comma_separated}"
-    cached_status = cache.get(cache_key)
-    if cached_status:
-        return cached_status
 
     # Recover list of Globus task UUIDs tied to the batch
     try:
         task_uuids = task_uuids_comma_separated.split(",")
     except Exception as e:
-        result = None, f"Error: Could not extract list of batch task UUIDs: {e}", 400
-        cache.set(cache_key, result, timeout=30)
-        return result
+        return None, f"Error: Could not extract list of batch task UUIDs: {e}", 400
 
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = get_compute_client_from_globus_app()
     except Exception as e:
-        result = None, f"Error: Could not get the Globus Compute client: {e}", 500
-        cache.set(cache_key, result, timeout=30)
-        return result
+        return None, f"Error: Could not get the Globus Compute client: {e}", 500
 
     # Get batch status from Globus and return the response
     try:
@@ -186,18 +163,12 @@ def get_batch_status(task_uuids_comma_separated):
                 "status": task["status"],
                 "result": task.get("result", None)
             }
-        result = response, "", 200
-        cache.set(cache_key, result, timeout=30)
-        return result
+        return response, "", 200
     
     # Error is the function execution failed
     except TaskExecutionFailed as e:
-        result = None, f"Error: TaskExecutionFailed: {e}", 400
-        cache.set(cache_key, result, timeout=30)
-        return result
+        return None, f"Error: TaskExecutionFailed: {e}", 400
 
     # Other errors that could be un-related to the task execution (e.g. Globus connection)
     except Exception as e:
-        result = None, f"Error: Could not recover batch status: {e}", 500
-        cache.set(cache_key, result, timeout=30)
-        return result
+        return None, f"Error: Could not recover batch status: {e}", 500

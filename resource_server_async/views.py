@@ -36,7 +36,9 @@ from resource_server_async.utils import (
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
     get_all_endpoints_from_cache,
+    get_endpoint_by_slug_from_cache,
 )
+from utils.cache import async_invalidate_cache
 log.info("Utils functions loaded.")
 
 # Django database
@@ -853,40 +855,27 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     log.info(f"endpoint_slug: {endpoint_slug} - user: {atv_response.username}")
     db_data["endpoint_slug"] = endpoint_slug
 
-    # Try to get endpoint from the shared cache
-    endpoint = cache.get(endpoint_slug)
-    if endpoint:
-        log.info(f"Retrieved endpoint {endpoint_slug} from cache.")
-    else:
-        # If not in cache, fetch from DB asynchronously
-        try:
-            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
-            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
-
-            # Store the fetched endpoint in the cache for 10 minutes
-            cache.set(endpoint_slug, endpoint, 600)
-            log.info(f"Fetched endpoint {endpoint_slug} from DB and added to cache.")
-
-        except Endpoint.DoesNotExist:
+    try:
+        endpoint = await get_endpoint_by_slug_from_cache(endpoint_slug)
+        if endpoint is None:
             return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
-        except Exception as e:
-            return await get_response(db_data, f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400)
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400)
 
     # Use the endpoint data (either from cache or freshly fetched)
     try:
         data["model_params"]["api_port"] = endpoint.api_port
         db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     except Exception as e:
-         # If there was an error processing the data (e.g., attribute missing),
-         # it might be safer to remove it from the cache to force a refresh on next request.
-        cache.delete(endpoint_slug)
+         # The cached endpoint object is faulty. Invalidate it.
+        await async_invalidate_cache(get_endpoint_by_slug_from_cache, endpoint_slug)
         return await get_response(db_data, f"Error processing endpoint data for {endpoint_slug}: {e}", 400)
 
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
-        # Remove from cache if group extraction fails, as the cached data might be problematic
-        cache.delete(endpoint_slug)
+        # The cached endpoint object has faulty group data. Invalidate it.
+        await async_invalidate_cache(get_endpoint_by_slug_from_cache, endpoint_slug)
         return await get_response(db_data, error_message, 401)
     
     # Block access if the user is not a member of at least one of the required groups

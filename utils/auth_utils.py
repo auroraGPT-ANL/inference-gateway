@@ -5,7 +5,7 @@ from rest_framework.response import Response
 import functools
 import globus_sdk
 import time
-from django.core.cache import cache
+from utils.cache import redis_cache
 
 # Tool to log access requests
 import logging
@@ -36,6 +36,7 @@ def get_globus_client():
 
 
 # Credits to Nick Saint and Ryan Chard to help me out here on caching
+@redis_cache(ttl=60 * 10, validator=lambda r: r is not None and r[2] == "")
 def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     """
         Introspect a token with policies, collect group memberships, and return the response.
@@ -43,17 +44,11 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         to cache the outcome so that we don't contact Globus all the time if a token is
         invalid and requests keep coming in a loop.
     """
-    cache_key = f"introspect_token:{bearer_token}"
-    cached_response = cache.get(cache_key)
-    if cached_response:
-        return cached_response
-
     # Create Globus SDK confidential client
     try:
         client = get_globus_client()
     except Exception as e:
         result = None, [], f"Error: Could not create Globus confidential client. {e}"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
 
     # Include the access token and Globus policies (if needed) in the instrospection
@@ -67,13 +62,11 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
     except Exception as e:
         result = None, [], f"Error: Could not introspect token with Globus /v2/oauth2/token/introspect. {e}"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
     
     # Error if the token is invalid
     if introspection["active"] is False:
         result = None, [], "Error: Token is either not active or invalid"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
     
     # Get dependent access token to view group membership
@@ -82,7 +75,6 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         access_token = dependent_tokens.by_resource_server["groups.api.globus.org"]["access_token"]
     except Exception as e:
         result = None, [], f"Error: Could not recover dependent access token for groups.api.globus.org. {e}"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
 
     # Create a Globus Group Client using the access token sent by the user
@@ -91,7 +83,6 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
     except Exception as e:
         result = None, [], f"Error: Could not create GroupsClient. {e}"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
 
     # Get the user's group memberships
@@ -99,7 +90,6 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         user_groups = groups_client.get_my_groups()
     except Exception as e:
         result = None, [], f"Error: Could not recover user group memberships. {e}"
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
 
     # Collect the list of Globus Groups that the user is a member of
@@ -107,12 +97,10 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
         user_groups = [group["id"] for group in user_groups]
     except:
         result = None, [], "Error: Could not extract group['id'] from 'get_my_groups'."
-        cache.set(cache_key, result, timeout=60 * 10)
         return result
         
     # Return the introspection data along with the group (with empty error message)
     result = introspection, user_groups, ""
-    cache.set(cache_key, result, timeout=60 * 10)
     return result
 
 
