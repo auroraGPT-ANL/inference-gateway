@@ -35,7 +35,7 @@ class Command(BaseCommand):
         
             # Try to collect the qstat details
             try:
-                result, _, error, _  = async_to_sync(get_qstat_details)(cluster, gcc, gce, timeout=60)
+                result, _, error, _  = async_to_sync(get_qstat_details)(cluster, gcc=gcc, gce=gce, timeout=60)
             except Exception as e:
                 error_message = f"Could not extract model status: {e}"
                 model.result = ""
