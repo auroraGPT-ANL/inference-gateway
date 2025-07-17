@@ -232,12 +232,6 @@ class ModelStatus(models.Model):
     # Timestamp to keep track of the last qstat query
     timestamp = models.DateTimeField(default=now)
 
-    # Error if more than one entry
-    def save(self, *args, **kwargs):
-        if not self.pk and self.__class__.objects.exists():
-            raise ValidationError(f"Only one instance of {self.__class__.__name__} is allowed.")
-        super().save(*args, **kwargs)
-
 
 # Log for file path imports
 #class File(models.Model):
