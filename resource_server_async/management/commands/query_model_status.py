@@ -18,23 +18,20 @@ class Command(BaseCommand):
         # Clear database
         ModelStatus.objects.all().delete()
 
+        # Create Globus Compute client and executor
+        try:
+            gcc = get_compute_client_from_globus_app()
+            gce = get_compute_executor(client=gcc, amqp_port=443)
+        except Exception as e:
+            error_message = f"Could not create Globus Compute client or executor: {e}"
+            raise CommandError(error_message)
+
         # For each cluster ...
         for cluster in settings.ALLOWED_QSTAT_ENDPOINTS:
             print(f"Treating cluster {cluster}")
 
             # Create a new database entry for that cluster
             model = ModelStatus(cluster=cluster, result="", error="")
-
-            # Create Globus Compute client and executor
-            try:
-                gcc = get_compute_client_from_globus_app()
-                gce = get_compute_executor(client=gcc, amqp_port=443)
-            except Exception as e:
-                error_message = f"Could not create Globus Compute client or executor: {e}"
-                model.result = ""
-                model.error = error_message
-                model.save()
-                raise CommandError(error_message)
         
             # Try to collect the qstat details
             try:
