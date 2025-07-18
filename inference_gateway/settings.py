@@ -58,6 +58,11 @@ GLOBUS_POLICIES = ",".join(GLOBUS_POLICIES)
 GLOBUS_GROUPS = textfield_to_strlist(os.getenv("GLOBUS_GROUPS", ""))
 NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
 
+# Parameters for the Globus Compute executor
+GLOBUS_EXECUTOR_BATCH_SIZE = int(os.getenv("GLOBUS_EXECUTOR_BATCH_SIZE", 128))
+GLOBUS_EXECUTOR_API_BURST_LIMIT = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_LIMIT", 4))
+GLOBUS_EXECUTOR_API_BURST_WINDOW_S = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_WINDOW_S", 16))
+
 # Extract allowed identity providers
 AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
 AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDPS.keys())

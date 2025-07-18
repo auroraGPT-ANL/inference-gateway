@@ -247,7 +247,7 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     if gce is None:
         try:
             # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-            gce = get_compute_executor(client=gcc, amqp_port=443)
+            gce = get_compute_executor(client=gcc)
         except Exception as e:
             return None, None, f"Error: Could not get the Globus Compute executor: {e}", 500
     
@@ -409,7 +409,7 @@ async def cross_check_status(batch):
     # Get Globus Compute client and executor
     try:
         gcc = get_compute_client_from_globus_app()
-        gce = get_compute_executor(client=gcc, amqp_port=443)
+        gce = get_compute_executor(client=gcc)
     except Exception as e:
         return batch.status
     

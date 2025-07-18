@@ -175,7 +175,7 @@ async def get_list_endpoints_detailed(request):
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
 
@@ -356,7 +356,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
@@ -896,7 +896,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
@@ -1018,7 +1018,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         # Get Globus Compute client (needed for status checks)
         try:
             gcc = globus_utils.get_compute_client_from_globus_app()
-            gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443) # Needed for qstat
+            gce = globus_utils.get_compute_executor(client=gcc) # Needed for qstat
         except Exception as e:
             error_message = f"Error: Could not get Globus Compute client/executor for status checks: {e}"
             error_code = 500
