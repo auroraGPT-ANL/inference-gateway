@@ -42,7 +42,13 @@ from utils.cache import async_invalidate_cache
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import Endpoint, Log, ListEndpointsLog, Batch, FederatedEndpoint
+from resource_server.models import (
+    Endpoint, 
+    Log, 
+    ListEndpointsLog, 
+    Batch, 
+    FederatedEndpoint
+)
 
 # Ninja API
 if settings.RUNNING_AUTOMATED_TEST_SUITE:
@@ -173,7 +179,7 @@ async def get_list_endpoints_detailed(request):
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
 
@@ -214,7 +220,7 @@ async def get_list_endpoints_detailed(request):
 
                         # Collect qstat details on the jobs running/queued on the cluster
                         qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
-                            endpoint.cluster, gcc, gce, timeout=60
+                            endpoint.cluster, gcc=gcc, gce=gce, timeout=60
                         )
                         qstat_result = json.loads(qstat_result)
 
@@ -354,7 +360,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
@@ -375,7 +381,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
 
             # Collect qstat details on the jobs running/queued on the cluster
             qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
-                cluster, gcc, gce, timeout=60
+                cluster, gcc=gcc, gce=gce, timeout=60
             )
             qstat_result = json.loads(qstat_result)
 
@@ -425,19 +431,10 @@ async def get_jobs(request, cluster:str):
     error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
     if len(error_message):
         return await get_list_response(db_data, error_message, 400)
-
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
-    except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
-    
+        
     # Collect (qstat) details on the jobs running/queued on the cluster
     db_data["endpoint_slugs"] = f"{cluster}/jobs"
-    result, task_uuid, error_message, error_code = await get_qstat_details(cluster, gcc, gce, timeout=60)
+    result, task_uuid, error_message, error_code = await get_qstat_details(cluster, timeout=60)
     if len(error_message) > 0:
         return await get_list_response(db_data, error_message, error_code)
     result = json.loads(result)
@@ -888,7 +885,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443)
+        gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
         return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
     
@@ -1010,7 +1007,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         # Get Globus Compute client (needed for status checks)
         try:
             gcc = globus_utils.get_compute_client_from_globus_app()
-            gce = globus_utils.get_compute_executor(client=gcc, amqp_port=443) # Needed for qstat
+            gce = globus_utils.get_compute_executor(client=gcc) # Needed for qstat
         except Exception as e:
             error_message = f"Error: Could not get Globus Compute client/executor for status checks: {e}"
             error_code = 500
@@ -1041,7 +1038,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
                 if cluster not in qstat_cache:
                     # Fetch qstat details only once per cluster per request
                     qstat_result_str, _, q_err, q_code = await get_qstat_details(
-                        cluster, gcc, gce, timeout=30 # Shorter timeout for selection
+                        cluster, gcc=gcc, gce=gce, timeout=30 # Shorter timeout for selection
                     )
                     if len(q_err) > 0 or q_code != 200:
                         log.warning(f"Could not get qstat for cluster {cluster}: {q_err} (Code: {q_code}). Status checks degraded.")

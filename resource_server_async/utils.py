@@ -6,6 +6,7 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
+from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
@@ -18,6 +19,7 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
+from resource_server.models import ModelStatus
 from django.conf import settings # Import settings
 # Import models to load configuration dynamically
 # from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
@@ -248,10 +250,49 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
     make sure the outcome gets cached.
     Returns result, task_uuid, error_message, error_code
     """
+
+    # Try to get cached qstat details
+    try:
+        latest_status = await sync_to_async(ModelStatus.objects.get)(cluster=cluster)
+    except ModelStatus.DoesNotExist:
+        latest_status = None
+    
+    # If there is cached information ...
+    if latest_status:
+
+        # If the last entry was written not too long ago (here 2 min where the cron job is 1 min) ...
+        # This ensures that user get an up-to-date response if the cron job crashed
+        # TODO: Make this 120 sec a global parameters
+        try:
+            delta_seconds = (timezone.now() - latest_status.timestamp).total_seconds()
+            if delta_seconds < 120:
+
+                # Return cached information if there is a valid qstat response
+                if len(latest_status.result) > 0:
+                    return latest_status.result, "", "", 200
+                
+        # Continue as normal if this fails so that user can have an up-to-date response
+        except Exception as e:
+            return None, None, f"Error: Could not recover qstat details from database: {e}", 500
+
+    # Get Globus Compute client and executor
+    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
+    if gcc is None:
+        try:
+            gcc = get_compute_client_from_globus_app()
+        except Exception as e:
+            return None, None, f"Error: Could not get the Globus Compute client: {e}", 500
+    if gce is None:
+        try:
+            # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
+            gce = get_compute_executor(client=gcc)
+        except Exception as e:
+            return None, None, f"Error: Could not get the Globus Compute executor: {e}", 500
+    
     # Gather the qstat endpoint info using the loaded config
     qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
     if not qstat_config:
-        return None, None, f"Error: no qstat endpoint configuration exists for cluster {cluster}.", None
+        return None, None, f"Error: no qstat endpoint configuration exists for cluster {cluster}.", 500
 
     endpoint_slug = f"{cluster}/jobs"
     endpoint_uuid = qstat_config["endpoint_uuid"]
@@ -263,11 +304,11 @@ async def get_qstat_details(cluster, gcc, gce, timeout=60):
         endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
-        return None, None, error_message, None
+        return None, None, error_message, 500
         
     # Return error message if endpoint is not online
     if not endpoint_status["status"] == "online":
-        return None, None, f"Error: Endpoint {endpoint_slug} is offline.", None
+        return None, None, f"Error: Endpoint {endpoint_slug} is offline.", 500
     
     # Submit task and wait for result
     result, task_uuid, error_message, error_code = await submit_and_get_result(
@@ -406,7 +447,7 @@ async def cross_check_status(batch):
     # Get Globus Compute client and executor
     try:
         gcc = get_compute_client_from_globus_app()
-        gce = get_compute_executor(client=gcc, amqp_port=443)
+        gce = get_compute_executor(client=gcc)
     except Exception as e:
         return batch.status
     
