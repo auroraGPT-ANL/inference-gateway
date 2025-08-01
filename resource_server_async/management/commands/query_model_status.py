@@ -15,13 +15,11 @@ class Command(BaseCommand):
         # Print signs of execution
         print("query_model_status management command executed")
 
-        # Clear database
-        ModelStatus.objects.all().delete()
-
         # Create Globus Compute client and executor
         try:
             gcc = get_compute_client_from_globus_app()
             gce = get_compute_executor(client=gcc, amqp_port=443)
+            gce.task_group_id = settings.GLOBUS_MANAGEMENT_TASK_GROUP_ID
         except Exception as e:
             error_message = f"Could not create Globus Compute client or executor: {e}"
             raise CommandError(error_message)
@@ -30,8 +28,11 @@ class Command(BaseCommand):
         for cluster in settings.ALLOWED_QSTAT_ENDPOINTS:
             print(f"Treating cluster {cluster}")
 
-            # Create a new database entry for that cluster
-            model = ModelStatus(cluster=cluster, result="", error="")
+            # Get or create a database entry for that cluster
+            model, created = ModelStatus.objects.get_or_create(
+                cluster=cluster,
+                defaults={'result': '', 'error': ''}
+            )
         
             # Try to collect the qstat details
             try:
@@ -50,4 +51,9 @@ class Command(BaseCommand):
             elif len(result) > 0:
                 model.result = result
                 model.error = ""
+
+            # Log some details about the outcome of the command
+            print(f"len(result): {len(model.result)}, len(error): {len(model.error)}")
+
+            # Safe status in the database
             model.save()
