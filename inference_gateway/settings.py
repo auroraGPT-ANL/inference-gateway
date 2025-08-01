@@ -63,6 +63,9 @@ GLOBUS_EXECUTOR_BATCH_SIZE = int(os.getenv("GLOBUS_EXECUTOR_BATCH_SIZE", 128))
 GLOBUS_EXECUTOR_API_BURST_LIMIT = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_LIMIT", 4))
 GLOBUS_EXECUTOR_API_BURST_WINDOW_S = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_WINDOW_S", 16))
 
+# Globus Compute task group ID for the management commands
+GLOBUS_MANAGEMENT_TASK_GROUP_ID = os.getenv("GLOBUS_MANAGEMENT_TASK_GROUP_ID", None)
+
 # Extract allowed identity providers
 AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
 AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDPS.keys())
