@@ -37,16 +37,54 @@ def get_globus_client():
     )
 
 
-# Credits to Nick Saint and Ryan Chard to help me out here on caching
-@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
-def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
+# Redis-compatible token introspection with fallback to in-memory cache
+def introspect_token(bearer_token: str):
     """
-        Introspect a token with policies, collect group memberships, and return the response.
-        Here we return error messages instead of raising exception/errors because we need
-        to cache the outcome so that we don't contact Globus all the time if a token is
-        invalid and requests keep coming in a loop.
+    Introspect a token with policies, collect group memberships, and return the response.
+    Uses Redis cache for multi-worker support with fallback to in-memory cache.
+    
+    Returns serializable data instead of Globus SDK objects.
     """
+    from django.core.cache import cache
+    import hashlib
+    
+    # Create cache key from token hash (don't store raw tokens in cache keys)
+    token_hash = hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
+    cache_key = f"token_introspect:{token_hash}"
+    
+    # Try to get from Redis cache first
+    try:
+        cached_result = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+    except Exception as e:
+        log.warning(f"Redis cache error for token introspection: {e}")
+        # Fall back to in-memory cache
+        return _introspect_token_memory_cache(bearer_token)
 
+    # If not in cache, perform introspection
+    result = _perform_token_introspection(bearer_token)
+    
+    # Cache the result (successful or error)
+    ttl = 600 if result[2] == "" else 60  # Cache errors for shorter time
+    try:
+        cache.set(cache_key, result, ttl)
+    except Exception as e:
+        log.warning(f"Failed to cache token introspection: {e}")
+        # Still return the result even if caching fails
+    
+    return result
+
+# In-memory cache fallback for token introspection
+@cached(cache=TTLCache(maxsize=1024, ttl=60*10))
+def _introspect_token_memory_cache(bearer_token: str):
+    """Fallback in-memory cache for token introspection"""
+    return _perform_token_introspection(bearer_token)
+
+def _perform_token_introspection(bearer_token: str):
+    """
+    Perform the actual token introspection and return serializable data.
+    """
     # Create Globus SDK confidential client
     try:
         client = get_globus_client()
@@ -62,11 +100,13 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
     # Introspect the token through the Globus Auth API (including policy evaluation)
     try: 
         introspection = client.post("/v2/oauth2/token/introspect", data=introspect_body, encoding="form")
+        # Convert to serializable dict
+        introspection_data = dict(introspection.data) if hasattr(introspection, 'data') else dict(introspection)
     except Exception as e:
         return None, [], f"Error: Could not introspect token with Globus /v2/oauth2/token/introspect. {e}"
     
     # Error if the token is invalid
-    if introspection["active"] is False:
+    if introspection_data["active"] is False:
         return None, [], "Error: Token is either not active or invalid"
     
     # Get dependent access token to view group membership
@@ -85,18 +125,14 @@ def introspect_token(bearer_token: str) -> globus_sdk.GlobusHTTPResponse:
 
     # Get the user's group memberships
     try:
-        user_groups = groups_client.get_my_groups()
+        user_groups_response = groups_client.get_my_groups()
+        # Convert to serializable list
+        user_groups = [group["id"] for group in user_groups_response]
     except Exception as e:
         return None, [], f"Error: Could not recover user group memberships. {e}"
-
-    # Collect the list of Globus Groups that the user is a member of
-    try:
-        user_groups = [group["id"] for group in user_groups]
-    except:
-        return None, [], "Error: Could not extract group['id'] from 'get_my_groups'."
         
     # Return the introspection data along with the group (with empty error message)
-    return introspection, user_groups, ""
+    return introspection_data, user_groups, ""
 
 
 # Check Globus Policies

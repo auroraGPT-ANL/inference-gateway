@@ -546,9 +546,9 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
                 raise ValueError("'stop' list must have between 1 to 4 items.")
             
         # Raise error if stream == True, since we do not have the capability yet
-        if isinstance(values.stream, bool):
-            if values.stream == True:
-                raise ValueError("'stream' is currently not available and the value must be set to False.")
+        # if isinstance(values.stream, bool):
+        #     if values.stream == True:
+        #         raise ValueError("'stream' is currently not available and the value must be set to False.")
 
         # Return values if nothing wrong happened in the valudation step
         return values
