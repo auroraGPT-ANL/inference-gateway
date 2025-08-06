@@ -251,6 +251,48 @@ ALLOWED_QSTAT_ENDPOINTS = {
     }
 }
 
+# Cache configuration - Redis with fallback to local memory for development
+if os.environ.get('USE_REDIS_CACHE', 'false').lower() == 'true':
+    # Redis cache configuration for production
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'CONNECTION_POOL_KWARGS': {
+                    'max_connections': 50,
+                    'retry_on_timeout': True,
+                },
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,  # Fallback to database if Redis fails
+            },
+            'TIMEOUT': 3600,  # 1 hour default timeout
+            'KEY_PREFIX': 'inference_gateway',
+        }
+    }
+else:
+    # Local memory cache for development (not shared across workers)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'inference_gateway_cache',
+            'TIMEOUT': 3600,  # 1 hour default timeout
+            'OPTIONS': {
+                'MAX_ENTRIES': 10000,
+            },
+        }
+    }
+
+# Session engine to use Redis for session storage (optional, improves performance)
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
+# Streaming server configuration
+STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
+STREAMING_SERVER_PORT = int(os.environ.get('STREAMING_SERVER_PORT', 443))  # HTTPS port
+STREAMING_SERVER_PROTOCOL = os.environ.get('STREAMING_SERVER_PROTOCOL', 'https')
+
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin
