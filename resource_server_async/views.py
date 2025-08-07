@@ -994,11 +994,8 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
     
     # Create optimized SSE streaming response
     async def sse_generator():
-        """Optimized SSE generator with fast Redis polling"""
+        """Optimized SSE generator with fast Redis polling - OpenAI compatible format"""
         try:
-            # Send initial connection message
-            yield f"data: {json.dumps({'type': 'connection', 'task_id': stream_task_id, 'timestamp': time.time()})}\n\n"
-            
             # Optimized streaming from Redis
             max_wait_time = 300  # 5 minutes
             start_time = time.time()
@@ -1010,28 +1007,36 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
                 if chunks:
                     # Send all new chunks at once
                     for i in range(last_chunk_index, len(chunks)):
-                        yield f"data: {chunks[i]}\n\n"
+                        chunk = chunks[i]
+                        # Only send actual vLLM content chunks (skip our custom control messages)
+                        if chunk.startswith('data: '):
+                            # This is a vLLM chunk - send it as-is
+                            yield f"{chunk}\n\n"
+                        # Skip our custom control messages (connection, done, error)
+                        # These are handled internally and not sent to the client
                         last_chunk_index = i + 1
                     
                     # Check if streaming is complete
                     status = get_streaming_status(stream_task_id)
                     if status == "completed":
-                        yield f"data: {json.dumps({'type': 'done', 'task_id': stream_task_id, 'timestamp': time.time()})}\n\n"
+                        # Send the final [DONE] message from vLLM
+                        yield "data: [DONE]\n\n"
                         break
                     elif status == "error":
-                        error_msg = get_streaming_error(stream_task_id) or "Unknown error"
-                        yield f"data: {json.dumps({'type': 'error', 'task_id': stream_task_id, 'error': error_msg, 'timestamp': time.time()})}\n\n"
+                        # For errors, we could send an error chunk, but OpenAI format
+                        # doesn't have a standard error chunk, so we'll just end
                         break
                 
                 # Very fast polling - 25ms
                 await asyncio.sleep(0.025)
             
-            # Timeout case
+            # Timeout case - just end without error message
             if time.time() - start_time >= max_wait_time:
-                yield f"data: {json.dumps({'type': 'error', 'task_id': stream_task_id, 'error': 'Timeout waiting for streaming data', 'timestamp': time.time()})}\n\n"
+                pass
                 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'task_id': stream_task_id, 'error': str(e), 'timestamp': time.time()})}\n\n"
+            # For exceptions, just end without error message to maintain OpenAI compatibility
+            pass
     
     # Create streaming response
     response = StreamingHttpResponse(
