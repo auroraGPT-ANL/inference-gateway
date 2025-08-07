@@ -11,8 +11,7 @@
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
             "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
         }
     },
     {
@@ -27,8 +26,7 @@
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
             "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
         }
     },
     {
