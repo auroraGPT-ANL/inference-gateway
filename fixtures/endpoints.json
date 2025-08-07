@@ -147,7 +147,7 @@
             "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "d1cc6e35-ef2b-40c6-b842-8af803620c46",
+            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
         }
@@ -162,7 +162,7 @@
             "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "d1cc6e35-ef2b-40c6-b842-8af803620c46",
+            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
         }
