@@ -72,7 +72,9 @@ def vllm_inference_function(parameters):
                 send_data_to_streaming_server.session = requests.Session()
                 send_data_to_streaming_server.session.proxies.update(proxies)
             
-            response = send_data_to_streaming_server.session.post(url, json=payload, timeout=2, verify=False)
+            # Add internal secret for authentication
+            headers = {'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')}
+            response = send_data_to_streaming_server.session.post(url, json=payload, headers=headers, timeout=2, verify=False)
             
             if response.status_code == 200:
                 return True
@@ -99,7 +101,9 @@ def vllm_inference_function(parameters):
             if os.environ.get('https_proxy'):
                 proxies['https'] = os.environ.get('https_proxy')
             
-            response = requests.post(url, json=payload, timeout=5, proxies=proxies, verify=False)
+            # Add internal secret for authentication
+            headers = {'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')}
+            response = requests.post(url, json=payload, headers=headers, timeout=5, proxies=proxies, verify=False)
             
             if response.status_code == 200:
                 return True
@@ -125,7 +129,9 @@ def vllm_inference_function(parameters):
             if os.environ.get('https_proxy'):
                 proxies['https'] = os.environ.get('https_proxy')
             
-            response = requests.post(url, json=payload, timeout=5, proxies=proxies, verify=False)
+            # Add internal secret for authentication
+            headers = {'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')}
+            response = requests.post(url, json=payload, headers=headers, timeout=5, proxies=proxies, verify=False)
             
             if response.status_code == 200:
                 return True
@@ -165,7 +171,6 @@ def vllm_inference_function(parameters):
             
             # Stream chunks in batched mode to streaming server
             streaming_chunks = []
-            full_text = ""
             total_tokens = 0
             chunks_sent = 0
             
@@ -179,10 +184,9 @@ def vllm_inference_function(parameters):
             for chunk in response.iter_lines():
                 if chunk:
                     chunk_data = chunk.decode('utf-8')
-                    if chunk_data.startswith('data: '):
-                        chunk_data = chunk_data[6:]  # Remove 'data: ' prefix
                     
-                    if chunk_data.strip() == '[DONE]':
+                    # Send raw chunk data as-is to streaming server (no processing)
+                    if chunk_data.strip() == 'data: [DONE]':
                         # Send any remaining batched chunks
                         if batch_buffer:
                             batch_data = '\n'.join(batch_buffer)
@@ -193,6 +197,7 @@ def vllm_inference_function(parameters):
                         send_done_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id)
                         break
                     elif chunk_data.strip():
+                        # Store raw chunk for metrics
                         streaming_chunks.append(chunk_data)
                         batch_buffer.append(chunk_data)
                         
@@ -206,16 +211,9 @@ def vllm_inference_function(parameters):
                             batch_buffer = []
                             last_send_time = current_time
                         
-                        # Parse and collect the actual text content and tokens
+                        # Parse for metrics only (not for content extraction)
                         try:
                             parsed_chunk = json.loads(chunk_data)
-                            if 'choices' in parsed_chunk and len(parsed_chunk['choices']) > 0:
-                                choice = parsed_chunk['choices'][0]
-                                if 'delta' in choice and 'content' in choice['delta']:
-                                    content = choice['delta']['content']
-                                    if content:
-                                        full_text += content
-                            
                             # Extract token usage if available
                             if 'usage' in parsed_chunk:
                                 usage = parsed_chunk['usage']
@@ -240,10 +238,8 @@ def vllm_inference_function(parameters):
                 "total_tokens": total_tokens,
                 "status": "completed",
                 "chunks": streaming_chunks,
-                "full_text": full_text,
                 "total_chunks": len(streaming_chunks),
-                "chunks_sent_to_server": chunks_sent,
-                "total_characters": len(full_text)
+                "chunks_sent_to_server": chunks_sent
             })
             
         except Exception as e:

@@ -1318,9 +1318,14 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
 @router.post("/api/streaming/data/")
 async def receive_streaming_data(request):
-    """Receive streaming data from vLLM function"""
+    """Receive streaming data from vLLM function - INTERNAL ONLY"""
     import json
     from django.http import JsonResponse
+    
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
     
     try:
         data = json.loads(request.body)
@@ -1330,12 +1335,25 @@ async def receive_streaming_data(request):
         if not task_id or chunk_data is None:
             return JsonResponse({"error": "Missing task_id or data"}, status=400)
         
-        # Handle batched data (multiple chunks in one request) - back to Redis but optimized
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # SECURITY: Validate chunk_data size (prevent DoS)
+        if len(chunk_data) > 100000:  # 100KB limit
+            return JsonResponse({"error": "Chunk data too large"}, status=413)
+        
+        # Handle batched data (multiple chunks in one request)
         if '\n' in chunk_data:
             # Split batched chunks and store each one
             chunks = chunk_data.split('\n')
             for individual_chunk in chunks:
                 if individual_chunk.strip():
+                    # SECURITY: Validate individual chunk size
+                    if len(individual_chunk.strip()) > 50000:  # 50KB per chunk
+                        continue  # Skip oversized chunks
                     store_streaming_data(task_id, individual_chunk.strip())
         else:
             # Single chunk
@@ -1346,13 +1364,19 @@ async def receive_streaming_data(request):
         return JsonResponse({"status": "received"})
         
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        log.error(f"Error in streaming data endpoint: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
 
 @router.post("/api/streaming/error/")
 async def receive_streaming_error(request):
-    """Receive error from vLLM function"""
+    """Receive error from vLLM function - INTERNAL ONLY"""
     import json
     from django.http import JsonResponse
+    
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
     
     try:
         data = json.loads(request.body)
@@ -1361,6 +1385,16 @@ async def receive_streaming_error(request):
         
         if not task_id or error is None:
             return JsonResponse({"error": "Missing task_id or error"}, status=400)
+        
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # SECURITY: Validate error size (prevent DoS)
+        if len(error) > 10000:  # 10KB limit
+            return JsonResponse({"error": "Error message too large"}, status=413)
         
         # Store error with automatic cleanup
         set_streaming_error(task_id, error)
@@ -1371,13 +1405,18 @@ async def receive_streaming_error(request):
         
     except Exception as e:
         log.error(f"Error receiving streaming error: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
+        return JsonResponse({"error": "Internal server error"}, status=500)
 
 @router.post("/api/streaming/done/")
 async def receive_streaming_done(request):
-    """Receive completion signal from vLLM function"""
+    """Receive completion signal from vLLM function - INTERNAL ONLY"""
     import json
     from django.http import JsonResponse
+    
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
     
     try:
         data = json.loads(request.body)
@@ -1385,6 +1424,12 @@ async def receive_streaming_done(request):
         
         if not task_id:
             return JsonResponse({"error": "Missing task_id"}, status=400)
+        
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
         
         # Mark as completed with automatic cleanup
         set_streaming_status(task_id, "completed")
@@ -1394,69 +1439,7 @@ async def receive_streaming_done(request):
         
     except Exception as e:
         log.error(f"Error receiving streaming done: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
-
-@router.get("/stream/{task_id}")
-async def stream_data(request, task_id: str):
-    """Stream data via SSE for a specific task"""
-    from django.http import StreamingHttpResponse
-    import json
-    import time
-    
-    async def event_generator():
-        """Generate SSE events for streaming data"""
-        try:
-            # Send initial connection
-            yield f"data: {json.dumps({'type': 'connection', 'task_id': task_id, 'timestamp': time.time()})}\n\n"
-            
-            # Wait for data to start arriving
-            max_wait_time = 300  # 5 minutes timeout
-            start_time = time.time()
-            last_chunk_index = 0
-            
-            while time.time() - start_time < max_wait_time:
-                # Check if we have new data
-                chunks = get_streaming_data(task_id)
-                if chunks:
-                    # Send new chunks
-                    for i in range(last_chunk_index, len(chunks)):
-                        yield f"data: {chunks[i]}\n\n"
-                        last_chunk_index = i + 1
-                    
-                    # Check if streaming is complete
-                    status = get_streaming_status(task_id)
-                    if status == "completed":
-                        # Send completion event
-                        yield f"data: {json.dumps({'type': 'done', 'task_id': task_id, 'timestamp': time.time()})}\n\n"
-                        break
-                    elif status == "error":
-                        # Send error event
-                        error_msg = get_streaming_error(task_id) or "Unknown error"
-                        yield f"data: {json.dumps({'type': 'error', 'task_id': task_id, 'error': error_msg, 'timestamp': time.time()})}\n\n"
-                        break
-
-                
-                # Wait a bit before checking again - faster polling
-                await asyncio.sleep(0.05)
-            
-            # If we timeout, send error
-            if time.time() - start_time >= max_wait_time:
-                yield f"data: {json.dumps({'type': 'error', 'task_id': task_id, 'error': 'Timeout waiting for streaming data', 'timestamp': time.time()})}\n\n"
-                
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'task_id': task_id, 'error': str(e), 'timestamp': time.time()})}\n\n"
-    
-    response = StreamingHttpResponse(
-        streaming_content=event_generator(),
-        content_type='text/event-stream'
-    )
-    
-    # Set headers for SSE using utility function
-    headers = create_streaming_response_headers()
-    for key, value in headers.items():
-        response[key] = value
-    
-    return response
+        return JsonResponse({"error": "Internal server error"}, status=500)
 
 
 # Add URLs to the Ninja API

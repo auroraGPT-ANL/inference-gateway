@@ -293,6 +293,9 @@ STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev
 STREAMING_SERVER_PORT = int(os.environ.get('STREAMING_SERVER_PORT', 443))  # HTTPS port
 STREAMING_SERVER_PROTOCOL = os.environ.get('STREAMING_SERVER_PROTOCOL', 'https')
 
+# Internal streaming secret for authentication between remote function and Django
+INTERNAL_STREAMING_SECRET = os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')
+
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin
