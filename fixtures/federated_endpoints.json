@@ -44,7 +44,7 @@
                     "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
                     "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
                     "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-                    "function_uuid": "aeec2061-d940-4e0f-909a-a072aec0cb41",
+                    "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
                     "api_port": 8001
                 }
             ]

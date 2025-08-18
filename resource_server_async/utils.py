@@ -26,6 +26,8 @@ from django.conf import settings # Import settings
 # from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
 from collections import defaultdict
 import logging # Add logging
+import redis
+import pickle
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -478,3 +480,309 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
         raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
     except Exception as e:
         raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
+
+
+# Redis streaming data management functions
+def get_redis_client():
+    """Get Redis client for streaming data storage"""
+    from django.core.cache import cache
+    try:
+        # Try to use Django's cache if it's Redis
+        if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {})):
+            return redis.Redis.from_url(settings.CACHES['default']['LOCATION'])
+        else:
+            # Fallback to local Redis
+            return redis.Redis(host='localhost', port=6379, db=1, decode_responses=False)
+    except:
+        # If Redis is not available, fallback to Django cache
+        return None
+
+def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
+    """Store streaming chunk with automatic cleanup"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Use Redis with TTL
+            key = f"stream:data:{task_id}"
+            redis_client.lpush(key, chunk_data)
+            redis_client.expire(key, ttl)  # Auto-cleanup after 1 hour
+        else:
+            # Fallback to Django cache
+            key = f"stream_data_{task_id}"
+            existing = cache.get(key, [])
+            existing.append(chunk_data)
+            cache.set(key, existing, ttl)
+    except Exception as e:
+        log.error(f"Error storing streaming data: {e}")
+
+def get_streaming_data(task_id: str):
+    """Get streaming chunks for a task"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:data:{task_id}"
+            chunks = redis_client.lrange(key, 0, -1)
+            return [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk for chunk in reversed(chunks)]
+        else:
+            # Fallback to Django cache
+            key = f"stream_data_{task_id}"
+            return cache.get(key, [])
+    except Exception as e:
+        log.error(f"Error getting streaming data: {e}")
+        return []
+
+def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
+    """Set streaming status with automatic cleanup"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:status:{task_id}"
+            redis_client.set(key, status, ex=ttl)
+        else:
+            # Fallback to Django cache
+            key = f"stream_status_{task_id}"
+            cache.set(key, status, ttl)
+    except Exception as e:
+        log.error(f"Error setting streaming status: {e}")
+
+def get_streaming_status(task_id: str):
+    """Get streaming status for a task"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:status:{task_id}"
+            status = redis_client.get(key)
+            return status.decode('utf-8') if isinstance(status, bytes) else status
+        else:
+            # Fallback to Django cache
+            key = f"stream_status_{task_id}"
+            return cache.get(key)
+    except Exception as e:
+        log.error(f"Error getting streaming status: {e}")
+        return None
+
+def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
+    """Set streaming error with automatic cleanup"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:error:{task_id}"
+            redis_client.set(key, error, ex=ttl)
+        else:
+            # Fallback to Django cache
+            key = f"stream_error_{task_id}"
+            cache.set(key, error, ttl)
+    except Exception as e:
+        log.error(f"Error setting streaming error: {e}")
+
+def get_streaming_error(task_id: str):
+    """Get streaming error for a task"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:error:{task_id}"
+            error = redis_client.get(key)
+            return error.decode('utf-8') if isinstance(error, bytes) else error
+        else:
+            # Fallback to Django cache
+            key = f"stream_error_{task_id}"
+            return cache.get(key)
+    except Exception as e:
+        log.error(f"Error getting streaming error: {e}")
+        return None
+
+
+# Endpoint caching utilities
+def get_endpoint_from_cache(endpoint_slug):
+    """Get endpoint from Redis cache with fallback to in-memory"""
+    from django.core.cache import cache
+    cache_key = f"endpoint:{endpoint_slug}"
+    try:
+        cached_endpoint = cache.get(cache_key)
+        if cached_endpoint:
+            log.info(f"Retrieved endpoint {endpoint_slug} from Redis cache.")
+            return cached_endpoint
+    except Exception as e:
+        log.warning(f"Redis cache error for endpoint {endpoint_slug}: {e}")
+    return None
+
+def cache_endpoint(endpoint_slug, endpoint_data):
+    """Cache endpoint data in Redis with TTL"""
+    from django.core.cache import cache
+    cache_key = f"endpoint:{endpoint_slug}"
+    try:
+        # Cache endpoint data for 5 minutes
+        cache.set(cache_key, endpoint_data, 300)
+        log.info(f"Cached endpoint {endpoint_slug} in Redis.")
+    except Exception as e:
+        log.warning(f"Failed to cache endpoint {endpoint_slug}: {e}")
+
+def remove_endpoint_from_cache(endpoint_slug):
+    """Remove endpoint from Redis cache"""
+    from django.core.cache import cache
+    cache_key = f"endpoint:{endpoint_slug}"
+    try:
+        cache.delete(cache_key)
+        log.info(f"Removed endpoint {endpoint_slug} from Redis cache.")
+    except Exception as e:
+        log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
+
+
+# Database response utilities
+async def get_plain_response(content, code):
+    """Log error (if any) and return HTTP json.dumps response without writing to the database."""
+    if code >= 300:
+        log.error(content)
+    from django.http import HttpResponse
+    import json
+    return HttpResponse(json.dumps(content), status=code)
+
+async def get_list_response(db_data, content, code):
+    """Log database model (including error message if any) and return the HTTP response."""
+    from django.utils import timezone
+    from django.http import HttpResponse
+    from django.db import IntegrityError
+    from resource_server.models import ListEndpointsLog
+    import json
+
+    # Update the current database data
+    db_data["response_status"] = code
+    db_data["timestamp_response"] = timezone.now()
+    if not code == 200:
+        db_data["error_message"] = content
+
+    # Create and save database entry
+    try:
+        db_log = ListEndpointsLog(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+        
+    # Return the response or the error message
+    return HttpResponse(json.dumps(content), status=code)
+
+async def get_response(db_data, content, code):
+    """Log result or error in the current database model and return the HTTP response."""
+    from django.utils import timezone
+    from django.http import HttpResponse
+    from django.db import IntegrityError
+    from resource_server.models import Log
+    import json
+    
+    # Update the current database data
+    db_data["response_status"] = code
+    db_data["result"] = content
+    db_data["timestamp_response"] = timezone.now()
+
+    # Create and save database entry
+    try:
+        db_log = Log(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except IntegrityError as e:
+        message = f"Error: Could not create or save Log database entry: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+    except Exception as e:
+        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
+        log.error(message)
+        return HttpResponse(json.dumps(message), status=400)
+        
+    # Return the response or the error message
+    if code == 200:
+        return HttpResponse(content, status=code)
+    else:
+        log.error(content)
+        return HttpResponse(json.dumps(content), status=code)
+
+async def get_batch_response(db_data, content, code, db_Model):
+    """Log result or error in the current database model and return the HTTP response."""
+    from django.http import HttpResponse
+    import json
+    
+    # Create database entry
+    try:
+        await update_database(db_Model=db_Model, db_data=db_data)
+    except Exception as e:
+        error_message = f"Error: Could not update database: {e}"
+        log.error(error_message)
+        return HttpResponse(json.dumps(error_message), status=400)
+        
+    # Return the response or the error message from previous steps
+    if code == 200:
+        return HttpResponse(content, status=code)
+    else:
+        log.error(content)
+        return HttpResponse(json.dumps(content), status=code)
+
+
+# Streaming setup utilities
+def prepare_streaming_task_data(data, stream_task_id):
+    """Prepare data payload for streaming task with server configuration"""
+    from django.conf import settings
+    
+    # Get the streaming server configuration from settings
+    stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
+    stream_server_port = getattr(settings, 'STREAMING_SERVER_PORT', 443)
+    stream_server_protocol = getattr(settings, 'STREAMING_SERVER_PROTOCOL', 'https')
+    
+    # Add streaming server details to the model_params section for the vLLM function
+    data["model_params"]["streaming_server_host"] = stream_server_host
+    data["model_params"]["streaming_server_port"] = stream_server_port
+    data["model_params"]["streaming_server_protocol"] = stream_server_protocol
+    data["model_params"]["stream_task_id"] = stream_task_id
+    
+    return data
+
+def create_streaming_response_headers():
+    """Create standard headers for SSE streaming responses"""
+    return {
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+    }
+
+
+# Authentication utilities
+async def validate_request_authentication(request):
+    """
+    Validate request authentication and return standardized response.
+    Returns (is_valid, atv_response_or_error_response, user_group_uuids_or_none)
+    """
+    from utils.auth_utils import validate_access_token
+    
+    # Check if request is authenticated
+    atv_response = validate_access_token(request)
+    if not atv_response.is_valid:
+        error_response = await get_plain_response(atv_response.error_message, atv_response.error_code)
+        return False, error_response, None
+    
+    # Gather the list of Globus Group memberships of the authenticated user
+    try:
+        user_group_uuids = atv_response.user_group_uuids
+        return True, atv_response, user_group_uuids
+    except Exception as e:
+        error_response = await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
+        return False, error_response, None
+
+def create_db_data_template(atv_response, sync=True):
+    """Create standard database data template for logging"""
+    from django.utils import timezone
+    
+    return {
+        "name": atv_response.name,
+        "username": atv_response.username,
+        "timestamp_receive": timezone.now(),
+        "sync": sync
+    }

@@ -18,11 +18,14 @@ class ResourceServerError(Exception):
 executor_cache = TTLCache(maxsize=1024, ttl=60*10)
 
 # Get authenticated Compute Client using secret
-#@cached(cache=LRUCache(maxsize=1024))
+# NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
 @cached(cache=TTLCache(maxsize=1024, ttl=60*60))
 def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
+    
+    NOTE: This function uses in-memory caching (TTLCache) instead of Redis because
+    Globus SDK Client objects are not serializable.
 
     Returns
     -------
@@ -42,10 +45,14 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
 
 
 # Get authenticated Compute Executor using existing client
+# NOTE: Using in-memory TTLCache since Globus Executor objects cannot be serialized to Redis
 @cached(cache=executor_cache)
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     """
     Create and return an authenticated Compute Executor using using existing client.
+    
+    NOTE: This function uses in-memory caching (TTLCache) instead of Redis because
+    Globus SDK Executor objects are not serializable.
 
     Returns
     -------
@@ -66,22 +73,54 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
         raise ResourceServerError("Exception in creating executor. Error", e)
 
 
-# Get endpoint status
-@cached(cache=TTLCache(maxsize=1024, ttl=60))
+# Get endpoint status - Redis compatible
+from django.core.cache import cache
 def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
     """
-    Query the status of a Globus Compute endpoint. It caches the 
-    result for x seconds to avoid generating a too-many-request
-    from Globus services when sereval incoming requests target 
-    an endpoint that is offline.
+    Query the status of a Globus Compute endpoint. This version uses Redis cache
+    for multi-worker support while keeping Globus objects serializable.
     """
-
+    
+    cache_key = f"endpoint_status:{endpoint_uuid}"
+    
+    # Try to get from Redis cache first
     try:
-        return client.get_endpoint_status(endpoint_uuid), ""
-    except globus_sdk.GlobusAPIError as e:
-        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+        cached_result = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
     except Exception as e:
-        return None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}"
+        log.warning(f"Redis cache error for endpoint status: {e}")
+    
+    # If not in cache, fetch from Globus
+    try:
+        status_response = client.get_endpoint_status(endpoint_uuid)
+        # Convert to serializable dict
+        serializable_status = dict(status_response.data) if hasattr(status_response, 'data') else dict(status_response)
+        result = (serializable_status, "")
+        
+        # Cache the result for 60 seconds
+        try:
+            cache.set(cache_key, result, 60)
+        except Exception as e:
+            log.warning(f"Failed to cache endpoint status: {e}")
+            
+        return result
+        
+    except globus_sdk.GlobusAPIError as e:
+        error_result = (None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}")
+        # Cache error for shorter time (10 seconds)
+        try:
+            cache.set(cache_key, error_result, 10)
+        except:
+            pass
+        return error_result
+    except Exception as e:
+        error_result = (None, f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}")
+        try:
+            cache.set(cache_key, error_result, 10)
+        except:
+            pass
+        return error_result
 
 
 # Submit function and wait for result
@@ -137,30 +176,39 @@ def get_task_uuid(future):
         return None
     
 
-# Get batch status
-@cached(cache=TTLCache(maxsize=1024, ttl=30))
+# Get batch status - Redis compatible
 def get_batch_status(task_uuids_comma_separated):
     """
     Get status and results (if available) of all Globus tasks 
-    associated with a batch object. Return error message instead
-    of rasing exeptions so that the response can be cached.
+    associated with a batch object. Uses Redis cache for multi-worker support.
     """
+    
+    cache_key = f"batch_status:{task_uuids_comma_separated}"
+    
+    # Try to get from Redis cache first
+    try:
+        cached_result = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+    except Exception as e:
+        log.warning(f"Redis cache error for batch status: {e}")
 
     # Recover list of Globus task UUIDs tied to the batch
     try:
         task_uuids = task_uuids_comma_separated.split(",")
     except Exception as e:
-        return None, f"Error: Could not extract list of batch task UUIDs: {e}", 400
+        error_result = (None, f"Error: Could not extract list of batch task UUIDs: {e}", 400)
+        return error_result
 
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = get_compute_client_from_globus_app()
     except Exception as e:
-        return None, f"Error: Could not get the Globus Compute client: {e}", 500
+        error_result = (None, f"Error: Could not get the Globus Compute client: {e}", 500)
+        return error_result
 
     # Get batch status from Globus and return the response
     try:
-
         # TODO: Switch back to this when Globus added a fix for the Exceptions
         #return gcc.get_batch_result(task_uuids), "", 200 
         
@@ -168,17 +216,38 @@ def get_batch_status(task_uuids_comma_separated):
         response = {}
         for task_uuid in task_uuids:
             task = gcc.get_task(task_uuid)
+            # Ensure the task data is serializable
             response[task_uuid] = {
                 "pending": task["pending"],
                 "status": task["status"],
                 "result": task.get("result", None)
             }
-        return response, "", 200
+        
+        result = (response, "", 200)
+        
+        # Cache successful result for 30 seconds
+        try:
+            cache.set(cache_key, result, 30)
+        except Exception as e:
+            log.warning(f"Failed to cache batch status: {e}")
+            
+        return result
     
     # Error is the function execution failed
     except TaskExecutionFailed as e:
-        return None, f"Error: TaskExecutionFailed: {e}", 400
+        error_result = (None, f"Error: TaskExecutionFailed: {e}", 400)
+        # Cache error for shorter time (5 seconds)
+        try:
+            cache.set(cache_key, error_result, 5)
+        except:
+            pass
+        return error_result
 
     # Other errors that could be un-related to the task execution (e.g. Globus connection)
     except Exception as e:
-        return None, f"Error: Could not recover batch status: {e}", 500
+        error_result = (None, f"Error: Could not recover batch status: {e}", 500)
+        try:
+            cache.set(cache_key, error_result, 5)
+        except:
+            pass
+        return error_result

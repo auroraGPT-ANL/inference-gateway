@@ -4,6 +4,9 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 import uuid
 import json
+import requests
+import asyncio
+from typing import Dict
 from django.utils import timezone
 from django.utils.text import slugify
 from django.http import HttpResponse
@@ -34,6 +37,25 @@ from resource_server_async.utils import (
     update_database,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
+    # Redis streaming functions
+    store_streaming_data,
+    get_streaming_data,
+    set_streaming_status,
+    get_streaming_status,
+    set_streaming_error,
+    get_streaming_error,
+    # Cache functions
+    get_endpoint_from_cache,
+    cache_endpoint,
+    remove_endpoint_from_cache,
+    # Response functions
+    get_plain_response,
+    get_list_response,
+    get_response,
+    get_batch_response,
+    # Streaming utilities
+    prepare_streaming_task_data,
+    create_streaming_response_headers,
 )
 log.info("Utils functions loaded.")
 
@@ -61,7 +83,7 @@ else:
     )
 router = Router()
 
-# Simple in-memory cache for endpoint lookups
+# Deprecated: Simple in-memory cache for endpoint lookups (kept for fallback)
 endpoint_cache = {}
 
 # List Endpoints (GET)
@@ -840,6 +862,9 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     if "error" in data.keys():
         return await get_response(db_data, data['error'], 400)
     
+    # Check if streaming is requested
+    stream = data["model_params"].get('stream', False)
+    
     # Update the database with the input text from user
     db_data["prompt"] = json.dumps(extract_prompt(data["model_params"]))
 
@@ -848,19 +873,16 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     log.info(f"endpoint_slug: {endpoint_slug} - user: {atv_response.username}")
     db_data["endpoint_slug"] = endpoint_slug
 
-    # Try to get endpoint from the simple in-memory cache
-    if endpoint_slug in endpoint_cache:
-        endpoint = endpoint_cache[endpoint_slug]
-        log.info(f"Retrieved endpoint {endpoint_slug} from in-memory cache.")
-    else:
+    # Try to get endpoint from Redis cache first
+    endpoint = get_endpoint_from_cache(endpoint_slug)
+    if endpoint is None:
         # If not in cache, fetch from DB asynchronously
         try:
             get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
             endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
 
-            # Store the fetched endpoint in the cache
-            endpoint_cache[endpoint_slug] = endpoint
-            log.info(f"Fetched endpoint {endpoint_slug} from DB and added to in-memory cache.")
+            # Store the fetched endpoint in Redis cache
+            cache_endpoint(endpoint_slug, endpoint)
 
         except Endpoint.DoesNotExist:
             return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
@@ -874,16 +896,14 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     except Exception as e:
          # If there was an error processing the data (e.g., attribute missing),
          # it might be safer to remove it from the cache to force a refresh on next request.
-        if endpoint_slug in endpoint_cache:
-            del endpoint_cache[endpoint_slug]
+        remove_endpoint_from_cache(endpoint_slug)
         return await get_response(db_data, f"Error processing endpoint data for {endpoint_slug}: {e}", 400)
 
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
         # Remove from cache if group extraction fails, as the cached data might be problematic
-        if endpoint_slug in endpoint_cache:
-            del endpoint_cache[endpoint_slug]
+        remove_endpoint_from_cache(endpoint_slug)
         return await get_response(db_data, error_message, 401)
     
     # Block access if the user is not a member of at least one of the required groups
@@ -913,18 +933,134 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
-    # Submit task and wait for result
+    if stream:
+        # Handle streaming request
+        return await handle_streaming_inference(
+            gce, endpoint, data, db_data, resources_ready, request
+        )
+    else:
+        # Handle non-streaming request (original logic)
+        # Submit task and wait for result
+        db_data["timestamp_submit"] = timezone.now()
+        result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
+            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
+        )
+        if len(error_message) > 0:
+            return await get_response(db_data, error_message, error_code)
+        db_data["task_uuid"] = task_uuid
+
+        # Return Globus Compute results
+        return await get_response(db_data, result, 200)
+
+async def handle_streaming_inference(gce, endpoint, data, db_data, resources_ready, request):
+    """Handle streaming inference using integrated Django streaming endpoints"""
+    import uuid
+    import json
+    import time
+    import asyncio
+    from django.http import StreamingHttpResponse
+    
+
+    
+    # Generate unique task ID for streaming
+    stream_task_id = str(uuid.uuid4())
+    
+    # Prepare streaming data payload using utility function
+    data = prepare_streaming_task_data(data, stream_task_id)
+    stream_server_host = data["model_params"]["streaming_server_host"]
+    stream_server_port = data["model_params"]["streaming_server_port"]
+    stream_server_protocol = data["model_params"]["streaming_server_protocol"]
+    
+
+    
+    # Submit task to Globus Compute
     db_data["timestamp_submit"] = timezone.now()
-    result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-        gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
+    try:
+        gce.endpoint_id = endpoint.endpoint_uuid
+        future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
+        
+        # Get task_id from the future
+        task_uuid = getattr(future, 'task_id', None)
+        if task_uuid is None:
+            task_uuid = getattr(future, '_task_id', None) or getattr(future, 'id', None)
+        
+        db_data["task_uuid"] = task_uuid
+        
+        # Brief wait for task submission to complete
+        await asyncio.sleep(1)
+        
+    except Exception as e:
+        return await get_response(db_data, f"Error: Could not submit streaming task: {e}", 500)
+    
+    # Create optimized SSE streaming response
+    async def sse_generator():
+        """Optimized SSE generator with fast Redis polling - OpenAI compatible format"""
+        try:
+            # Optimized streaming from Redis
+            max_wait_time = 300  # 5 minutes
+            start_time = time.time()
+            last_chunk_index = 0
+            
+            while time.time() - start_time < max_wait_time:
+                # Get streaming data from Redis with fast polling
+                chunks = get_streaming_data(stream_task_id)
+                if chunks:
+                    # Send all new chunks at once
+                    for i in range(last_chunk_index, len(chunks)):
+                        chunk = chunks[i]
+                        # Only send actual vLLM content chunks (skip our custom control messages)
+                        if chunk.startswith('data: '):
+                            # This is a vLLM chunk - send it as-is
+                            yield f"{chunk}\n\n"
+                        # Skip our custom control messages (connection, done, error)
+                        # These are handled internally and not sent to the client
+                        last_chunk_index = i + 1
+                    
+                    # Check if streaming is complete
+                    status = get_streaming_status(stream_task_id)
+                    if status == "completed":
+                        # Send the final [DONE] message from vLLM
+                        yield "data: [DONE]\n\n"
+                        break
+                    elif status == "error":
+                        # For errors, we could send an error chunk, but OpenAI format
+                        # doesn't have a standard error chunk, so we'll just end
+                        break
+                
+                # Very fast polling - 25ms
+                await asyncio.sleep(0.025)
+            
+            # Timeout case - just end without error message
+            if time.time() - start_time >= max_wait_time:
+                pass
+                
+        except Exception as e:
+            # For exceptions, just end without error message to maintain OpenAI compatibility
+            pass
+    
+    # Create streaming response
+    response = StreamingHttpResponse(
+        streaming_content=sse_generator(),
+        content_type='text/event-stream'
     )
-    if len(error_message) > 0:
-        return await get_response(db_data, error_message, error_code)
-    db_data["task_uuid"] = task_uuid
-
-    # Return Globus Compute results
-    return await get_response(db_data, result, 200)
-
+    
+    # Set headers for SSE using utility function
+    headers = create_streaming_response_headers()
+    for key, value in headers.items():
+        response[key] = value
+    
+    # Log the streaming request
+    db_data["response_status"] = 200
+    db_data["result"] = "streaming_response"
+    db_data["timestamp_response"] = timezone.now()
+    
+    try:
+        db_log = Log(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+    except Exception as e:
+        log.error(f"Error logging streaming request: {e}")
+    
+    return response
 
 # Federated Inference (POST) - Chooses cluster/framework automatically
 @router.post("/v1/{path:openai_endpoint}")
@@ -1183,89 +1319,132 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     return await get_response(db_data, result, 200)
 
 
-# Get plain response
-async def get_plain_response(content, code):
-    """Log error (if any) and return HTTP json.dumps response without writting to the database."""
-    if code >= 300:
-        log.error(content)
-    return HttpResponse(json.dumps(content), status=code)
+# Streaming server endpoints (integrated into Django)
 
-
-# Get response for list-endpoints URL
-async def get_list_response(db_data, content, code):
-    """Log database model (including error message if any) and return the HTTP response."""
-
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["timestamp_response"] = timezone.now()
-    if not code == 200:
-        db_data["error_message"] = content
-
-    # Create and save database entry
-    try:
-        db_log = ListEndpointsLog(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-        
-    # Return the response or the error message
-    return HttpResponse(json.dumps(content), status=code)
-
-
-# Log and get response
-async def get_response(db_data, content, code):
-    """Log result or error in the current database model and return the HTTP response."""
+@router.post("/api/streaming/data/")
+async def receive_streaming_data(request):
+    """Receive streaming data from vLLM function - INTERNAL ONLY"""
+    import json
+    from django.http import JsonResponse
     
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["result"] = content
-    db_data["timestamp_response"] = timezone.now()
-
-    # Create and save database entry
-    try:
-        db_log = Log(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save Log database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-        
-    # Return the response or the error message
-    if code == 200:
-        return HttpResponse(content, status=code)
-    else:
-        log.error(content)
-        return HttpResponse(json.dumps(content), status=code)
-
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
     
-# Update database and get HTTP response
-async def get_batch_response(db_data, content, code, db_Model):
-    """Log result or error in the current database model and return the HTTP response."""
-    
-    # Create database entry
     try:
-        await update_database(db_Model=db_Model, db_data=db_data)
-    except Exception as e:
-        error_message = f"Error: Could not update database: {e}"
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        chunk_data = data.get('data')
         
-    # Return the response or the error message from previous steps
-    if code == 200:
-        return HttpResponse(content, status=code)
-    else:
-        log.error(content)
-        return HttpResponse(json.dumps(content), status=code)
+        if not task_id or chunk_data is None:
+            return JsonResponse({"error": "Missing task_id or data"}, status=400)
+        
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # SECURITY: Validate chunk_data size (prevent DoS)
+        if len(chunk_data) > 100000:  # 100KB limit
+            return JsonResponse({"error": "Chunk data too large"}, status=413)
+        
+        # Handle batched data (multiple chunks in one request)
+        if '\n' in chunk_data:
+            # Split batched chunks and store each one
+            chunks = chunk_data.split('\n')
+            for individual_chunk in chunks:
+                if individual_chunk.strip():
+                    # SECURITY: Validate individual chunk size
+                    if len(individual_chunk.strip()) > 50000:  # 50KB per chunk
+                        continue  # Skip oversized chunks
+                    store_streaming_data(task_id, individual_chunk.strip())
+        else:
+            # Single chunk
+            store_streaming_data(task_id, chunk_data)
+        
+        set_streaming_status(task_id, "streaming")
+        
+        return JsonResponse({"status": "received"})
+        
+    except Exception as e:
+        log.error(f"Error in streaming data endpoint: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
+@router.post("/api/streaming/error/")
+async def receive_streaming_error(request):
+    """Receive error from vLLM function - INTERNAL ONLY"""
+    import json
+    from django.http import JsonResponse
+    
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    
+    try:
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        error = data.get('error')
+        
+        if not task_id or error is None:
+            return JsonResponse({"error": "Missing task_id or error"}, status=400)
+        
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # SECURITY: Validate error size (prevent DoS)
+        if len(error) > 10000:  # 10KB limit
+            return JsonResponse({"error": "Error message too large"}, status=413)
+        
+        # Store error with automatic cleanup
+        set_streaming_error(task_id, error)
+        set_streaming_status(task_id, "error")
+        
+        log.error(f"Received error for task {task_id}: {error}")
+        return JsonResponse({"status": "ok", "task_id": task_id})
+        
+    except Exception as e:
+        log.error(f"Error receiving streaming error: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
+@router.post("/api/streaming/done/")
+async def receive_streaming_done(request):
+    """Receive completion signal from vLLM function - INTERNAL ONLY"""
+    import json
+    from django.http import JsonResponse
+    
+    # SECURITY: Simple internal secret check for remote function calls
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    
+    try:
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        
+        if not task_id:
+            return JsonResponse({"error": "Missing task_id"}, status=400)
+        
+        # SECURITY: Validate task_id format (UUID)
+        try:
+            uuid.UUID(task_id)
+        except ValueError:
+            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # Mark as completed with automatic cleanup
+        set_streaming_status(task_id, "completed")
+        
+        log.info(f"Completed streaming task: {task_id}")
+        return JsonResponse({"status": "ok", "task_id": task_id})
+        
+    except Exception as e:
+        log.error(f"Error receiving streaming done: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
 
 
 # Add URLs to the Ninja API
