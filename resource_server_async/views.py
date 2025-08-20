@@ -1,5 +1,4 @@
-from ninja import NinjaAPI, Router, Query
-from ninja.throttling import AnonRateThrottle, AuthRateThrottle
+from ninja import Query
 from asgiref.sync import sync_to_async
 from django.conf import settings
 import uuid
@@ -70,20 +69,8 @@ from resource_server.models import (
     FederatedEndpoint
 )
 
-# Ninja API
-if settings.RUNNING_AUTOMATED_TEST_SUITE:
-    api = NinjaAPI(
-        urls_namespace='resource_server_async_api',
-    )
-else:
-    api = NinjaAPI(
-        urls_namespace='resource_server_async_api',
-        throttle=[
-            AnonRateThrottle('50/s'),
-            AuthRateThrottle('50/s'),
-        ],
-    )
-router = Router()
+# Django Ninja API
+from resource_server_async.api import api, router
 
 # Deprecated: Simple in-memory cache for endpoint lookups (kept for fallback)
 endpoint_cache = {}
@@ -92,17 +79,6 @@ endpoint_cache = {}
 @router.get("/list-endpoints")
 async def get_list_endpoints(request):
     """GET request to list the available frameworks and models."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
 
     # Collect endpoints objects from the database
     try:
@@ -125,7 +101,7 @@ async def get_list_endpoints(request):
     
             # If the user is allowed to see the endpoint ...
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
-            if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
+            if len(allowed_globus_groups) == 0 or len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) > 0:
 
                 # Add a new cluster dictionary entry if needed
                 if not endpoint.cluster in all_endpoints["clusters"]:
@@ -166,27 +142,16 @@ async def get_list_endpoints(request):
 @router.get("/list-endpoints-detailed")
 async def get_list_endpoints_detailed(request):
     """GET request to list the available frameworks and models with live status."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_list_response() function
     db_data = {
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "timestamp_receive": timezone.now(),
         "endpoint_slugs": "",
         "task_uuids": ""
     }
-    
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships: {e}", 400)
 
     # Collect endpoints objects from the database
     try:
@@ -219,7 +184,7 @@ async def get_list_endpoints_detailed(request):
     
             # If the user is allowed to see the endpoint ...
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
-            if len(allowed_globus_groups) == 0 or len(set(user_group_uuids).intersection(allowed_globus_groups)) > 0:
+            if len(allowed_globus_groups) == 0 or len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) > 0:
 
                 # If this is a new cluster for the dictionary ...
                 if not endpoint.cluster in all_endpoints["clusters"]:
@@ -337,27 +302,16 @@ async def get_list_endpoints_detailed(request):
 @router.get("/{cluster}/{framework}/{path:model}/status")
 async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
     """GET request to get a detailed status of a specific Globus Compute endpoint."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_list_response() function
     db_data = {
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "timestamp_receive": timezone.now(),
         "endpoint_slugs": "",
         "task_uuids": ""
     }
-
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_list_response(db_data, f"Error: Could access user's Globus Group memberships: {e}", 400)
 
     # Get the requested endpoint from the database
     endpoint_slug = slugify(" ".join([cluster, framework, model]))
@@ -372,7 +326,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
         return await get_list_response(db_data, json.dumps(error_message), 400)
-    if len(allowed_globus_groups) > 0 and len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+    if len(allowed_globus_groups) > 0 and len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
         return await get_list_response(db_data, f"Error: User not authorized to access endpoint {endpoint_slug}", 401)
 
     # Get Globus Compute client and executor
@@ -431,17 +385,12 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
 @router.get("/{cluster}/jobs")
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "timestamp_receive": timezone.now(),
         "endpoint_slugs": "",
         "task_uuids": ""
@@ -464,67 +413,16 @@ async def get_jobs(request, cluster:str):
     return await get_list_response(db_data, result, 200)
 
 
-# Import file path (POST)
-# TODO: Should we check if the input file path already exists in the database?
-# TODO: Use primary identity username to claim ownership on files and batches
-#@router.post("/v1/files")
-#async def post_batch_file(request, *args, **kwargs):
-#    """POST request to import input file path for running batches."""
-#
-#    # Check if request is authenticated
-#    atv_response = validate_access_token(request)
-#    if not atv_response.is_valid:
-#        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-#    
-#    # Start the data dictionary for the database entry
-#    # The actual database entry creation is performed in the get_response() function
-#    db_data = {
-#        "input_file_id": str(uuid.uuid4()),
-#        "name": atv_response.name,
-#        "username": atv_response.username,
-#        "created_at": timezone.now(),
-#    }
-#
-#    # Validate and build the file input request data
-#    file_data = validate_file_body(request)
-#    if "error" in file_data.keys():
-#        return await get_batch_response(db_data, file_data['error'], 400, db_Model=File)
-#        
-#    # Update database entry
-#    db_data["input_file_path"] = file_data["input_file_path"]
-#
-#    # Create file entry in the database and return the file UUID to the user
-#    response = {
-#        "id": db_data["input_file_id"],
-#        "object": "file",
-#        "created_at": int(db_data["created_at"].timestamp()),
-#        "filename": db_data["input_file_path"],
-#        "purpose": "",
-#    }
-#    return await get_batch_response(db_data, json.dumps(response), 200, db_Model=File)
-
-
 # Inference batch (POST)
 # TODO: Use primary identity username to claim ownership on files and batches
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
     
     # Reject request if the allowed quota per user would be exceeded
     try:
         number_of_active_batches = 0
-        async for batch in Batch.objects.filter(username=atv_response.username, status__in=["pending", "running"]):
+        async for batch in Batch.objects.filter(username=request.auth.user.username, status__in=["pending", "running"]):
             number_of_active_batches += 1
         if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
             error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
@@ -536,8 +434,8 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # The actual database entry creation is performed in the get_response() function
     db_data = {
         "batch_id": str(uuid.uuid4()),
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "created_at": timezone.now(),
     }
 
@@ -577,7 +475,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+        if len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_plain_response(f"Permission denied to endpoint {endpoint_slug}.", 401)
         
     # Make sure the endpoint has batch UUIDs
@@ -619,26 +517,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if not endpoint_status["status"] == "online":
         return await get_plain_response(f"Error: Endpoint {endpoint_slug} is offline.", 503)
     
-    # Recover file database entry
-    #try:
-    #    file = await sync_to_async(File.objects.get)(input_file_id=batch_data["input_file_id"])
-    #except Batch.DoesNotExist:
-    #    error_message = f"Error: Input file ID {batch_data['input_file_id']} does not exist."
-    #    return await get_plain_response(error_message, 400)
-    #except Exception as e:
-    #    error_message = f"Error: Could not extract Input file ID {batch_data['input_file_id']} from database: {e}"
-    #    return await get_plain_response(error_message, 400)
-
-    # Recover file path and check if the user owns the batch job
-    #try:
-    #    input_file_path = file.input_file_path
-    #    if not file.username == atv_response.username:
-    #        error_message = f"Error: Permission denied to File {batch_data['input_file_id']}."
-    #        return await get_plain_response(error_message, 403)
-    #except Exception as e:
-    #    error_message = f"Error: Something went accessing file.username or file.input_file_path: {e}"
-    #    return await get_plain_response(error_message, 400)
-
     # Prepare input parameter for the compute tasks
     # NOTE: This is already in list format in case we submit multiple tasks per batch
     params_list = [
@@ -699,17 +577,12 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
     """GET request to list all batches linked to the authenticated user."""
 
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-
     # Declare the list of batches to be returned to the user
     batch_list = []
     try:
 
         # For each batch object owned by the user ...
-        async for batch in Batch.objects.filter(username=atv_response.username):
+        async for batch in Batch.objects.filter(username=request.auth.user.username):
 
             # Get a status update for the batch (this will update the database if needed)
             batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
@@ -751,11 +624,6 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 async def get_batch_status(request, batch_id: str, *args, **kwargs):
     """GET request to query status of an existing batch job."""
 
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-
     # Recover batch object in the database
     try:
         batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
@@ -766,7 +634,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
     # Make sure user has permission to access this batch_id
     try:
-        if not atv_response.username == batch.username:
+        if not request.auth.user.username == batch.username:
             error_message = f"Error: Permission denied to Batch {batch_id}."
             return await get_plain_response(error_message, 403)
     except Exception as e:
@@ -787,11 +655,6 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 async def get_batch_result(request, batch_id: str, *args, **kwargs):
     """GET request to recover result from an existing batch job."""
 
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-
     # Recover batch object in the database
     try:
         batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
@@ -802,7 +665,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Make sure user has permission to access this batch_id
     try:
-        if not atv_response.username == batch.username:
+        if not request.auth.user.username == batch.username:
             error_message = f"Error: Permission denied to Batch {batch_id}.."
             return await get_plain_response(error_message, 403)
     except Exception as e:
@@ -829,23 +692,12 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 @router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
 async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
     """POST request to reach Globus Compute endpoints."""
-
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-    
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
     db_data = {
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "timestamp_receive": timezone.now(),
         "sync": True # True means the server response is the Globus result, not the task UUID
     }
@@ -872,7 +724,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {atv_response.username}")
+    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.user.username}")
     db_data["endpoint_slug"] = endpoint_slug
 
     # Try to get endpoint from Redis cache first
@@ -910,7 +762,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(user_group_uuids).intersection(allowed_globus_groups)) == 0:
+        if len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
             return await get_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
 
     # Get Globus Compute client and executor
@@ -1089,21 +941,10 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     based on model availability and cluster status, abstracting cluster/framework.
     """
 
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        return await get_plain_response(atv_response.error_message, atv_response.error_code)
-
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-    except Exception as e:
-        return await get_plain_response(f"Error: Could not access user's Globus Group memberships: {e}", 400)
-
     # Start the data dictionary for the database entry
     db_data = {
-        "name": atv_response.name,
-        "username": atv_response.username,
+        "name": request.auth.user.name,
+        "username": request.auth.user.username,
         "timestamp_receive": timezone.now(),
         "sync": True,
         "endpoint_slug": "federated", # Mark as federated request initially
@@ -1124,7 +965,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     requested_model = data["model_params"]["model"] # Model name is needed for filtering
 
-    log.info(f"Federated request for model: {requested_model} - user: {atv_response.username}")
+    log.info(f"Federated request for model: {requested_model} - user: {request.auth.user.username}")
 
     # --- Endpoint Selection Logic ---
     selected_endpoint = None
@@ -1160,7 +1001,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
             if len(msg) > 0:
                 log.warning(f"Skipping target {target['cluster']} due to group parsing error: {msg}")
                 continue
-            if len(allowed_groups) == 0 or len(set(user_group_uuids).intersection(allowed_groups)) > 0:
+            if len(allowed_groups) == 0 or len(set(request.auth.user_group_uuids).intersection(allowed_groups)) > 0:
                 accessible_targets.append(target)
 
         if not accessible_targets:

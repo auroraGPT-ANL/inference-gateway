@@ -750,37 +750,26 @@ def create_streaming_response_headers():
 
 
 # Authentication utilities
-async def validate_request_authentication(request):
-    """
-    Validate request authentication and return standardized response.
-    Returns (is_valid, atv_response_or_error_response, user_group_uuids_or_none)
-    """
-    from utils.auth_utils import validate_access_token
-    
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        error_response = await get_plain_response(atv_response.error_message, atv_response.error_code)
-        return False, error_response, None
-    
-    # Gather the list of Globus Group memberships of the authenticated user
-    try:
-        user_group_uuids = atv_response.user_group_uuids
-        return True, atv_response, user_group_uuids
-    except Exception as e:
-        error_response = await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
-        return False, error_response, None
-
-def create_db_data_template(atv_response, sync=True):
-    """Create standard database data template for logging"""
-    from django.utils import timezone
-    
-    return {
-        "name": atv_response.name,
-        "username": atv_response.username,
-        "timestamp_receive": timezone.now(),
-        "sync": sync
-    }
+#async def validate_request_authentication(request):
+#    """
+#    Validate request authentication and return standardized response.
+#    Returns (is_valid, atv_response_or_error_response, user_group_uuids_or_none)
+#    """
+#    from utils.auth_utils import validate_access_token
+#    
+#    # Check if request is authenticated
+#    atv_response = validate_access_token(request)
+#    if not atv_response.is_valid:
+#        error_response = await get_plain_response(atv_response.error_message, atv_response.error_code)
+#        return False, error_response, None
+#    
+#    # Gather the list of Globus Group memberships of the authenticated user
+#    try:
+#        user_group_uuids = atv_response.user_group_uuids
+#        return True, atv_response, user_group_uuids
+#    except Exception as e:
+#        error_response = await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
+#        return False, error_response, None
 
 
 # Enhanced streaming utilities for content collection
