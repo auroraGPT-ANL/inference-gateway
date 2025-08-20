@@ -68,7 +68,7 @@ GLOBUS_MANAGEMENT_TASK_GROUP_ID = os.getenv("GLOBUS_MANAGEMENT_TASK_GROUP_ID", N
 
 # Extract allowed identity providers
 AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
-AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDPS.keys())
+AUTHORIZED_IDP_DOMAINS = list(AUTHORIZED_IDPS.keys())
 AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDPS.values())
 
 # THIS SHOULD BE CHANGED
@@ -91,7 +91,9 @@ INSTALLED_APPS = [
     'resource_server_async',
     'drf_spectacular',
     # 'dashboard',
-    'dashboard_async'
+    'dashboard_async',
+    # Configuration checks (mostly for making sure auth guards are in place)
+    'inference_gateway.apps.AuthCheckConfig'
 ]
 
 MIDDLEWARE = [
