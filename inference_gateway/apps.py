@@ -12,7 +12,7 @@ class AuthCheckConfig(AppConfig):
         # Make sure a single Globus policy is in place
         if len(settings.GLOBUS_POLICIES) == 0:
             raise ImproperlyConfigured("A Globus High Assurance Policy must be in place.")
-        if not isinstance(settings.GLOBUS_POLICIES, str):
+        if not settings.NUMBER_OF_GLOBUS_POLICIES == 1:
             raise ImproperlyConfigured("Only one Globus High Assurance Policy must be used.")
         
         # Make sure the authorization safety net is in place
@@ -38,7 +38,7 @@ class AuthCheckConfig(AppConfig):
         
         # Make sure the policy and the authorization safety net are consistent
         if not sorted(policy_response["policy"]["domain_constraints_include"]) == sorted(settings.AUTHORIZED_IDP_DOMAINS):
-            raise ImproperlyConfigured("The Globus Policy domains and the AUTHORIZED_IDP_DOMAINS must be consistent.")
+            raise ImproperlyConfigured("The Globus Policy and AUTHORIZED_IDP_DOMAINS are inconsistent.")
 
         # Make sure the auth check is enforced to all routes within the API
         from resource_server_async.api import api, GlobalAuth
