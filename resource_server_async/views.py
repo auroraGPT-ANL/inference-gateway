@@ -4,13 +4,11 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 import uuid
 import json
-import requests
 import asyncio
-from typing import Dict
+import time
 from django.utils import timezone
 from django.utils.text import slugify
-from django.http import HttpResponse
-from django.db import IntegrityError
+from django.http import HttpResponse, StreamingHttpResponse
 
 # Tool to log access requests
 import logging
@@ -43,7 +41,8 @@ from resource_server_async.utils import (
     set_streaming_status,
     get_streaming_status,
     set_streaming_error,
-    get_streaming_error,
+    # Background streaming functions
+    process_streaming_completion_async,
     # Cache functions
     get_endpoint_from_cache,
     cache_endpoint,
@@ -953,50 +952,77 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(db_data, result, 200)
 
 async def handle_streaming_inference(gce, endpoint, data, db_data, resources_ready, request):
-    """Handle streaming inference using integrated Django streaming endpoints"""
-    import uuid
-    import json
-    import time
-    import asyncio
-    from django.http import StreamingHttpResponse
-    
-
+    """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
     
     # Generate unique task ID for streaming
     stream_task_id = str(uuid.uuid4())
+    streaming_start_time = time.time()
     
     # Prepare streaming data payload using utility function
     data = prepare_streaming_task_data(data, stream_task_id)
-    stream_server_host = data["model_params"]["streaming_server_host"]
-    stream_server_port = data["model_params"]["streaming_server_port"]
-    stream_server_protocol = data["model_params"]["streaming_server_protocol"]
     
-
-    
-    # Submit task to Globus Compute
+    # Submit task to Globus Compute (same logic as non-streaming)
     db_data["timestamp_submit"] = timezone.now()
     try:
+        # Assign endpoint UUID to the executor (same as submit_and_get_result)
         gce.endpoint_id = endpoint.endpoint_uuid
+        
+        # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
         future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
         
-        # Get task_id from the future
-        task_uuid = getattr(future, 'task_id', None)
-        if task_uuid is None:
-            task_uuid = getattr(future, '_task_id', None) or getattr(future, 'id', None)
+        # Wait briefly for task to be registered with Globus (like submit_and_get_result does)
+        # This allows the task_uuid to be populated without waiting for full completion
+        try:
+            asyncio_future = asyncio.wrap_future(future)
+            # Wait just long enough for task registration (not full completion)
+            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            # Timeout/cancellation is expected - we just want task registration, not completion
+            pass
+        except Exception:
+            # Other exceptions don't prevent us from getting task_uuid
+            pass
         
-        db_data["task_uuid"] = task_uuid
-        
-        # Brief wait for task submission to complete
-        await asyncio.sleep(1)
+        # Get task_id from the future (should be available after brief wait)
+        task_uuid = globus_utils.get_task_uuid(future)
         
     except Exception as e:
         return await get_response(db_data, f"Error: Could not submit streaming task: {e}", 500)
     
-    # Create optimized SSE streaming response
+    # Create initial log entry and get the ID for later updating
+    db_data["response_status"] = 200
+    db_data["result"] = "streaming_response_in_progress"
+    db_data["timestamp_response"] = timezone.now()
+    
+    # Set task_uuid in database data
+    if task_uuid:
+        db_data["task_uuid"] = str(task_uuid)
+        log.info(f"Streaming request task UUID: {task_uuid}")
+    else:
+        log.warning("No task UUID captured for streaming request")
+        db_data["task_uuid"] = None
+    
+    # Create initial log entry
+    log_id = None
+    try:
+        db_log = Log(**db_data)
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+        log_id = db_log.id
+        log.info(f"Created initial streaming log entry {log_id} for task {task_uuid}")
+    except Exception as e:
+        log.error(f"Error creating initial streaming log entry: {e}")
+    
+    # Start background processing for metrics collection (fire and forget)
+    if log_id:
+        asyncio.create_task(process_streaming_completion_async(
+            task_uuid, stream_task_id, log_id, future, streaming_start_time,
+            extract_prompt(data["model_params"]) if data.get("model_params") else None
+        ))
+    
+    # Create simple SSE streaming response  
     async def sse_generator():
-        """Optimized SSE generator with fast Redis polling - OpenAI compatible format"""
+        """Simple SSE generator with fast Redis polling"""
         try:
-            # Optimized streaming from Redis
             max_wait_time = 300  # 5 minutes
             start_time = time.time()
             last_chunk_index = 0
@@ -1010,10 +1036,9 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
                         chunk = chunks[i]
                         # Only send actual vLLM content chunks (skip our custom control messages)
                         if chunk.startswith('data: '):
-                            # This is a vLLM chunk - send it as-is
+                            # Send the vLLM chunk as-is
                             yield f"{chunk}\n\n"
-                        # Skip our custom control messages (connection, done, error)
-                        # These are handled internally and not sent to the client
+                        
                         last_chunk_index = i + 1
                     
                     # Check if streaming is complete
@@ -1023,20 +1048,14 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
                         yield "data: [DONE]\n\n"
                         break
                     elif status == "error":
-                        # For errors, we could send an error chunk, but OpenAI format
-                        # doesn't have a standard error chunk, so we'll just end
                         break
                 
-                # Very fast polling - 25ms
+                # Fast polling - 25ms
                 await asyncio.sleep(0.025)
-            
-            # Timeout case - just end without error message
-            if time.time() - start_time >= max_wait_time:
-                pass
                 
         except Exception as e:
             # For exceptions, just end without error message to maintain OpenAI compatibility
-            pass
+            log.error(f"Exception in SSE generator for task {stream_task_id}: {e}")
     
     # Create streaming response
     response = StreamingHttpResponse(
@@ -1048,17 +1067,6 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
     headers = create_streaming_response_headers()
     for key, value in headers.items():
         response[key] = value
-    
-    # Log the streaming request
-    db_data["response_status"] = 200
-    db_data["result"] = "streaming_response"
-    db_data["timestamp_response"] = timezone.now()
-    
-    try:
-        db_log = Log(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except Exception as e:
-        log.error(f"Error logging streaming request: {e}")
     
     return response
 
