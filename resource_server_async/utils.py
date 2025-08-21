@@ -1,11 +1,25 @@
-from ninja import FilterSchema
+import uuid
+import json
+from enum import Enum
+from uuid import UUID
+from django.core.cache import cache
+from django.http import HttpResponse
 from django.utils import timezone
 from django.db import IntegrityError
-from enum import Enum
+from django.conf import settings
+from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
+<<<<<<< HEAD
+=======
+from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
+from rest_framework.exceptions import ValidationError
+from asgiref.sync import sync_to_async
+from asyncache import cached as asynccached
+from cachetools import TTLCache
+>>>>>>> 665248e (first pass on revamping the get_responses function)
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -13,6 +27,7 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
+<<<<<<< HEAD
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
@@ -22,6 +37,18 @@ from cachetools import TTLCache
 from resource_server.models import ModelStatus
 from django.conf import settings
 import logging
+=======
+from resource_server.models import ModelStatus, Log, ListEndpointsLog
+from resource_server_async.models import (
+    AccessLog,
+    AccessLogPydantic,
+    RequestLog,
+    RequestLogPydantic
+)
+# Import models to load configuration dynamically
+# from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
+import logging # Add logging
+>>>>>>> 665248e (first pass on revamping the get_responses function)
 import redis
 
 log = logging.getLogger(__name__) # Add logger
@@ -137,12 +164,6 @@ def validate_request_body(request, openai_endpoint):
 def validate_batch_body(request):
     """Build data dictionary for inference batch request if user inputs are valid."""
     return validate_body(request, BatchPydantic)
-
-
-# Validate file body
-#def validate_file_body(request):
-#    """Build data dictionary for inference file path import request if user inputs are valid."""
-#    return validate_body(request, OpenAIFileUploadParamSerializer)
 
 
 # Validate body
@@ -458,8 +479,23 @@ async def cross_check_status(batch):
 
 
 # Update database
-async def update_database(db_Model=None, db_data=None, db_object=None):
-    """Create new entry in the database or save the modification of existing entry."""
+async def update_database(db_Model=None, db_data=None, db_object=None, return_obj=False):
+    """
+    Create new entry in the database or save the modification of existing entry.
+    It returns the database object.
+    
+    Arguments
+    ---------
+        db_Model: Django database model from models.py (e.g. AccessLog, RequestLog)
+        db_data (dict): Data that will be ingested into the database model
+        db_object: Database model object
+        return_obj (bool): Whether the database object should be returned
+
+    Notes
+    -----
+        If db_object is None, it will be created from db_data
+        If db_data is provided, it will already create db_object from it
+    """
 
     # Create new database object if needed
     try:
@@ -471,16 +507,19 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
     # Save database entry
     try:
         await sync_to_async(db_object.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
     except Exception as e:
-        raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
+        error_message = f"Could not save {type(db_Model)} database entry: {e}"
+        log.error(error_message)
+        raise Exception(error_message)
+    
+    # Return the database object if needed
+    if return_obj:
+        return db_object
 
 
 # Redis streaming data management functions
 def get_redis_client():
     """Get Redis client for streaming data storage"""
-    from django.core.cache import cache
     try:
         # Try to use Django's cache if it's Redis
         if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {})):
@@ -494,7 +533,6 @@ def get_redis_client():
 
 def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
     """Store streaming chunk with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -513,7 +551,6 @@ def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
 
 def get_streaming_data(task_id: str):
     """Get streaming chunks for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -530,7 +567,6 @@ def get_streaming_data(task_id: str):
 
 def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
     """Set streaming status with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -545,7 +581,6 @@ def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
 
 def get_streaming_status(task_id: str):
     """Get streaming status for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -562,7 +597,6 @@ def get_streaming_status(task_id: str):
 
 def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
     """Set streaming error with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -577,7 +611,6 @@ def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
 
 def get_streaming_error(task_id: str):
     """Get streaming error for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -596,7 +629,6 @@ def get_streaming_error(task_id: str):
 # Endpoint caching utilities
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from Redis cache with fallback to in-memory"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cached_endpoint = cache.get(cache_key)
@@ -609,7 +641,6 @@ def get_endpoint_from_cache(endpoint_slug):
 
 def cache_endpoint(endpoint_slug, endpoint_data):
     """Cache endpoint data in Redis with TTL"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         # Cache endpoint data for 5 minutes
@@ -620,7 +651,6 @@ def cache_endpoint(endpoint_slug, endpoint_data):
 
 def remove_endpoint_from_cache(endpoint_slug):
     """Remove endpoint from Redis cache"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cache.delete(cache_key)
@@ -629,92 +659,39 @@ def remove_endpoint_from_cache(endpoint_slug):
         log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
 
 
-# Database response utilities
-async def get_plain_response(content, code):
-    """Log error (if any) and return HTTP json.dumps response without writing to the database."""
-    if code >= 300:
-        log.error(content)
-    from django.http import HttpResponse
-    import json
-    return HttpResponse(json.dumps(content), status=code)
+# Get HTTP response
+async def get_response(content, code, data_logs):
+    """Create database entries and prepare the HTTP response for the user."""
 
-async def get_list_response(db_data, content, code):
-    """Log database model (including error message if any) and return the HTTP response."""
-    from django.utils import timezone
-    from django.http import HttpResponse
-    from django.db import IntegrityError
-    from resource_server.models import ListEndpointsLog
-    import json
-
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["timestamp_response"] = timezone.now()
-    if not code == 200:
-        db_data["error_message"] = content
-
-    # Create and save database entry
-    try:
-        db_log = ListEndpointsLog(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-        
-    # Return the response or the error message
-    return HttpResponse(json.dumps(content), status=code)
-
-async def get_response(db_data, content, code):
-    """Log result or error in the current database model and return the HTTP response."""
-    from django.utils import timezone
-    from django.http import HttpResponse
-    from django.db import IntegrityError
-    from resource_server.models import Log
-    import json
+    # Recover the AccessLog and RequestLog data
+    access_log_data = None; request_log_data = None
+    for data in data_logs:
+        if isinstance(data, AccessLogPydantic):
+            access_log_data = data
+        elif isinstance(data, RequestLogPydantic):
+            request_log_data = data
+        else:
+            return HttpResponse(json.dumps(f"{type(data)} is not a supported pydantic model."), status=400)
     
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["result"] = content
-    db_data["timestamp_response"] = timezone.now()
-
-    # Create and save database entry
+    # Try to create database entries
     try:
-        db_log = Log(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save Log database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-        
-    # Return the response or the error message
-    if code == 200:
-        return HttpResponse(content, status=code)
-    else:
-        log.error(content)
-        return HttpResponse(json.dumps(content), status=code)
 
-async def get_batch_response(db_data, content, code, db_Model):
-    """Log result or error in the current database model and return the HTTP response."""
-    from django.http import HttpResponse
-    import json
-    
-    # Create database entry
-    try:
-        await update_database(db_Model=db_Model, db_data=db_data)
-    except Exception as e:
-        error_message = f"Error: Could not update database: {e}"
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
+        # Create AccessLog database entry (should always have one)
+        if access_log_data:
+            access_log = await create_access_log(access_log_data, content, code)
+        else:
+            return HttpResponse(json.dumps("get_response did not receive AccessLog data"), status=400)
         
-    # Return the response or the error message from previous steps
+        # Create RequestLog database entry 
+        if request_log_data:
+            request_log_data.access_log = access_log
+            request_log = await create_request_log(request_log_data, content, code)
+
+    # Error message if something went wrong while creating database entries
+    except Exception as e:
+        return HttpResponse(json.dumps(f"Error: Could not create database entries: {e}"), status=400)
+
+    # Prepare and return the HTTP response
     if code == 200:
         return HttpResponse(content, status=code)
     else:
@@ -725,7 +702,6 @@ async def get_batch_response(db_data, content, code, db_Model):
 # Streaming setup utilities
 def prepare_streaming_task_data(data, stream_task_id):
     """Prepare data payload for streaming task with server configuration"""
-    from django.conf import settings
     
     # Get the streaming server configuration from settings
     stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
@@ -749,27 +725,62 @@ def create_streaming_response_headers():
     }
 
 
-# Authentication utilities
-#async def validate_request_authentication(request):
-#    """
-#    Validate request authentication and return standardized response.
-#    Returns (is_valid, atv_response_or_error_response, user_group_uuids_or_none)
-#    """
-#    from utils.auth_utils import validate_access_token
-#    
-#    # Check if request is authenticated
-#    atv_response = validate_access_token(request)
-#    if not atv_response.is_valid:
-#        error_response = await get_plain_response(atv_response.error_message, atv_response.error_code)
-#        return False, error_response, None
-#    
-#    # Gather the list of Globus Group memberships of the authenticated user
-#    try:
-#        user_group_uuids = atv_response.user_group_uuids
-#        return True, atv_response, user_group_uuids
-#    except Exception as e:
-#        error_response = await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
-#        return False, error_response, None
+# Initialize access log data
+def initialize_access_log_data(request):
+    """Return initial state of an AccessLog database entry"""
+
+    # Extract the origin IP address
+    origin_ip = request.META.get("HTTP_X_FORWARDED_FOR")
+    if origin_ip is None:
+        origin_ip = request.META.get("REMOTE_ADDR")
+
+    # Return data initialization
+    return AccessLogPydantic(
+        id=str(uuid.uuid4()),
+        user=request.auth.user,
+        timestamp_request=timezone.now(),
+        api_route=request.path_info,
+        origin_ip=origin_ip,
+    )
+
+
+# Initialize request log data
+def initialize_request_log_data(request):
+    """Return initial state of a RequestLog database entry"""
+
+    # Return data initialization
+    return RequestLogPydantic(
+        id=str(uuid.uuid4())   
+    )
+
+
+# Create access log
+async def create_access_log(access_log_data: AccessLogPydantic, content, code):
+    """Create a new AccessLog database entry."""
+
+    # Finalize data
+    access_log_data.timestamp_response = timezone.now()
+    access_log_data.status_code = code
+    if not code == 200:
+        access_log_data.error = json.dumps(content)
+
+    # Create and return database entry
+    return await update_database(db_Model=AccessLog, db_data=access_log_data, return_obj=True)
+    
+
+# Create request log
+async def create_request_log(request_log_data: RequestLogPydantic, content, code):
+    """Create a new RequestLog database entry."""
+
+    # Finalize data
+    if code == 200:
+        request_log_data.result = json.dumps(content)
+
+    # Create database entry
+    return await update_database(db_Model=RequestLog, db_data=request_log_data, return_obj=True)
+    
+    
+
 
 
 # Enhanced streaming utilities for content collection
@@ -1129,3 +1140,14 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             await update_streaming_log_async(log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id)
         except:
             pass
+
+#def create_db_data_template(atv_response, sync=True):
+#    """Create standard database data template for logging"""
+#    
+#    return {
+#        "name": atv_response.name,
+#        "username": atv_response.username,
+#        "timestamp_receive": timezone.now(),
+#        "sync": sync
+#    }
+
