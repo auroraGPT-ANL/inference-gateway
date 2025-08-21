@@ -12,14 +12,11 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
-<<<<<<< HEAD
-=======
 from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from asyncache import cached as asynccached
 from cachetools import TTLCache
->>>>>>> 665248e (first pass on revamping the get_responses function)
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -27,7 +24,6 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
-<<<<<<< HEAD
 from rest_framework.exceptions import ValidationError
 import json
 from uuid import UUID
@@ -37,7 +33,6 @@ from cachetools import TTLCache
 from resource_server.models import ModelStatus
 from django.conf import settings
 import logging
-=======
 from resource_server.models import ModelStatus, Log, ListEndpointsLog
 from resource_server_async.models import (
     AccessLog,
@@ -48,7 +43,6 @@ from resource_server_async.models import (
 # Import models to load configuration dynamically
 # from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
 import logging # Add logging
->>>>>>> 665248e (first pass on revamping the get_responses function)
 import redis
 
 log = logging.getLogger(__name__) # Add logger

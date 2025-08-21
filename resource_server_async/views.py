@@ -57,6 +57,7 @@ from resource_server_async.utils import (
     create_streaming_response_headers,
     format_streaming_error_for_openai,
     extract_status_code_from_error,
+    initialize_access_log_data
 )
 log.info("Utils functions loaded.")
 
@@ -64,7 +65,6 @@ log.info("Utils functions loaded.")
 from resource_server.models import (
     Endpoint, 
     Log, 
-    ListEndpointsLog, 
     Batch, 
     FederatedEndpoint
 )
@@ -79,6 +79,9 @@ endpoint_cache = {}
 @router.get("/list-endpoints")
 async def get_list_endpoints(request):
     """GET request to list the available frameworks and models."""
+
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
 
     # Collect endpoints objects from the database
     try:

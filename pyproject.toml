@@ -40,6 +40,7 @@ requests = "2.32.4"
 redis = "^6.3.0"
 django-redis = "^6.0.0"
 hiredis = "^3.2.1"
+redis = "^6.3.0"
 
 [build-system]
 requires = ["poetry-core"]
