@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from dataclasses import dataclass, field
 from resource_server_async.models import AuthService
+from utils.pydantic_models.db_models import UserPydantic
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -22,17 +23,9 @@ class AuthUtilsError(Exception):
  
 
 # Data structure returned by the access token validation function
-class UserPydanticModel(BaseModel):
-    id: str
-    name: str
-    username: str
-    email: str
-    idp_id: str
-    idp_name: str
-    auth_service: str
 class ATVResponse(BaseModel):
     is_valid: bool
-    user: Optional[UserPydanticModel] = None
+    user: Optional[UserPydantic] = None
     user_group_uuids: List[str] = field(default_factory=lambda: [])
     error_message: str = ""
     error_code: int = 0
@@ -209,7 +202,7 @@ def check_session_info(introspection):
 
                         # Create the User object from the Globus introspection
                         try:
-                            user = UserPydanticModel(
+                            user = UserPydantic(
                                 id=identity["sub"],
                                 name=identity["name"],
                                 username=identity["username"],

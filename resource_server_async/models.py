@@ -12,14 +12,6 @@ class AuthService(models.TextChoices):
 
 
 # User model
-class UserPydantic(BaseModel):
-    id: str
-    name: str
-    username: str
-    email: str
-    idp_id: str
-    idp_name: str
-    auth_service: str
 class User(models.Model):
     """Details about a user who was authorized to access the service"""
 
@@ -55,15 +47,6 @@ class User(models.Model):
 
 
 # Access log model
-class AccessLogPydantic(BaseModel):
-    id: str
-    user: any
-    timestamp_request: str
-    timestamp_response: str
-    api_route: str
-    origin_ip: str
-    status_code: str
-    error: str
 class AccessLog(models.Model):
 
     # Unique access ID
@@ -99,18 +82,6 @@ class AccessLog(models.Model):
 
 
 # Request log model
-class RequestLogPydantic(BaseModel):
-    id: str
-    access_log: str
-    cluster: str
-    framework: str
-    model: str
-    openai_endpoint: str
-    timestamp_compute_request: str
-    timestamp_compute_response: str
-    prompt: str
-    result: str
-    task_uuid: str
 class RequestLog(models.Model):
 
     # Unique request ID
