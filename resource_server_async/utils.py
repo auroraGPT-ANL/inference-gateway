@@ -5,7 +5,6 @@ from uuid import UUID
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.utils import timezone
-from django.db import IntegrityError
 from django.conf import settings
 from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
@@ -13,6 +12,7 @@ from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
 from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
+from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from asyncache import cached as asynccached
@@ -40,6 +40,8 @@ from resource_server_async.models import (
     RequestLog,
     RequestLogPydantic
 )
+from resource_server.models import ModelStatus
+from resource_server_async.models import (AccessLog, RequestLog)
 # Import models to load configuration dynamically
 # from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
 import logging # Add logging
@@ -665,16 +667,16 @@ async def get_response(content, code, data_logs):
         elif isinstance(data, RequestLogPydantic):
             request_log_data = data
         else:
-            return HttpResponse(json.dumps(f"{type(data)} is not a supported pydantic model."), status=400)
-    
+            return HttpResponse(json.dumps(f"Error: {type(data)} is not a supported pydantic model for logs."), status=400)
+
     # Try to create database entries
     try:
 
-        # Create AccessLog database entry (should always have one)
+        # First, create AccessLog database entry (should always have one)
         if access_log_data:
             access_log = await create_access_log(access_log_data, content, code)
         else:
-            return HttpResponse(json.dumps("get_response did not receive AccessLog data"), status=400)
+            return HttpResponse(json.dumps("Error: get_response did not receive AccessLog data"), status=400)
         
         # Create RequestLog database entry 
         if request_log_data:
@@ -686,6 +688,27 @@ async def get_response(content, code, data_logs):
         return HttpResponse(json.dumps(f"Error: Could not create database entries: {e}"), status=400)
 
     # Prepare and return the HTTP response
+    if code == 200:
+        return HttpResponse(content, status=code)
+    else:
+        log.error(content)
+        return HttpResponse(json.dumps(content), status=code)
+
+
+async def get_batch_response(db_data, content, code, db_Model):
+    """Log result or error in the current database model and return the HTTP response."""
+    from django.http import HttpResponse
+    import json
+    
+    # Create database entry
+    try:
+        await update_database(db_Model=db_Model, db_data=db_data)
+    except Exception as e:
+        error_message = f"Error: Could not update database: {e}"
+        log.error(error_message)
+        return HttpResponse(json.dumps(error_message), status=400)
+        
+    # Return the response or the error message from previous steps
     if code == 200:
         return HttpResponse(content, status=code)
     else:
@@ -739,13 +762,16 @@ def initialize_access_log_data(request):
 
 
 # Initialize request log data
-def initialize_request_log_data(request):
+def initialize_request_log_data():
     """Return initial state of a RequestLog database entry"""
 
     # Return data initialization
-    return RequestLogPydantic(
-        id=str(uuid.uuid4())   
-    )
+    try:
+        return RequestLogPydantic(
+            id=str(uuid.uuid4())   
+        )
+    except Exception as e:
+        print("EEEEE", e)
 
 
 # Create access log
@@ -759,7 +785,7 @@ async def create_access_log(access_log_data: AccessLogPydantic, content, code):
         access_log_data.error = json.dumps(content)
 
     # Create and return database entry
-    return await update_database(db_Model=AccessLog, db_data=access_log_data, return_obj=True)
+    return await update_database(db_Model=AccessLog, db_data=access_log_data.model_dump(), return_obj=True)
     
 
 # Create request log
@@ -771,11 +797,8 @@ async def create_request_log(request_log_data: RequestLogPydantic, content, code
         request_log_data.result = json.dumps(content)
 
     # Create database entry
-    return await update_database(db_Model=RequestLog, db_data=request_log_data, return_obj=True)
+    return await update_database(db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True)
     
-    
-
-
 
 # Enhanced streaming utilities for content collection
 
@@ -1065,7 +1088,6 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
 
 def cleanup_streaming_data(task_id: str):
     """Clean up streaming data from Redis/cache after processing"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -1134,14 +1156,3 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             await update_streaming_log_async(log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id)
         except:
             pass
-
-#def create_db_data_template(atv_response, sync=True):
-#    """Create standard database data template for logging"""
-#    
-#    return {
-#        "name": atv_response.name,
-#        "username": atv_response.username,
-#        "timestamp_receive": timezone.now(),
-#        "sync": sync
-#    }
-

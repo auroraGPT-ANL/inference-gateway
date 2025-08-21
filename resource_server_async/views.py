@@ -48,8 +48,6 @@ from resource_server_async.utils import (
     cache_endpoint,
     remove_endpoint_from_cache,
     # Response functions
-    get_plain_response,
-    get_list_response,
     get_response,
     get_batch_response,
     # Streaming utilities
@@ -57,7 +55,8 @@ from resource_server_async.utils import (
     create_streaming_response_headers,
     format_streaming_error_for_openai,
     extract_status_code_from_error,
-    initialize_access_log_data
+    initialize_access_log_data,
+    initialize_request_log_data
 )
 log.info("Utils functions loaded.")
 
@@ -68,6 +67,7 @@ from resource_server.models import (
     Batch, 
     FederatedEndpoint
 )
+from utils.pydantic_models.db_models import RequestLogPydantic, AccessLogPydantic
 
 # Django Ninja API
 from resource_server_async.api import api, router
@@ -87,7 +87,7 @@ async def get_list_endpoints(request):
     try:
         endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
     except Exception as e:
-        return await get_plain_response(f"Error: Could not access Endpoint database entries: {e}", 400)
+        return await get_response(f"Error: Could not access Endpoint database entries: {e}", 400, [access_log_data])
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
@@ -100,7 +100,7 @@ async def get_list_endpoints(request):
             allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
             if len(error_message) > 0:
                 log.error(error_message)
-                return HttpResponse(json.dumps(error_message), status=400)
+                return await get_response(error_message, 400, [access_log_data])
     
             # If the user is allowed to see the endpoint ...
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
@@ -135,10 +135,10 @@ async def get_list_endpoints(request):
 
     # Error message if something went wrong while building the endpoint list
     except Exception as e:
-        return await get_plain_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400)
+        return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400, [access_log_data])
 
     # Return list of frameworks and models
-    return HttpResponse(json.dumps(all_endpoints), status=200)
+    return await get_response(json.dumps(all_endpoints), 200, [access_log_data])
 
 
 # List Endpoints Detailed (GET)
@@ -146,21 +146,14 @@ async def get_list_endpoints(request):
 async def get_list_endpoints_detailed(request):
     """GET request to list the available frameworks and models with live status."""
     
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_list_response() function
-    db_data = {
-        "name": request.auth.user.name,
-        "username": request.auth.user.username,
-        "timestamp_receive": timezone.now(),
-        "endpoint_slugs": "",
-        "task_uuids": ""
-    }
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
 
     # Collect endpoints objects from the database
     try:
         endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
     except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not access Endpoint database entries: {e}", 400)
+        return await get_response(f"Error: Could not access Endpoint database entries: {e}", 400, [access_log_data])
     
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -169,7 +162,7 @@ async def get_list_endpoints_detailed(request):
         gcc = globus_utils.get_compute_client_from_globus_app()
         gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, [access_log_data])
 
     # Prepare the list of available frameworks and models
     all_endpoints = {"clusters": {}}
@@ -183,7 +176,7 @@ async def get_list_endpoints_detailed(request):
             # Extract the list of allowed group UUIDs tied to the endpoint
             allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
             if len(error_message) > 0:
-                return await get_list_response(db_data, json.dumps(error_message), 400)
+                return await get_response(json.dumps(error_message), 400, [access_log_data])
     
             # If the user is allowed to see the endpoint ...
             # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
@@ -201,21 +194,11 @@ async def get_list_endpoints_detailed(request):
                     # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
                     if endpoint.cluster in ALLOWED_QSTAT_ENDPOINTS:
 
-                        # Update database entry
-                        if len(db_data["endpoint_slugs"]) > 0:
-                            db_data["endpoint_slugs"] += "; "
-                        db_data["endpoint_slugs"] += f"{endpoint.cluster}/jobs"
-
                         # Collect qstat details on the jobs running/queued on the cluster
                         qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
                             endpoint.cluster, gcc=gcc, gce=gce, timeout=60
                         )
                         qstat_result = json.loads(qstat_result)
-
-                        # Update database entry                        
-                        if len(db_data["task_uuids"]) > 0:
-                            db_data["task_uuids"] += "; "
-                        db_data["task_uuids"] += str(task_uuid)
 
                         # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
                         # NOTE: If the qstat job fails, keep going, the response will simply contain less detailed info
@@ -264,7 +247,7 @@ async def get_list_endpoints_detailed(request):
                     endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
                 )
                 if len(error_message) > 0:
-                    return await get_list_response(db_data, error_message, 500)
+                    return await get_response(error_message, 500, [access_log_data])
                 
                 # Assign the status of the HPC job assigned to the model
                 # NOTE: "offline" status should always take priority over the qstat result
@@ -295,10 +278,10 @@ async def get_list_endpoints_detailed(request):
 
     # Error message if something went wrong while building the endpoint list
     except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not generate list of frameworks and models from database: {e}", 400)
+        return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400, [access_log_data])
 
     # Return list of frameworks and models
-    return await get_list_response(db_data, all_endpoints, 200)
+    return await get_response(json.dumps(all_endpoints), 200, [access_log_data])
 
 
 # Endpoint Status (GET)
@@ -306,31 +289,24 @@ async def get_list_endpoints_detailed(request):
 async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
     """GET request to get a detailed status of a specific Globus Compute endpoint."""
     
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_list_response() function
-    db_data = {
-        "name": request.auth.user.name,
-        "username": request.auth.user.username,
-        "timestamp_receive": timezone.now(),
-        "endpoint_slugs": "",
-        "task_uuids": ""
-    }
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
 
     # Get the requested endpoint from the database
     endpoint_slug = slugify(" ".join([cluster, framework, model]))
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
     except Endpoint.DoesNotExist:
-        return await get_list_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+        return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, [access_log_data])
     except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not extract endpoint and function UUIDs: {e}", 400)
+        return await get_response(f"Error: Could not extract endpoint and function UUIDs: {e}", 400, [access_log_data])
     
     # Error message if user is not allowed to see the endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
-        return await get_list_response(db_data, json.dumps(error_message), 400)
+        return await get_response(json.dumps(error_message), 400, [access_log_data])
     if len(allowed_globus_groups) > 0 and len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-        return await get_list_response(db_data, f"Error: User not authorized to access endpoint {endpoint_slug}", 401)
+        return await get_response(f"Error: User not authorized to access endpoint {endpoint_slug}", 401, [access_log_data])
 
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -339,31 +315,25 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
         gcc = globus_utils.get_compute_client_from_globus_app()
         gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
-        return await get_list_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, [access_log_data])
     
     # Extract the status of the current Globus Compute endpoint
     endpoint_status, error_message = globus_utils.get_endpoint_status(
         endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
     )
     if len(error_message) > 0:
-        return await get_list_response(db_data, error_message, 500)
+        return await get_response(error_message, 500, [access_log_data])
 
     # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
     model_status = {}
     if endpoint_status["status"] == "online":
         if cluster in ALLOWED_QSTAT_ENDPOINTS:
 
-            # Update database entry
-            db_data["endpoint_slugs"] = f"{cluster}/jobs"
-
             # Collect qstat details on the jobs running/queued on the cluster
             qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
                 cluster, gcc=gcc, gce=gce, timeout=60
             )
             qstat_result = json.loads(qstat_result)
-
-            # Update database entry
-            db_data["task_uuids"] = str(task_uuid)
 
             # Extract the targetted model if within the qstat result ...
             try:
@@ -381,7 +351,7 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
         "model": model_status,
         "endpoint": endpoint_status
     }
-    return await get_list_response(db_data, status, 200)
+    return await get_response(status, 200, [access_log_data])
 
 
 # List running and queue models (GET)
@@ -389,31 +359,21 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
     
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_response() function
-    db_data = {
-        "name": request.auth.user.name,
-        "username": request.auth.user.username,
-        "timestamp_receive": timezone.now(),
-        "endpoint_slugs": "",
-        "task_uuids": ""
-    }
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
 
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
     if len(error_message):
-        return await get_list_response(db_data, error_message, 400)
+        return await get_response(error_message, 400, [access_log_data])
         
     # Collect (qstat) details on the jobs running/queued on the cluster
-    db_data["endpoint_slugs"] = f"{cluster}/jobs"
     result, task_uuid, error_message, error_code = await get_qstat_details(cluster, timeout=60)
     if len(error_message) > 0:
-        return await get_list_response(db_data, error_message, error_code)
-    result = json.loads(result)
-    db_data["task_uuids"] = task_uuid
+        return await get_response(error_message, error_code, [access_log_data])
     
-     # Return Globus Compute results
-    return await get_list_response(db_data, result, 200)
+    # Return Globus Compute results
+    return await get_response(result, 200, [access_log_data])
 
 
 # Inference batch (POST)
@@ -421,6 +381,9 @@ async def get_jobs(request, cluster:str):
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
+
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
     
     # Reject request if the allowed quota per user would be exceeded
     try:
@@ -429,9 +392,9 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
             number_of_active_batches += 1
         if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
             error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
-            return await get_plain_response(error_message, 400)
+            return await get_response(error_message, 400, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Could not query active batches owned by user: {e}", 400)
+        return await get_response(f"Error: Could not query active batches owned by user: {e}", 400, [access_log_data])
     
     # Start the data dictionary for the database entry
     # The actual database entry creation is performed in the get_response() function
@@ -445,12 +408,12 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Validate and build the inference request data
     batch_data = validate_batch_body(request)
     if "error" in batch_data.keys():
-        return await get_plain_response(batch_data['error'], 400)
+        return await get_response(batch_data['error'], 400, [access_log_data])
 
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_cluster_framework(cluster, framework)
     if len(error_message):
-        return await get_plain_response(error_message, 400)
+        return await get_response(error_message, 400, [access_log_data])
     
     # Update database entry
     db_data["cluster"] = cluster
@@ -467,23 +430,23 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     try:
         endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
     except Endpoint.DoesNotExist:
-        return await get_plain_response(f"Error: Endpoint {endpoint_slug} does not exist.", 400)
+        return await get_response(f"Error: Endpoint {endpoint_slug} does not exist.", 400, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Could not extract endpoint: {e}", 400)
+        return await get_response(f"Error: Could not extract endpoint: {e}", 400, [access_log_data])
     
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
-        return await get_plain_response(error_message, 401)
+        return await get_response(error_message, 401, [access_log_data])
     
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_plain_response(f"Permission denied to endpoint {endpoint_slug}.", 401)
+            return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, [access_log_data])
         
     # Make sure the endpoint has batch UUIDs
     if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
-        return await get_plain_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501)
+        return await get_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501, [access_log_data])
 
     # Error if an ongoing batch already exists with the same input_file
     # TODO: More checks here to make sure we don't duplicate batches?
@@ -492,17 +455,17 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
             if not batch.status in ["failed", "completed"]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
-                return await get_plain_response(error_message, 400)
+                return await get_response(error_message, 400, [access_log_data])
     except Batch.DoesNotExist:
         pass # Batch can be submitted if the input_file is not used by any other batches
     except Exception as e:
-        return await get_plain_response(f"Error: Could not filter Batch database entries: {e}", 400)
+        return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, [access_log_data])
 
     # Get Globus Compute client (using the endpoint identity)
     try:
         gcc = globus_utils.get_compute_client_from_globus_app()
     except Exception as e:
-        return await get_plain_response(f"Error: Could not get the Globus Compute client: {e}", 500)
+        return await get_response(f"Error: Could not get the Globus Compute client: {e}", 500, [access_log_data])
 
     # Query the status of the Globus Compute batch endpoint
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
@@ -514,11 +477,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
-        return await get_plain_response(error_message, 500)
+        return await get_response(error_message, 500, [access_log_data])
 
     # Error if the endpoint is not online
     if not endpoint_status["status"] == "online":
-        return await get_plain_response(f"Error: Endpoint {endpoint_slug} is offline.", 503)
+        return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, [access_log_data])
     
     # Prepare input parameter for the compute tasks
     # NOTE: This is already in list format in case we submit multiple tasks per batch
@@ -541,14 +504,14 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         for params in params_list:
             batch.add(function_id=function_uuid, args=[params])
     except Exception as e:
-        return await get_plain_response(f"Error: Could not create Globus Compute batch: {e}", 500)
+        return await get_response(f"Error: Could not create Globus Compute batch: {e}", 500, [access_log_data])
 
     # Submit batch to Globus Compute and update batch status if submission is successful
     try:
         batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
         db_data["status"] = "pending"
     except Exception as e:
-        return await get_plain_response(f"Error: Could not submit the Globus Compute batch: {e}", 500)
+        return await get_response(f"Error: Could not submit the Globus Compute batch: {e}", 500, [access_log_data])
     
     # Extract the Globus batch UUID from submission
     try:
@@ -580,6 +543,9 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
     """GET request to list all batches linked to the authenticated user."""
 
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
+
     # Declare the list of batches to be returned to the user
     batch_list = []
     try:
@@ -590,7 +556,7 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
             # Get a status update for the batch (this will update the database if needed)
             batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
             if len(error_message) > 0:
-                return await get_plain_response(error_message, code)
+                return await get_response(error_message, code, [access_log_data])
             
             # If no optional status filter was provided ...
             # or if the status filter matches the current batch status ...
@@ -615,10 +581,10 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 
     # Error message if something went wrong
     except Exception as e:
-        return await get_plain_response(f"Error: Could not filter Batch database entries: {e}", 400)
+        return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, [access_log_data])
 
     # Return list of batches
-    return await get_plain_response(batch_list, 200)
+    return await get_response(json.dumps(batch_list), 200, [access_log_data])
 
 
 # Inference batch status (GET)
@@ -627,29 +593,32 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 async def get_batch_status(request, batch_id: str, *args, **kwargs):
     """GET request to query status of an existing batch job."""
 
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
+
     # Recover batch object in the database
     try:
         batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
     except Batch.DoesNotExist:
-        return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
+        return await get_response(f"Error: Batch {batch_id} does not exist.", 400, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400)
+        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400, [access_log_data])
 
     # Make sure user has permission to access this batch_id
     try:
         if not request.auth.user.username == batch.username:
             error_message = f"Error: Permission denied to Batch {batch_id}."
-            return await get_plain_response(error_message, 403)
+            return await get_response(error_message, 403, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
+        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, [access_log_data])
     
     # Get a status update for the batch (this will update the database if needed)
     batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
     if len(error_message) > 0:
-        return await get_plain_response(error_message, code)
+        return await get_response(error_message, code, [access_log_data])
 
     # Return status of the batch job
-    return await get_plain_response(batch_status, 200)
+    return await get_response(json.dumps(batch_status), 200, [access_log_data])
 
 
 # Inference batch result (GET)
@@ -658,37 +627,40 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 async def get_batch_result(request, batch_id: str, *args, **kwargs):
     """GET request to recover result from an existing batch job."""
 
+    # Initialize the access log data for the database entry
+    access_log_data = initialize_access_log_data(request)
+
     # Recover batch object in the database
     try:
         batch = await sync_to_async(Batch.objects.get)(batch_id=batch_id)
     except Batch.DoesNotExist:
-        return await get_plain_response(f"Error: Batch {batch_id} does not exist.", 400)
+        return await get_response(f"Error: Batch {batch_id} does not exist.", 400, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400)
+        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400, [access_log_data])
 
     # Make sure user has permission to access this batch_id
     try:
         if not request.auth.user.username == batch.username:
             error_message = f"Error: Permission denied to Batch {batch_id}.."
-            return await get_plain_response(error_message, 403)
+            return await get_response(error_message, 403, [access_log_data])
     except Exception as e:
-        return await get_plain_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400)
+        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, [access_log_data])
 
     # Get a status update for the batch (this will update the database if needed)
     batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
     if len(error_message) > 0:
-        return await get_plain_response(error_message, code)
+        return await get_response(error_message, code, [access_log_data])
 
     # Return error if batch failed
     if batch_status == "failed":
-        return await get_plain_response(f"Error: Batch failed: {batch.error}", 400)
+        return await get_response(f"Error: Batch failed: {batch.error}", 400, [access_log_data])
 
     # Return error if results are not ready yet
     if not batch_status == "completed":
-        return await get_plain_response("Error: Batch not completed yet. Results not ready.", 400)
+        return await get_response("Error: Batch not completed yet. Results not ready.", 400, [access_log_data])
 
     # Return status of the batch job
-    return await get_plain_response(batch_result, 200)
+    return await get_response(json.dumps(batch_result), 200, [access_log_data])
 
 
 # Inference (POST)
@@ -696,14 +668,9 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
     """POST request to reach Globus Compute endpoints."""
     
-    # Start the data dictionary for the database entry
-    # The actual database entry creation is performed in the get_response() function
-    db_data = {
-        "name": request.auth.user.name,
-        "username": request.auth.user.username,
-        "timestamp_receive": timezone.now(),
-        "sync": True # True means the server response is the Globus result, not the task UUID
-    }
+    # Initialize the access and request log data for the database entry
+    access_log_data = initialize_access_log_data(request)
+    request_log_data = initialize_request_log_data()
 
     # Strip the last forward slash is needed
     if openai_endpoint[-1] == "/":
@@ -712,23 +679,24 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Make sure the URL inputs point to an available endpoint 
     error_message = validate_url_inputs(cluster, framework, openai_endpoint)
     if len(error_message):
-        return await get_response(db_data, error_message, 400)
+        return await get_response(error_message, 400, [access_log_data])
+    request_log_data.cluster = cluster
+    request_log_data.framework = framework
 
     # Validate and build the inference request data
     data = validate_request_body(request, openai_endpoint)
     if "error" in data.keys():
-        return await get_response(db_data, data['error'], 400)
+        return await get_response(data['error'], 400, [access_log_data])
     
     # Check if streaming is requested
     stream = data["model_params"].get('stream', False)
     
     # Update the database with the input text from user
-    db_data["prompt"] = json.dumps(extract_prompt(data["model_params"]))
+    request_log_data.prompt = json.dumps(extract_prompt(data["model_params"]))
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.user.username}")
-    db_data["endpoint_slug"] = endpoint_slug
 
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
@@ -742,31 +710,31 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
             cache_endpoint(endpoint_slug, endpoint)
 
         except Endpoint.DoesNotExist:
-            return await get_response(db_data, f"Error: The requested endpoint {endpoint_slug} does not exist.", 400)
+            return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, [access_log_data])
         except Exception as e:
-            return await get_response(db_data, f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400)
+            return await get_response(f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400, [access_log_data])
 
     # Use the endpoint data (either from cache or freshly fetched)
     try:
         data["model_params"]["api_port"] = endpoint.api_port
-        db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
+        request_log_data.openai_endpoint = data["model_params"]["openai_endpoint"]
     except Exception as e:
          # If there was an error processing the data (e.g., attribute missing),
          # it might be safer to remove it from the cache to force a refresh on next request.
         remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(db_data, f"Error processing endpoint data for {endpoint_slug}: {e}", 400)
+        return await get_response(f"Error processing endpoint data for {endpoint_slug}: {e}", 400, [access_log_data])
 
     # Extract the list of allowed group UUIDs tied to the targetted endpoint
     allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
     if len(error_message) > 0:
         # Remove from cache if group extraction fails, as the cached data might be problematic
         remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(db_data, error_message, 401)
+        return await get_response(error_message, 401, [access_log_data])
     
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(request.auth.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_response(db_data, f"Permission denied to endpoint {endpoint_slug}.", 401)
+            return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, [access_log_data])
 
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -775,7 +743,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         gcc = globus_utils.get_compute_client_from_globus_app()
         gce = globus_utils.get_compute_executor(client=gcc)
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not get the Globus Compute client or executor: {e}", 500)
+        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, [access_log_data])
     
     # Query the status of the targetted Globus Compute endpoint
     # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
@@ -783,33 +751,36 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
     )
     if len(error_message) > 0:
-        return await get_response(db_data, error_message, 500)
+        return await get_response(error_message, 500, [access_log_data])
         
     # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
     if not endpoint_status["status"] == "online":
-        return await get_response(db_data, f"Error: Endpoint {endpoint_slug} is offline.", 503)
+        return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, [access_log_data])
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
     
     if stream:
         # Handle streaming request
         return await handle_streaming_inference(
-            gce, endpoint, data, db_data, resources_ready, request
+            gce, endpoint, data, request_log_data, resources_ready, request, access_log_data
         )
     else:
         # Handle non-streaming request (original logic)
         # Submit task and wait for result
-        db_data["timestamp_submit"] = timezone.now()
+        request_log_data.timestamp_compute_request = timezone.now()
         result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
             gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
         )
+        request_log_data.timestamp_compute_response = timezone.now()
         if len(error_message) > 0:
-            return await get_response(db_data, error_message, error_code)
-        db_data["task_uuid"] = task_uuid
+            return await get_response(error_message, error_code, [access_log_data, request_log_data])
+        request_log_data.task_uuid = task_uuid
 
         # Return Globus Compute results
-        return await get_response(db_data, result, 200)
+        return await get_response(result, 200, [access_log_data, request_log_data])
 
-async def handle_streaming_inference(gce, endpoint, data, db_data, resources_ready, request):
+#TODO: Finish updates here (incomplete)
+async def handle_streaming_inference(gce, endpoint, data, request_log_data: RequestLogPydantic, 
+                                     resources_ready, request, access_log_data: AccessLogPydantic):
     """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
     
     # Generate unique task ID for streaming
@@ -820,7 +791,7 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
     data = prepare_streaming_task_data(data, stream_task_id)
     
     # Submit task to Globus Compute (same logic as non-streaming)
-    db_data["timestamp_submit"] = timezone.now()
+    request_log_data.timestamp_compute_request = timezone.now()
     try:
         # Assign endpoint UUID to the executor (same as submit_and_get_result)
         gce.endpoint_id = endpoint.endpoint_uuid
@@ -845,10 +816,9 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
         task_uuid = globus_utils.get_task_uuid(future)
         
     except Exception as e:
-        return await get_response(db_data, f"Error: Could not submit streaming task: {e}", 500)
+        return await get_response(f"Error: Could not submit streaming task: {e}", 500, [access_log_data])
     
     # Create initial log entry and get the ID for later updating
-    db_data["response_status"] = 200
     db_data["result"] = "streaming_response_in_progress"
     db_data["timestamp_response"] = timezone.now()
     
