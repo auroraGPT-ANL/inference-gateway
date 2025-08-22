@@ -6,13 +6,6 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
-from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
-from rest_framework.exceptions import ValidationError
-import json
-from uuid import UUID
-from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
-from cachetools import TTLCache
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -20,14 +13,16 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
+from rest_framework.exceptions import ValidationError
+import json
+from uuid import UUID
+from asgiref.sync import sync_to_async
+from asyncache import cached as asynccached
+from cachetools import TTLCache
 from resource_server.models import ModelStatus
-from django.conf import settings # Import settings
-# Import models to load configuration dynamically
-# from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
-from collections import defaultdict
-import logging # Add logging
+from django.conf import settings
+import logging
 import redis
-import pickle
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -786,3 +781,249 @@ def create_db_data_template(atv_response, sync=True):
         "timestamp_receive": timezone.now(),
         "sync": sync
     }
+
+
+# Enhanced streaming utilities for content collection
+
+def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
+    """Collect all streaming content and create a complete response"""
+    chunks = get_streaming_data(task_id)
+    if not chunks:
+        return None
+    
+    try:
+        # Reconstruct the complete streaming response
+        full_content = ""
+        usage_info = {}
+        model_info = {}
+        finish_reason = None
+        content_chunks = 0
+        
+        for chunk in chunks:
+            if chunk.startswith('data: '):
+                chunk_data = chunk[6:]  # Remove "data: " prefix
+                if chunk_data.strip() == '[DONE]':
+                    continue
+                
+                try:
+                    parsed_chunk = json.loads(chunk_data)
+                    
+                    # Collect usage info (usually in the last chunk or special chunks)
+                    if 'usage' in parsed_chunk and parsed_chunk['usage']:
+                        usage_info.update(parsed_chunk['usage'])
+                    
+                    # Collect model info (from first chunk usually)
+                    if 'model' in parsed_chunk:
+                        model_info['model'] = parsed_chunk['model']
+                    if 'id' in parsed_chunk:
+                        model_info['id'] = parsed_chunk['id']
+                    if 'object' in parsed_chunk:
+                        model_info['object'] = parsed_chunk['object']  
+                    if 'created' in parsed_chunk:
+                        model_info['created'] = parsed_chunk['created']
+                    
+                    # Collect content from streaming chunks
+                    choices = parsed_chunk.get('choices', [])
+                    if choices and len(choices) > 0:
+                        choice = choices[0]
+                        
+                        # For streaming responses, content is in delta
+                        delta = choice.get('delta', {})
+                        content = delta.get('content', '')
+                        if content:
+                            full_content += content
+                            content_chunks += 1
+                        
+                        # Check for finish reason (in final chunks)
+                        if 'finish_reason' in choice and choice['finish_reason']:
+                            finish_reason = choice['finish_reason']
+                
+                except json.JSONDecodeError:
+                    continue
+        
+        # If no usage info was captured from chunks, estimate from content
+        if not usage_info or not usage_info.get('total_tokens', 0):
+            # Enhanced token estimation using multiple methods
+            char_estimate = len(full_content) // 4  # ~4 chars per token
+            word_estimate = len(full_content.split()) * 1.3  # ~1.3 tokens per word
+            
+            # Use average of methods for better accuracy  
+            estimated_completion_tokens = int((char_estimate + word_estimate) / 2)
+            estimated_completion_tokens = max(1, estimated_completion_tokens)
+            
+            # Estimate prompt tokens more accurately if we have the original prompt
+            estimated_prompt_tokens = 50  # Conservative default
+            if original_prompt:
+                try:
+                    if isinstance(original_prompt, str):
+                        prompt_text = original_prompt
+                    elif isinstance(original_prompt, list):
+                        # Handle messages format - extract all content
+                        prompt_parts = []
+                        for msg in original_prompt:
+                            if isinstance(msg, dict) and msg.get('content'):
+                                prompt_parts.append(msg['content'])
+                        prompt_text = " ".join(prompt_parts)
+                    else:
+                        prompt_text = str(original_prompt)
+                    
+                    # Better prompt token estimation using same dual method
+                    prompt_char_estimate = len(prompt_text) // 4
+                    prompt_word_estimate = len(prompt_text.split()) * 1.3
+                    estimated_prompt_tokens = int((prompt_char_estimate + prompt_word_estimate) / 2)
+                    estimated_prompt_tokens = max(10, estimated_prompt_tokens)
+                    
+                    log.info(f"Prompt token estimation for {task_id}: {estimated_prompt_tokens} tokens from {len(prompt_text)} chars")
+                except Exception as e:
+                    log.warning(f"Error parsing prompt for token estimation: {e}")
+            
+            usage_info = {
+                "prompt_tokens": estimated_prompt_tokens,
+                "completion_tokens": estimated_completion_tokens,
+                "total_tokens": estimated_prompt_tokens + estimated_completion_tokens,
+                "prompt_tokens_details": None
+            }
+            log.info(f"Token estimation for {task_id}: {usage_info['total_tokens']} total ({usage_info['completion_tokens']} completion, {usage_info['prompt_tokens']} prompt)")
+        
+        # Ensure we have the correct object type for a complete response (not chunk)
+        model_info['object'] = 'chat.completion'  # Always set to completion, not chunk
+        
+        # Create a complete response in authentic OpenAI/vLLM streaming format
+        # Only include fields that are actually provided by vLLM/OpenAI streaming
+        complete_response = {
+            **model_info,
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": full_content
+                },
+                "finish_reason": finish_reason or "stop"
+            }],
+            "usage": usage_info
+        }
+        
+        return complete_response
+        
+    except Exception as e:
+        log.error(f"Error aggregating streaming content: {e}")
+        return None
+
+async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict):
+    """Asynchronously update streaming log entry with final content"""
+    from resource_server.models import Log
+    from django.utils import timezone
+    
+    try:
+        # Get the log entry and preserve existing fields
+        get_log_async = sync_to_async(Log.objects.get)
+        log_entry = await get_log_async(id=log_id)
+        
+        # Preserve the original task_uuid
+        original_task_uuid = log_entry.task_uuid
+        
+        if complete_response:
+            # Calculate and add basic metrics to match non-streaming format
+            usage = complete_response.get('usage', {})
+            total_tokens = usage.get('total_tokens', 0)
+            response_time = final_metrics.get('total_processing_time', 0)
+            
+            # Add throughput calculation like non-streaming
+            if response_time > 0 and total_tokens > 0:
+                throughput = total_tokens / response_time
+                complete_response['response_time'] = response_time
+                complete_response['throughput_tokens_per_second'] = throughput
+            
+            log_entry.result = json.dumps(complete_response, indent=4)
+        else:
+            # Fallback if we couldn't reconstruct the response
+            log_entry.result = json.dumps({
+                "streaming_response": True,
+                "error": "Could not reconstruct complete response",
+                "metrics": final_metrics
+            }, indent=4)
+        
+        log_entry.timestamp_response = timezone.now()
+        
+        # Ensure task_uuid is preserved (don't let it get overwritten)
+        if original_task_uuid and not log_entry.task_uuid:
+            log_entry.task_uuid = original_task_uuid
+        
+        # Save the updated log entry
+        await sync_to_async(log_entry.save, thread_sensitive=True)()
+        log.info(f"Updated streaming log entry {log_id} with final content")
+        
+    except Exception as e:
+        log.error(f"Error updating streaming log entry {log_id}: {e}")
+
+def cleanup_streaming_data(task_id: str):
+    """Clean up streaming data from Redis/cache after processing"""
+    from django.core.cache import cache
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Clean up all streaming-related keys
+            keys_to_delete = [
+                f"stream:data:{task_id}",
+                f"stream:status:{task_id}",
+                f"stream:error:{task_id}"
+            ]
+            for key in keys_to_delete:
+                redis_client.delete(key)
+        else:
+            # Fallback cleanup for Django cache
+            cache_keys = [
+                f"stream_data_{task_id}",
+                f"stream_status_{task_id}",
+                f"stream_error_{task_id}"
+            ]
+            for key in cache_keys:
+                cache.delete(key)
+        
+        log.info(f"Cleaned up streaming data for task {task_id}")
+    except Exception as e:
+        log.error(f"Error cleaning up streaming data for task {task_id}: {e}")
+
+async def process_streaming_completion_async(task_id: str, stream_task_id: str, log_id: str, globus_task_future, start_time: float, original_prompt=None):
+    """Background task to process streaming completion and update database"""
+    import asyncio
+    import time
+    
+    try:
+        # Wait a bit for initial streaming data to arrive
+        await asyncio.sleep(2)
+        
+        # Wait for streaming to complete
+        max_wait = 300  # Wait up to 5 minutes for streaming completion
+        wait_start = time.time()
+        while time.time() - wait_start < max_wait:
+            status = get_streaming_status(stream_task_id)
+            if status in ["completed", "error"]:
+                break
+            await asyncio.sleep(0.5)
+        
+        # Collect final streaming data
+        end_time = time.time()
+        complete_response = collect_and_aggregate_streaming_content(stream_task_id, original_prompt)
+        
+        # Simple metrics
+        simple_metrics = {
+            'total_processing_time': end_time - start_time,
+            'final_status': get_streaming_status(stream_task_id) or 'completed'
+        }
+        
+        # Update the database log entry with final data
+        await update_streaming_log_async(log_id, simple_metrics, complete_response)
+        
+        # Clean up streaming data from cache
+        cleanup_streaming_data(stream_task_id)
+        
+        log.info(f"Completed streaming processing for task {task_id}")
+        
+    except Exception as e:
+        log.error(f"Error in streaming completion processing: {e}")
+        try:
+            # Try to update log with error info
+            await update_streaming_log_async(log_id, {"error": str(e)}, None)
+        except:
+            pass
