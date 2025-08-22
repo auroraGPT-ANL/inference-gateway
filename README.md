@@ -227,6 +227,11 @@ REDIS_URL="redis://redis:6379/0"
 # --- Gateway Specific Settings ---
 MAX_BATCHES_PER_USER=2 # Max concurrent batch jobs allowed per user
 
+# --- Streaming Configuration ---
+# Internal streaming server configuration (required for streaming functionality)
+STREAMING_SERVER_HOST="localhost:8080" # Host and port of your internal streaming server
+INTERNAL_STREAMING_SECRET="your-internal-streaming-secret-key" # Secret key for internal streaming authentication
+
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin
 # GF_SECURITY_ADMIN_PASSWORD=admin
@@ -529,7 +534,86 @@ Verify the associated inference server (e.g., vLLM) is started by the endpoint's
 
 Once both the Gateway and at least one Backend Compute Endpoint (with its inference server) are running, you can send a test request. You'll need a valid Globus authentication token obtained for the gateway's scope.
 
-1.  **Get a Token using the Helper Script**:
+### Setting up ngrok for Testing Streaming (Optional)
+
+For testing streaming functionality especially when working with remote endpoints, you can use ngrok to create a secure tunnel to your local gateway:
+
+1.  **Install ngrok**: Visit [ngrok.com](https://ngrok.com/) and follow the installation instructions for your platform.
+
+2.  **Start ngrok tunnel**: Start ngrok to create a tunnel to your local gateway (assuming it's running on port 8000):
+    ```bash
+    ngrok http 8000
+    ```
+    This will display a public URL (e.g., `https://abcd1234.ngrok.io`) that tunnels to your local gateway.
+
+3.  **Test streaming with Python script**: Here's an example Python script for testing streaming functionality:
+
+    ```python
+    import sys
+    import json
+    import time
+    import openai
+
+    if len(sys.argv) != 2:
+        print("Usage: python test_streaming.py <access_token>")
+        sys.exit(1)
+
+    access_token = sys.argv[1]
+
+    # Configure the OpenAI client to connect to your gateway via ngrok
+    client = openai.OpenAI(
+        # Replace with your ngrok URL or direct gateway URL
+        base_url="https://your-ngrok-url.ngrok.io/resource_server/sophia/vllm/v1",
+        # Use your Globus access token
+        api_key=access_token
+    )
+
+    # Define your prompt
+    messages = [
+        {"role": "user", "content": "Explain what is the best way to learn python"}
+    ]
+
+    start_time = time.time()
+    total_chars = 0
+
+    print("🤖 AI Response: ", end="")
+
+    # Call the chat completions endpoint with stream=True
+    try:
+        stream = client.chat.completions.create(
+            model="openai/gpt-oss-20b",  # Replace with your deployed model
+            messages=messages,
+            stream=True
+        )
+        
+        # Iterate over the stream to get the response chunks in real-time
+        for chunk in stream:
+            # Extract the content from the chunk (standard OpenAI format)
+            if chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                # Print the content without a newline and flush the buffer
+                print(content, end="", flush=True)
+                total_chars += len(content)
+        
+        # Print a final newline character after the stream is complete
+        print()
+        
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+
+    end_time = time.time()
+    latency = end_time - start_time
+    print(f"\n⏱️ Streaming Latency: {latency:.2f} seconds")
+    print(f"📦 Throughput: {total_chars/latency:.2f} chars/sec")
+    ```
+
+    Save this as `test_streaming.py` and run it with your access token:
+
+    ```bash
+    python test_streaming.py $MY_TOKEN
+    ```
+
+4.  **Get a Token using the Helper Script**:
     *   Ensure your `.env` file has `GLOBUS_APPLICATION_ID` (for the gateway) and `CLI_AUTH_CLIENT_ID` (for the helper script, a default public one is provided) set. You also need to configure `CLI_ALLOWED_DOMAINS` to target your specific identity provider (e.g. your institution's SSO). By default, without specifying `CLI_ALLOWED_DOMAINS`, the only allowed providers are `anl.gov` and `alcf.anl.gov`.
     *   **Authenticate (First time or if tokens expire):** Run the authentication script. This will open a browser window for Globus login.
         ```bash
