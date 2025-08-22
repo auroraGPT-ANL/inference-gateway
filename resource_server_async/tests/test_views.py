@@ -235,7 +235,8 @@ class ResourceServerViewTestCase(TestCase):
 
     # Test streaming functionality (POST)
     def test_post_streaming_inference_view(self):
-        """Test streaming responses for chat/completions endpoint using real test data"""
+        """Test streaming responses for chat/completions endpoint using real test data
+        Note: stream=True is supported, but stream_options is only available in /completions endpoint"""
         
         # Skip if no streaming test cases are available
         if not self.streaming_test_cases:
@@ -279,8 +280,6 @@ class ResourceServerViewTestCase(TestCase):
                     non_streaming_params = self.streaming_test_cases[0].copy()
                     non_streaming_params["model"] = endpoint.model
                     non_streaming_params["stream"] = False
-                    # Remove stream_options if present since they're only valid for streaming
-                    non_streaming_params.pop("stream_options", None)
                     
                     response = self.client.post(url, data=json.dumps(non_streaming_params), headers=headers, **self.kwargs)
                     self.assertEqual(response.status_code, 200)
@@ -289,7 +288,8 @@ class ResourceServerViewTestCase(TestCase):
 
     # Test streaming-specific parameter validation
     def test_streaming_parameter_validation(self):
-        """Test validation of streaming-specific parameters"""
+        """Test validation of streaming-specific parameters
+        Tests that stream=True works but invalid stream values are rejected"""
         
         # For each supported endpoint that allows streaming...
         for endpoint in Endpoint.objects.all():
@@ -315,17 +315,17 @@ class ResourceServerViewTestCase(TestCase):
                 response = self.client.post(url, data=json.dumps(invalid_stream_params), headers=headers, **self.kwargs)
                 self.assertEqual(response.status_code, 400)
                 
-                # Test invalid stream_options (should only be allowed when stream=True)
-                invalid_stream_options_params = {
+                # Test valid streaming request with various parameters
+                valid_streaming_params = {
                     "model": endpoint.model,
                     "messages": [{"role": "user", "content": "Test message"}],
-                    "stream": False,
-                    "stream_options": {"include_usage": True}  # Should not be allowed when stream=False
+                    "stream": True,
+                    "max_tokens": 50
                 }
                 
-                response = self.client.post(url, data=json.dumps(invalid_stream_options_params), headers=headers, **self.kwargs)
-                # This might be 400 or 200 depending on validation logic, but test that it's handled properly
-                self.assertIn(response.status_code, [200, 400])
+                response = self.client.post(url, data=json.dumps(valid_streaming_params), headers=headers, **self.kwargs)
+                # Should work correctly
+                self.assertEqual(response.status_code, 200)
 
 
     # Verify headers failures
@@ -356,9 +356,30 @@ class ResourceServerViewTestCase(TestCase):
     # This is because Django Ninja client does not take content-type json for some reason...
     def __get_response_json(self, response):
         try:
-            return json.loads(response._container[0].decode('utf-8'))   
-        except:
-            return response._container[0].decode('utf-8')
+            # Handle streaming responses
+            if hasattr(response, 'streaming_content'):
+                # For streaming responses, collect all chunks
+                content = b''.join(response.streaming_content)
+                return json.loads(content.decode('utf-8'))
+            elif hasattr(response, '_container'):
+                # Handle regular responses
+                return json.loads(response._container[0].decode('utf-8'))
+            else:
+                # Fallback for other response types
+                return json.loads(response.content.decode('utf-8'))
+        except json.JSONDecodeError:
+            # If it's not JSON, return the raw content
+            try:
+                if hasattr(response, 'streaming_content'):
+                    content = b''.join(response.streaming_content)
+                    return content.decode('utf-8')
+                elif hasattr(response, '_container'):
+                    return response._container[0].decode('utf-8')
+                else:
+                    return response.content.decode('utf-8')
+            except:
+                # Final fallback
+                return str(response)
 
 
     # Get endpoint URL

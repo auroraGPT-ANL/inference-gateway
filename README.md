@@ -231,6 +231,8 @@ MAX_BATCHES_PER_USER=2 # Max concurrent batch jobs allowed per user
 # Internal streaming server configuration (required for streaming functionality)
 STREAMING_SERVER_HOST="localhost:8080" # Host and port of your internal streaming server
 INTERNAL_STREAMING_SECRET="your-internal-streaming-secret-key" # Secret key for internal streaming authentication
+# Both /chat/completions and /completions endpoints support streaming via the 'stream' parameter
+# However, 'stream_options' parameter is only supported in /completions endpoint
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin

@@ -531,8 +531,7 @@
               "content": "What is the weather like?"
           }
       ],
-      "stream": true,
-      "stream_options": {"include_usage": true}
+      "stream": true
   },
 
   {
