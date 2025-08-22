@@ -29,6 +29,16 @@ jobs:
         ports:
           - 5432:5432
 
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     env:
       WORKING_DIRECTORY: './'
       PGHOST: localhost
@@ -36,6 +46,9 @@ jobs:
       PGPASSWORD: mypassword
       PGDATABASE: mydatabase
       PGPORT: 5432
+      REDIS_URL: "redis://localhost:6379/0"
+      STREAMING_SERVER_HOST: "localhost:8080"
+      INTERNAL_STREAMING_SECRET: "test-streaming-secret-key"
 
     steps:
       - name: Clone current GitHub repository
@@ -71,6 +84,9 @@ jobs:
           echo 'PGPASSWORD=mypassword' >> .env
           echo 'PGHOST=localhost' >> .env
           echo 'PGPORT=5432' >> .env
+          echo 'REDIS_URL=redis://localhost:6379/0' >> .env
+          echo 'STREAMING_SERVER_HOST=localhost:8080' >> .env
+          echo 'INTERNAL_STREAMING_SECRET=test-streaming-secret-key' >> .env
           echo 'ENV=development' >> .env
           echo 'RUNNING_AUTOMATED_TEST_SUITE=True' >> .env
           mkdir logs/

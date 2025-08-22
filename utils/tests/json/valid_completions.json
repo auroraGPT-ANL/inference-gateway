@@ -99,5 +99,19 @@
         "temperature": 1.3,
         "top_p": 0.5,
         "user": "user"
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "prompt": "Tell me a story about artificial intelligence.",
+        "stream": true
+    },
+
+    {
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "prompt": "Explain quantum computing.",
+        "stream": true,
+        "stream_options": {"include_usage": true},
+        "max_tokens": 100
     }
 ]

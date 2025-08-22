@@ -501,6 +501,40 @@
   },
 
   {
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "messages": [
+          {
+              "role": "user",
+              "content": "Tell me a story about AI."
+          }
+      ],
+      "stream": true
+  },
+
+  {
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "messages": [
+          {
+              "role": "user",
+              "content": "Explain machine learning concepts."
+          }
+      ],
+      "stream": true,
+      "max_tokens": 100
+  },
+
+  {
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "messages": [
+          {
+              "role": "user",
+              "content": "What is the weather like?"
+          }
+      ],
+      "stream": true
+  },
+
+  {
     "model": "meta-llama/Meta-Llama-3-8B-Instruct",
     "messages": [
       {
