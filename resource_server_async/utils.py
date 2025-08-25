@@ -1,7 +1,11 @@
 import uuid
 import json
+import logging
+import redis
+import time
+import asyncio
+import re
 from enum import Enum
-from uuid import UUID
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.utils import timezone
@@ -11,7 +15,6 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
-from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
 from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
@@ -24,33 +27,17 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
-from rest_framework.exceptions import ValidationError
-import json
-from uuid import UUID
-from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
-from cachetools import TTLCache
-from resource_server.models import ModelStatus
-from django.conf import settings
-import logging
-from resource_server.models import ModelStatus, Log, ListEndpointsLog
+from resource_server.models import ModelStatus, Log
 from resource_server_async.models import (
     AccessLog,
     AccessLogPydantic,
     RequestLog,
     RequestLogPydantic
 )
-from resource_server.models import ModelStatus
-from resource_server_async.models import (AccessLog, RequestLog)
-# Import models to load configuration dynamically
-# from resource_server.models import Cluster, SupportedBackend, SupportedOpenAIEndpoint, ClusterStatusEndpoint # Removed
-import logging # Add logging
-import redis
 
 log = logging.getLogger(__name__) # Add logger
 
 # --- Removed Configuration Loading ---
-
 
 # Constants are now loaded from settings.py
 ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
@@ -209,7 +196,7 @@ def extract_group_uuids(globus_groups):
     # Make sure that all UUID strings have the UUID format
     for uuid_to_test in group_uuids:
         try:
-            uuid_obj = UUID(uuid_to_test).version
+            uuid_obj = uuid.UUID(uuid_to_test).version
         except Exception as e:
             return [], f"Error: Could not extract UUID format from the database. {e}"
     
@@ -687,8 +674,6 @@ async def get_response(content, code, request):
 
 async def get_batch_response(db_data, content, code, db_Model):
     """Log result or error in the current database model and return the HTTP response."""
-    from django.http import HttpResponse
-    import json
     
     # Create database entry
     try:
@@ -770,8 +755,6 @@ async def create_request_log(request_log_data: RequestLogPydantic, content, code
 
 def format_streaming_error_for_openai(error_message: str):
     """Pass through JSON errors as-is, minimal processing for non-JSON errors"""
-    import json
-    import re
     
     try:
         # Try to parse if it's already a JSON error from vLLM
@@ -819,7 +802,6 @@ def format_streaming_error_for_openai(error_message: str):
 
 def extract_status_code_from_error(error_message: str):
     """Extract status code from error message for database logging"""
-    import re
     
     try:
         # Look for explicit status codes in error message
@@ -978,9 +960,6 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
 
 async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict, stream_task_id: str = None):
     """Asynchronously update streaming log entry with final content"""
-    from resource_server.models import Log
-    from django.utils import timezone
-    import json
     
     try:
         # Get the log entry and preserve existing fields
@@ -1081,8 +1060,6 @@ def cleanup_streaming_data(task_id: str):
 
 async def process_streaming_completion_async(task_id: str, stream_task_id: str, log_id: str, globus_task_future, start_time: float, original_prompt=None):
     """Background task to process streaming completion and update database"""
-    import asyncio
-    import time
     
     try:
         # Wait a bit for initial streaming data to arrive

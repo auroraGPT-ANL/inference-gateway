@@ -7,7 +7,7 @@ import asyncio
 import time
 from django.utils import timezone
 from django.utils.text import slugify
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 
 # Tool to log access requests
 import logging
@@ -30,7 +30,6 @@ from resource_server_async.utils import (
     extract_group_uuids,
     get_qstat_details,
     update_batch_status_result,
-    update_database,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
     # Redis streaming functions
@@ -53,8 +52,6 @@ from resource_server_async.utils import (
     prepare_streaming_task_data,
     create_streaming_response_headers,
     format_streaming_error_for_openai,
-    extract_status_code_from_error,
-    initialize_access_log_data,
     initialize_request_log_data,
     create_access_log
 )
@@ -68,7 +65,6 @@ from resource_server.models import (
     FederatedEndpoint
 )
 from resource_server_async.models import RequestLog
-from utils.pydantic_models.db_models import RequestLogPydantic, AccessLogPydantic
 
 # Django Ninja API
 from resource_server_async.api import api, router
@@ -1139,8 +1135,6 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 @router.post("/api/streaming/data/")
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY"""
-    import json
-    from django.http import JsonResponse
     
     # SECURITY: Simple internal secret check for remote function calls
     internal_secret = request.headers.get('X-Internal-Secret', '')
@@ -1190,8 +1184,6 @@ async def receive_streaming_data(request):
 @router.post("/api/streaming/error/")
 async def receive_streaming_error(request):
     """Receive error from vLLM function - INTERNAL ONLY"""
-    import json
-    from django.http import JsonResponse
     
     # SECURITY: Simple internal secret check for remote function calls
     internal_secret = request.headers.get('X-Internal-Secret', '')
@@ -1230,8 +1222,6 @@ async def receive_streaming_error(request):
 @router.post("/api/streaming/done/")
 async def receive_streaming_done(request):
     """Receive completion signal from vLLM function - INTERNAL ONLY"""
-    import json
-    from django.http import JsonResponse
     
     # SECURITY: Simple internal secret check for remote function calls
     internal_secret = request.headers.get('X-Internal-Secret', '')
