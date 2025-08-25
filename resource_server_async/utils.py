@@ -785,6 +785,90 @@ def create_db_data_template(atv_response, sync=True):
 
 # Enhanced streaming utilities for content collection
 
+def format_streaming_error_for_openai(error_message: str):
+    """Pass through JSON errors as-is, minimal processing for non-JSON errors"""
+    import json
+    import re
+    
+    try:
+        # Try to parse if it's already a JSON error from vLLM
+        if error_message.strip().startswith('{') and error_message.strip().endswith('}'):
+            try:
+                parsed_error = json.loads(error_message)
+                if 'object' in parsed_error and parsed_error['object'] == 'error':
+                    # Already in OpenAI error format, return as-is
+                    return f"data: {json.dumps(parsed_error)}\n\n"
+            except json.JSONDecodeError:
+                pass
+        
+        # Look for JSON error in "Response text:" sections and extract it as-is
+        response_text_match = re.search(r'Response text[:\s]*(\{.*?\})', error_message, re.DOTALL)
+        if response_text_match:
+            try:
+                json_error = response_text_match.group(1)
+                parsed_error = json.loads(json_error)
+                if 'object' in parsed_error and parsed_error['object'] == 'error':
+                    # Found a valid JSON error, return it as-is
+                    return f"data: {json.dumps(parsed_error)}\n\n"
+            except json.JSONDecodeError:
+                pass
+        
+        # Fallback for non-JSON errors - minimal generic error
+        fallback_error = {
+            "object": "error", 
+            "message": "An error occurred during processing",
+            "type": "InternalServerError",
+            "param": None,
+            "code": 500
+        }
+        return f"data: {json.dumps(fallback_error)}\n\n"
+        
+    except Exception as e:
+        # Ultimate fallback
+        fallback_error = {
+            "object": "error", 
+            "message": "An error occurred during processing",
+            "type": "InternalServerError",
+            "param": None,
+            "code": 500
+        }
+        return f"data: {json.dumps(fallback_error)}\n\n"
+
+def extract_status_code_from_error(error_message: str):
+    """Extract status code from error message for database logging"""
+    import re
+    
+    try:
+        # Look for explicit status codes in error message
+        if "status code:" in error_message:
+            match = re.search(r"status code[:\s]+(\d+)", error_message)
+            if match:
+                return int(match.group(1))
+        
+        # Look for status codes in JSON error objects
+        if '"code"' in error_message:
+            code_match = re.search(r'"code"\s*:\s*(\d+)', error_message)
+            if code_match:
+                return int(code_match.group(1))
+        
+        # Common error patterns
+        if "max_tokens must be at least" in error_message or "maximum context length" in error_message:
+            return 400  # Bad request
+        elif "unauthorized" in error_message.lower() or "authentication" in error_message.lower():
+            return 401
+        elif "forbidden" in error_message.lower() or "permission" in error_message.lower():
+            return 403
+        elif "not found" in error_message.lower():
+            return 404
+        elif "rate limit" in error_message.lower() or "too many requests" in error_message.lower():
+            return 429
+        
+        # Default to 500 for unknown errors
+        return 500
+        
+    except:
+        return 500
+
 def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
     """Collect all streaming content and create a complete response"""
     chunks = get_streaming_data(task_id)
@@ -909,10 +993,11 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
         log.error(f"Error aggregating streaming content: {e}")
         return None
 
-async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict):
+async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict, stream_task_id: str = None):
     """Asynchronously update streaming log entry with final content"""
     from resource_server.models import Log
     from django.utils import timezone
+    import json
     
     try:
         # Get the log entry and preserve existing fields
@@ -922,7 +1007,22 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         # Preserve the original task_uuid
         original_task_uuid = log_entry.task_uuid
         
-        if complete_response:
+        # Check if there was a streaming error
+        error_status = final_metrics.get('final_status')
+        streaming_error = None
+        response_status = 200  # Default success
+        
+        if error_status == "error" and stream_task_id:
+            # Get the actual error message
+            streaming_error = get_streaming_error(stream_task_id)
+            if streaming_error:
+                # Extract status code using the simple utility function
+                response_status = extract_status_code_from_error(streaming_error)
+        
+        # Update the response status in the log entry
+        log_entry.response_status = response_status
+        
+        if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
             usage = complete_response.get('usage', {})
             total_tokens = usage.get('total_tokens', 0)
@@ -935,12 +1035,25 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 complete_response['throughput_tokens_per_second'] = throughput
             
             log_entry.result = json.dumps(complete_response, indent=4)
+        elif streaming_error:
+            # Handle error case - store the full original error message
+            error_response = {
+                "streaming_response": True,
+                "error": True,
+                "error_message": streaming_error,  # Store full original error
+                "response_time": final_metrics.get('total_processing_time', 0),
+                "throughput_tokens_per_second": 0,
+                "status": "failed"
+            }
+            log_entry.result = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
             log_entry.result = json.dumps({
                 "streaming_response": True,
                 "error": "Could not reconstruct complete response",
-                "metrics": final_metrics
+                "metrics": final_metrics,
+                "response_time": final_metrics.get('total_processing_time', 0),
+                "throughput_tokens_per_second": 0
             }, indent=4)
         
         log_entry.timestamp_response = timezone.now()
@@ -951,7 +1064,7 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         
         # Save the updated log entry
         await sync_to_async(log_entry.save, thread_sensitive=True)()
-        log.info(f"Updated streaming log entry {log_id} with final content")
+        log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
         
     except Exception as e:
         log.error(f"Error updating streaming log entry {log_id}: {e}")
@@ -1013,7 +1126,7 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
         }
         
         # Update the database log entry with final data
-        await update_streaming_log_async(log_id, simple_metrics, complete_response)
+        await update_streaming_log_async(log_id, simple_metrics, complete_response, stream_task_id)
         
         # Clean up streaming data from cache
         cleanup_streaming_data(stream_task_id)
@@ -1024,6 +1137,6 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
         log.error(f"Error in streaming completion processing: {e}")
         try:
             # Try to update log with error info
-            await update_streaming_log_async(log_id, {"error": str(e)}, None)
+            await update_streaming_log_async(log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id)
         except:
             pass

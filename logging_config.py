@@ -36,9 +36,19 @@ LOGGING_CONFIG = {
             "class": "logging.FileHandler",
             "filename": accesslog,
         },
+        "console": {
+            "formatter": "default",
+            "class": "logging.StreamHandler",
+        },
     },
     "loggers": {
         "uvicorn.error": {"handlers": ["default"], "level": "INFO"},
         "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        "resource_server_async": {"handlers": ["default", "console"], "level": "INFO", "propagate": False},
+        "utils": {"handlers": ["default", "console"], "level": "INFO", "propagate": False},
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["default", "console"],
     },
 }
