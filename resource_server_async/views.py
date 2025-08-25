@@ -41,6 +41,7 @@ from resource_server_async.utils import (
     set_streaming_status,
     get_streaming_status,
     set_streaming_error,
+    get_streaming_error,
     # Background streaming functions
     process_streaming_completion_async,
     # Cache functions
@@ -55,6 +56,8 @@ from resource_server_async.utils import (
     # Streaming utilities
     prepare_streaming_task_data,
     create_streaming_response_headers,
+    format_streaming_error_for_openai,
+    extract_status_code_from_error,
 )
 log.info("Utils functions loaded.")
 
@@ -1028,6 +1031,23 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
             last_chunk_index = 0
             
             while time.time() - start_time < max_wait_time:
+                # Check for error status first (in case error occurs before any chunks)
+                status = get_streaming_status(stream_task_id)
+                if status == "error":
+                    # Get the error message and send it in OpenAI streaming format
+                    error_message = get_streaming_error(stream_task_id)
+                    if error_message:
+                        # Format and send the error in OpenAI streaming format
+                        formatted_error = format_streaming_error_for_openai(error_message)
+                        yield formatted_error
+                    # Send [DONE] after error to properly terminate the stream
+                    yield "data: [DONE]\n\n"
+                    break
+                elif status == "completed":
+                    # Send the final [DONE] message from vLLM
+                    yield "data: [DONE]\n\n"
+                    break
+                
                 # Get streaming data from Redis with fast polling
                 chunks = get_streaming_data(stream_task_id)
                 if chunks:
@@ -1040,15 +1060,6 @@ async def handle_streaming_inference(gce, endpoint, data, db_data, resources_rea
                             yield f"{chunk}\n\n"
                         
                         last_chunk_index = i + 1
-                    
-                    # Check if streaming is complete
-                    status = get_streaming_status(stream_task_id)
-                    if status == "completed":
-                        # Send the final [DONE] message from vLLM
-                        yield "data: [DONE]\n\n"
-                        break
-                    elif status == "error":
-                        break
                 
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)
