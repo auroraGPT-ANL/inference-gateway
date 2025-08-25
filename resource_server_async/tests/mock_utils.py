@@ -3,6 +3,8 @@
 import time
 import uuid
 from concurrent.futures import Future
+from utils.pydantic_models.db_models import UserPydantic
+from resource_server_async.models import AuthService
 
 # Constants flags within mock access tokens
 ACTIVE = "-ACTIVE"
@@ -182,5 +184,14 @@ def check_globus_groups(my_groups):
 
 # Mock check_session_info function
 def check_session_info(introspection):
-    return True, "mock_username", ""
+    user = UserPydantic(
+        id="mock_id",
+        name="mock_name",
+        username="mock_username",
+        email="mock_email",
+        idp_id="mock_idp_id",
+        idp_name="mock_idp_name",
+        auth_service=AuthService.GLOBUS.value
+    )
+    return True, user, ""
 

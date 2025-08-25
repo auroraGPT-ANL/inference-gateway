@@ -3,6 +3,8 @@ from django.core.management import call_command
 from resource_server.models import Endpoint
 import json
 import uuid
+import logging
+log = logging.getLogger(__name__)
 
 # Tools to test with Django Ninja
 from django.test import TestCase
@@ -353,12 +355,12 @@ class ResourceServerViewTestCase(TestCase):
         # Should fail (not authenticated)
         headers = mock_utils.get_mock_headers(access_token="")
         response = method(url, headers=headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
 
         # Should fail (not a bearer token)
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=False)
         response = method(url, headers=headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
 
         # Should fail (not a valid token)
         headers = mock_utils.get_mock_headers(access_token=self.invalid_token, bearer=True)
