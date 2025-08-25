@@ -31,19 +31,6 @@ class User(models.Model):
     # Custom display
     def __str__(self):
         return f"<User - {self.name} - {self.username} - {self.idp_name}>"
-    
-    # Overwrite save to database function
-    def save(self, *args, **kwargs):
-
-        # Raise an error if the user should not be authorized to use the service
-        # With Globus, username must be used (email only shows the primary username of the linked identities)
-        if not self.username.split("@")[-1] in settings.AUTHORIZED_IDP_DOMAINS:
-            raise ValidationError(f"IdP domain {self.username} not authorized for User model.")
-        if not self.idp_id in settings.AUTHORIZED_IDP_UUIDS:
-            raise ValidationError(f"IdP UUID {self.idp_id} not authorized for User model.")
-
-        # Save model if authorized
-        super().save(*args, **kwargs)
 
 
 # Access log model
@@ -57,7 +44,8 @@ class AccessLog(models.Model):
         User, 
         on_delete=models.PROTECT, 
         related_name='access_logs', # reverse relation (e.g. user.access_logs.all())
-        db_index=True
+        db_index=True,
+        null=True # For when an AccessLog is used to report un-authorized attempts
     )
 
     # Timestamps (request received and response returned)
@@ -78,7 +66,11 @@ class AccessLog(models.Model):
 
     # Custom display
     def __str__(self):
-        return f"<Access - {self.user.username} - {self.api_route} - {self.status_code}>"
+        if self.user:
+            username = self.user.username
+        else:
+            username = "Unauthorized"
+        return f"<Access - {username} - {self.api_route} - {self.status_code}>"
 
 
 # Request log model

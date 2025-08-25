@@ -1,12 +1,17 @@
+import uuid
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 from ninja.errors import HttpError
+from django.http import HttpResponse
 from ninja.security import HttpBearer
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from resource_server_async.models import User, AccessLog
+from resource_server_async.utils import create_access_log
 from utils.auth_utils import validate_access_token
-from resource_server_async.models import User
+from utils.pydantic_models.db_models import AccessLogPydantic
 
 # -------------------------------------
 # ========== API declaration ==========
@@ -37,11 +42,15 @@ if not settings.RUNNING_AUTOMATED_TEST_SUITE:
 class GlobalAuth(HttpBearer):
     async def authenticate(self, request, access_token):
 
+        # Initialize the access log data for the database entry
+        access_log_data = self.__initialize_access_log_data(request)
+
         # Introspect the access token
         atv_response = validate_access_token(request)
 
         # Raise an error if the access token if not valid or if the user is not authorized
         if not atv_response.is_valid:
+            _ = await create_access_log(access_log_data, atv_response.error_message, atv_response.error_code)
             raise HttpError(atv_response.error_code, atv_response.error_message)
         
         # Create a new database entry for the user (or get existing entry if already exist)
@@ -58,32 +67,37 @@ class GlobalAuth(HttpBearer):
                 }
             )
         except Exception as e:
-            raise HttpError(500, f"Error: Could not create or recover user entry in the database: {e}")
-        
-        # If the user already existed ...
-        # Raise error if the new data is inconsistent with the database
-        if not created:
-            data_mismatches = []
-            if not user.name == atv_response.user.name:
-                data_mismatches.append(f"name: '{user.name}' vs '{atv_response.user.name}'")
-            if not user.username == atv_response.user.username:
-                data_mismatches.append(f"username: '{user.username}' vs '{atv_response.user.username}'")
-            if not user.email == atv_response.user.email:
-                data_mismatches.append(f"email: '{user.email}' vs '{atv_response.user.email}'")
-            if not user.idp_id == atv_response.user.idp_id:
-                data_mismatches.append(f"idp_id: '{user.idp_id}' vs '{atv_response.user.idp_id}'")
-            if not user.idp_name == atv_response.user.idp_name:
-                data_mismatches.append(f"idp_name: '{user.idp_name}' vs '{atv_response.user.idp_name}'")
-            if not user.auth_service == atv_response.user.auth_service:
-                data_mismatches.append(f"auth_service: '{user.auth_service}' vs '{atv_response.user.auth_service}'")
-            if data_mismatches:
-                raise HttpError(401, f"Error: Data mismatch for user {user.id}: {', '.join(data_mismatches)}")
-                
-        # Replace the user object with the database instance
-        atv_response.user = user
+            error_message = f"Error: Could not create or recover user entry in the database: {e}"
+            _ = await create_access_log(access_log_data, error_message, 500)
+            raise HttpError(500, error_message)
 
-        # Return the access token validation response to the API view 
-        return atv_response
+        # Add user database object to the access log pydantic data
+        access_log_data.user = user
+
+        # Add info to the request object
+        request.access_log_data = access_log_data
+        request.user_group_uuids = atv_response.user_group_uuids
+
+        # Make the user database object accessible through the request.auth attribute
+        return user
+    
+    # Initialize access log data
+    def __initialize_access_log_data(self, request):
+        """Return initial state of an AccessLog database entry"""
+
+        # Extract the origin IP address
+        origin_ip = request.META.get("HTTP_X_FORWARDED_FOR")
+        if origin_ip is None:
+            origin_ip = request.META.get("REMOTE_ADDR")
+
+        # Return data initialization (without a user)
+        return AccessLogPydantic(
+            id=str(uuid.uuid4()),
+            user=None,
+            timestamp_request=timezone.now(),
+            api_route=request.path_info,
+            origin_ip=origin_ip,
+        )
 
 # Apply the authorization requirement to all routes
 api.auth = GlobalAuth()

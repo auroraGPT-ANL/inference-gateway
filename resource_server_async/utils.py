@@ -656,32 +656,22 @@ def remove_endpoint_from_cache(endpoint_slug):
 
 
 # Get HTTP response
-async def get_response(content, code, data_logs):
+async def get_response(content, code, request):
     """Create database entries and prepare the HTTP response for the user."""
-
-    # Recover the AccessLog and RequestLog data
-    access_log_data = None; request_log_data = None
-    for data in data_logs:
-        if isinstance(data, AccessLogPydantic):
-            access_log_data = data
-        elif isinstance(data, RequestLogPydantic):
-            request_log_data = data
-        else:
-            return HttpResponse(json.dumps(f"Error: {type(data)} is not a supported pydantic model for logs."), status=400)
 
     # Try to create database entries
     try:
 
         # First, create AccessLog database entry (should always have one)
-        if access_log_data:
-            access_log = await create_access_log(access_log_data, content, code)
+        if hasattr(request, 'access_log_data'):
+            access_log = await create_access_log(request.access_log_data, content, code)
         else:
             return HttpResponse(json.dumps("Error: get_response did not receive AccessLog data"), status=400)
         
-        # Create RequestLog database entry 
-        if request_log_data:
-            request_log_data.access_log = access_log
-            request_log = await create_request_log(request_log_data, content, code)
+        # Create RequestLog database entry
+        if hasattr(request, 'request_log_data'):
+            request.request_log_data.access_log = access_log
+            request_log = await create_request_log(request.request_log_data, content, code)
 
     # Error message if something went wrong while creating database entries
     except Exception as e:
@@ -742,36 +732,12 @@ def create_streaming_response_headers():
     }
 
 
-# Initialize access log data
-def initialize_access_log_data(request):
-    """Return initial state of an AccessLog database entry"""
-
-    # Extract the origin IP address
-    origin_ip = request.META.get("HTTP_X_FORWARDED_FOR")
-    if origin_ip is None:
-        origin_ip = request.META.get("REMOTE_ADDR")
-
-    # Return data initialization
-    return AccessLogPydantic(
-        id=str(uuid.uuid4()),
-        user=request.auth.user,
-        timestamp_request=timezone.now(),
-        api_route=request.path_info,
-        origin_ip=origin_ip,
-    )
-
-
 # Initialize request log data
 def initialize_request_log_data():
     """Return initial state of a RequestLog database entry"""
-
-    # Return data initialization
-    try:
-        return RequestLogPydantic(
-            id=str(uuid.uuid4())   
-        )
-    except Exception as e:
-        print("EEEEE", e)
+    return RequestLogPydantic(
+        id=str(uuid.uuid4())   
+    )
 
 
 # Create access log

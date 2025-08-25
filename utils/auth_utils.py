@@ -192,8 +192,13 @@ def check_session_info(introspection):
     # Try to check if an authentication came from authorized provider
     try:
 
+        # Define the list of IdP providers present in the session_info field
+        # This array is used to log un-authorized attempts
+        session_info_idp_ids = []
+
         # If there is an authorized authentication (or if no AUTHORIZED_IDP_UUIDS was provided) ...
         for _, auth in introspection["session_info"]["authentications"].items():
+            session_info_idp_ids.append(auth["idp"])
             if auth["idp"] in settings.AUTHORIZED_IDP_UUIDS or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
 
                 # Find the user info linked to the authorized identity provider
@@ -221,8 +226,18 @@ def check_session_info(introspection):
     except Exception as e:
         return False, None, f"Error: Could not inspect session info: {e}"
     
+    # If user not authorized, extract user details for error message
+    try:
+        user_str = []
+        for identity in introspection["identity_set_detail"]:
+            if identity["identity_provider"] in session_info_idp_ids:
+                user_str.append(f"{identity['name']} ({identity['username']})")
+        user_str = ", ".join(user_str)
+    except Exception as e:
+        user_str = "could not recover user identity"
+    
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}"
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as ({user_str})."
 
 
 # Validate access token sent by user
