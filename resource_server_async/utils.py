@@ -955,7 +955,7 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
     
     try:
         # Get the log entry and preserve existing fields
-        get_log_async = sync_to_async(Log.objects.get)
+        get_log_async = sync_to_async(RequestLog.objects.get)
         log_entry = await get_log_async(id=log_id)
         
         # Preserve the original task_uuid
@@ -974,7 +974,7 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 response_status = extract_status_code_from_error(streaming_error)
         
         # Update the response status in the log entry
-        log_entry.response_status = response_status
+        log_entry.access_log.status_code = response_status
         
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
@@ -999,7 +999,8 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "throughput_tokens_per_second": 0,
                 "status": "failed"
             }
-            log_entry.result = json.dumps(error_response, indent=4)
+            log_entry.result = None
+            log_entry.access_log.error = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
             log_entry.result = json.dumps({
@@ -1010,14 +1011,15 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "throughput_tokens_per_second": 0
             }, indent=4)
         
-        log_entry.timestamp_response = timezone.now()
+        log_entry.timestamp_compute_response = timezone.now()
         
         # Ensure task_uuid is preserved (don't let it get overwritten)
         if original_task_uuid and not log_entry.task_uuid:
             log_entry.task_uuid = original_task_uuid
         
-        # Save the updated log entry
+        # Save the updated log and access entries
         await sync_to_async(log_entry.save, thread_sensitive=True)()
+        await sync_to_async(log_entry.access_log.save, thread_sensitive=True)()
         log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
         
     except Exception as e:
