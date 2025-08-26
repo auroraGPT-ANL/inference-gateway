@@ -20,6 +20,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
 import utils.globus_utils as globus_utils
+from utils.pydantic_models.db_models import RequestLogPydantic
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
@@ -52,7 +53,6 @@ from resource_server_async.utils import (
     prepare_streaming_task_data,
     create_streaming_response_headers,
     format_streaming_error_for_openai,
-    initialize_request_log_data,
     create_access_log
 )
 log.info("Utils functions loaded.")
@@ -722,13 +722,15 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
 
     # Initialize the request log data for the database entry
-    request.request_log_data = initialize_request_log_data()
-    request.request_log_data.cluster = cluster
-    request.request_log_data.framework = framework
-    request.request_log_data.openai_endpoint = data["model_params"]["openai_endpoint"]
-    request.request_log_data.prompt = json.dumps(extract_prompt(data["model_params"]))
-    request.request_log_data.model = data["model_params"]["model"]
-    request.request_log_data.timestamp_compute_request = timezone.now()
+    request.request_log_data = RequestLogPydantic(
+        id=str(uuid.uuid4()),
+        cluster=cluster,
+        framework=framework,
+        openai_endpoint=data["model_params"]["openai_endpoint"],
+        prompt=json.dumps(extract_prompt(data["model_params"])),
+        model=data["model_params"]["model"],
+        timestamp_compute_request=timezone.now()
+    )
     
     if stream:
         # Handle streaming request
@@ -892,16 +894,6 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     based on model availability and cluster status, abstracting cluster/framework.
     """
 
-    # Start the data dictionary for the database entry
-    db_data = {
-        "name": request.auth.name,
-        "username": request.auth.username,
-        "timestamp_receive": timezone.now(),
-        "sync": True,
-        "endpoint_slug": "federated", # Mark as federated request initially
-        "openai_endpoint": openai_endpoint
-    }
-
     # Strip the last forward slash if needed
     if openai_endpoint[-1] == "/":
         openai_endpoint = openai_endpoint[:-1]
@@ -909,11 +901,9 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     # Validate and build the inference request data - crucial for getting the model name
     data = validate_request_body(request, openai_endpoint)
     if "error" in data.keys():
-        return await get_response(db_data, data['error'], 400) # Use get_response to log failure
+        return await get_response(data['error'], 400, request) # Use get_response to log failure
 
     # Update the database with the input text from user and specific OpenAI endpoint
-    db_data["prompt"] = json.dumps(extract_prompt(data["model_params"]))
-    db_data["openai_endpoint"] = data["model_params"]["openai_endpoint"]
     requested_model = data["model_params"]["model"] # Model name is needed for filtering
 
     log.info(f"Federated request for model: {requested_model} - user: {request.auth.username}")
@@ -1080,21 +1070,21 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         # Errors raised during selection logic (already contain message/code)
         log.error(f"Federated selection failed: {e}")
         # error_message and error_code are set before raising
-        return await get_response(db_data, error_message, error_code)
+        return await get_response(error_message, error_code, request)
     except Exception as e:
         # Catch-all for unexpected errors during selection
         error_message = f"Unexpected error during endpoint selection: {e}"
         error_code = 500
         log.exception(error_message) # Log traceback
-        return await get_response(db_data, error_message, error_code)
+        return await get_response(error_message, error_code, request)
 
     # --- Execution with Selected Endpoint ---
     if not selected_endpoint:
         # Should be caught above, but final safety check
-        return await get_response(db_data, "Internal Server Error: Endpoint selection failed unexpectedly.", 500)
+        return await get_response("Internal Server Error: Endpoint selection failed unexpectedly.", 500, request)
 
     # Update db_data with the *actual* endpoint chosen
-    db_data["endpoint_slug"] = selected_endpoint["endpoint_slug"]
+    #db_data["endpoint_slug"] = selected_endpoint["endpoint_slug"]
 
     # Prepare data for the specific chosen endpoint
     try:
@@ -1102,7 +1092,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         # Ensure the model name in the request matches the endpoint's model (case might differ)
         data["model_params"]["model"] = selected_endpoint["model"]
     except Exception as e:
-        return await get_response(db_data, f"Error processing selected endpoint data for {selected_endpoint['endpoint_slug']}: {e}", 500)
+        return await get_response(f"Error processing selected endpoint data for {selected_endpoint['endpoint_slug']}: {e}", 500, request)
 
     # Check Globus status *again* right before submission (could have changed)
     # Use the same gcc client from before
@@ -1110,24 +1100,36 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         endpoint_uuid=selected_endpoint["endpoint_uuid"], client=gcc, endpoint_slug=selected_endpoint["endpoint_slug"]
     )
     if len(final_error) > 0:
-        return await get_response(db_data, f"Error confirming status for selected endpoint {selected_endpoint['endpoint_slug']}: {final_error}", 500)
+        return await get_response(f"Error confirming status for selected endpoint {selected_endpoint['endpoint_slug']}: {final_error}", 500, request)
     if not final_status["status"] == "online":
-        return await get_response(db_data, f"Error: Selected endpoint {selected_endpoint['endpoint_slug']} went offline before submission.", 503)
+        return await get_response(f"Error: Selected endpoint {selected_endpoint['endpoint_slug']} went offline before submission.", 503, request)
     
     resources_ready = int(final_status["details"].get("managers", 0)) > 0
 
+    # Initialize the request log data for the database entry
+    request.request_log_data = RequestLogPydantic(
+        id=str(uuid.uuid4()),
+        cluster=selected_endpoint["cluster"],
+        #framework=framework, ????
+        openai_endpoint=data["model_params"]["openai_endpoint"],
+        prompt=json.dumps(extract_prompt(data["model_params"])),
+        model=data["model_params"]["model"],
+        timestamp_compute_request=timezone.now()
+    )
+
     # Submit task to the chosen endpoint and wait for result
-    db_data["timestamp_submit"] = timezone.now()
     result, task_uuid, submit_error_message, submit_error_code = await globus_utils.submit_and_get_result(
         gce, selected_endpoint["endpoint_uuid"], selected_endpoint["function_uuid"], resources_ready, data=data
     )
+    request.request_log_data.timestamp_compute_response = timezone.now()
     if len(submit_error_message) > 0:
         # Submission failed, log with the chosen endpoint slug
-        return await get_response(db_data, submit_error_message, submit_error_code)
-    db_data["task_uuid"] = task_uuid
+        return await get_response(submit_error_message, submit_error_code, request)
+    request.request_log_data.task_uuid = task_uuid
 
     # Return Globus Compute results
-    return await get_response(db_data, result, 200)
+    return await get_response(result, 200, request)
+
 
 #TODO: Either remove auth check or add internal secret to api.py
 # Streaming server endpoints (integrated into Django)

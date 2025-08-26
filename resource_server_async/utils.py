@@ -717,14 +717,6 @@ def create_streaming_response_headers():
     }
 
 
-# Initialize request log data
-def initialize_request_log_data():
-    """Return initial state of a RequestLog database entry"""
-    return RequestLogPydantic(
-        id=str(uuid.uuid4())   
-    )
-
-
 # Create access log
 async def create_access_log(access_log_data: AccessLogPydantic, content, code):
     """Create a new AccessLog database entry."""
