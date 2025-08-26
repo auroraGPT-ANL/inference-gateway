@@ -107,3 +107,36 @@ class RequestLog(models.Model):
     # Custom display
     def __str__(self):
         return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
+
+
+# Batch log model
+class BatchLog(models.Model):
+
+    # Unique request ID
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Link to the access log tied to this request
+    access_log = models.OneToOneField(
+        AccessLog,
+        on_delete=models.PROTECT,
+        related_name='batch_log', # reverse relation (e.g., access_log.batch_log)
+        db_index=True,
+    )
+    
+    # What did the user request?
+    input_file = models.CharField(max_length=500)
+    output_folder_path = models.CharField(max_length=500, blank=True)
+    cluster = models.CharField(max_length=100)
+    framework = models.CharField(max_length=100)
+    model = models.CharField(max_length=250)
+
+    # List of Globus task UUIDs tied to the batch (string separated with ,)
+    globus_batch_uuid = models.CharField(max_length=100)
+    globus_task_uuids = models.TextField(null=True)
+    result = models.TextField(blank=True)
+
+    # What is the status of the batch?
+    status = models.CharField(max_length=250, default="pending")
+    in_progress_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)

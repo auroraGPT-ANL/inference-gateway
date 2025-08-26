@@ -15,7 +15,7 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
-from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic
+from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from asyncache import cached as asynccached
@@ -27,13 +27,8 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
-from resource_server.models import ModelStatus, Log
-from resource_server_async.models import (
-    AccessLog,
-    AccessLogPydantic,
-    RequestLog,
-    RequestLogPydantic
-)
+from resource_server.models import ModelStatus
+from resource_server_async.models import (AccessLog, RequestLog, BatchLog)
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -315,8 +310,9 @@ async def update_batch_status_result(batch, cross_check=False):
         if "TaskExecutionFailed" in error_message:
             try:
                 batch.status = "failed"
-                batch.error = error_message
+                batch.access_log.error = error_message
                 await update_database(db_object=batch)
+                await update_database(db_object=batch.access_log)
                 return batch.status, batch.result, "", 200
             except Exception as e:
                 return "", "", f"Error: Could not update batch status in database: {e}", 400
@@ -347,7 +343,7 @@ async def update_batch_status_result(batch, cross_check=False):
                     batch.in_progress_at = timezone.now()
                 elif batch_status == "failed":
                     batch.failed_at = timezone.now()
-                    batch.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
+                    batch.access_log.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
             else:
                 batch_status = batch.status
 
@@ -369,6 +365,7 @@ async def update_batch_status_result(batch, cross_check=False):
     try:
         batch.status = batch_status
         await update_database(db_object=batch)
+        await update_database(db_object=batch.access_log)
     except Exception as e:
         return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
     
@@ -389,6 +386,7 @@ async def update_batch_status_result(batch, cross_check=False):
         try:
             batch.result = batch_result
             await update_database(db_object=batch)
+            await update_database(db_object=batch.access_log)
         except Exception as e:
             return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
 
@@ -650,15 +648,20 @@ async def get_response(content, code, request):
     try:
 
         # First, create AccessLog database entry (should always have one)
-        if hasattr(request, 'access_log_data'):
+        if hasattr(request, "access_log_data"):
             access_log = await create_access_log(request.access_log_data, content, code)
         else:
             return HttpResponse(json.dumps("Error: get_response did not receive AccessLog data"), status=400)
         
         # Create RequestLog database entry
-        if hasattr(request, 'request_log_data'):
+        if hasattr(request, "request_log_data"):
             request.request_log_data.access_log = access_log
-            request_log = await create_request_log(request.request_log_data, content, code)
+            _ = await create_request_log(request.request_log_data, content, code)
+
+        # Create BatchLog database entry
+        if hasattr(request, "batch_log_data"):
+            request.batch_log_data.access_log = access_log
+            _ = await create_batch_log(request.batch_log_data, content, code)
 
     # Error message if something went wrong while creating database entries
     except Exception as e:
@@ -741,6 +744,18 @@ async def create_request_log(request_log_data: RequestLogPydantic, content, code
 
     # Create database entry
     return await update_database(db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True)
+
+
+# Create batch log
+async def create_batch_log(batch_log_data: BatchLogPydantic, content, code):
+    """Create a new BatchLog database entry."""
+
+    # Finalize data
+    if code == 200:
+        batch_log_data.result = json.dumps(content)
+
+    # Create database entry
+    return await update_database(db_Model=BatchLog, db_data=batch_log_data.model_dump(), return_obj=True)
     
 
 # Enhanced streaming utilities for content collection

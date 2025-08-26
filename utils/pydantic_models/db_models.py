@@ -33,3 +33,19 @@ class RequestLogPydantic(BaseModel):
     prompt: Optional[str] = Field(default=None)
     result: Optional[str] = Field(default=None)
     task_uuid: Optional[str] = Field(default=None)
+
+class BatchLogPydantic(BaseModel):
+    id: str
+    access_log: Optional[str] = Field(default=None)
+    input_file: Optional[str] = Field(default=None)
+    output_folder_path: Optional[str] = Field(default=None)
+    cluster: Optional[str] = Field(default=None)
+    framework: Optional[str] = Field(default=None)
+    model: Optional[str] = Field(default=None)
+    globus_batch_uuid: Optional[str] = Field(default=None)
+    globus_task_uuids: Optional[str] = Field(default=None)
+    result: Optional[str] = Field(default=None)
+    status: Optional[str] = Field(default=None)
+    in_progress_at: Optional[datetime] = Field(default=None)
+    completed_at: Optional[datetime] = Field(default=None)
+    failed_at: Optional[datetime] = Field(default=None)
