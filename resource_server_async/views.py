@@ -1110,10 +1110,10 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     request.request_log_data = RequestLogPydantic(
         id=str(uuid.uuid4()),
         cluster=selected_endpoint["cluster"],
-        #framework=framework, ????
+        framework=selected_endpoint["framework"],
+        model=data["model_params"]["model"],
         openai_endpoint=data["model_params"]["openai_endpoint"],
         prompt=json.dumps(extract_prompt(data["model_params"])),
-        model=data["model_params"]["model"],
         timestamp_compute_request=timezone.now()
     )
 
@@ -1137,12 +1137,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 @router.post("/api/streaming/data/")
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY"""
-    
-    # SECURITY: Simple internal secret check for remote function calls
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        return JsonResponse({"error": "Unauthorized"}, status=401)
-    
+        
     try:
         data = json.loads(request.body)
         task_id = data.get('task_id')
@@ -1187,11 +1182,6 @@ async def receive_streaming_data(request):
 async def receive_streaming_error(request):
     """Receive error from vLLM function - INTERNAL ONLY"""
     
-    # SECURITY: Simple internal secret check for remote function calls
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        return JsonResponse({"error": "Unauthorized"}, status=401)
-    
     try:
         data = json.loads(request.body)
         task_id = data.get('task_id')
@@ -1224,11 +1214,6 @@ async def receive_streaming_error(request):
 @router.post("/api/streaming/done/")
 async def receive_streaming_done(request):
     """Receive completion signal from vLLM function - INTERNAL ONLY"""
-    
-    # SECURITY: Simple internal secret check for remote function calls
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        return JsonResponse({"error": "Unauthorized"}, status=401)
     
     try:
         data = json.loads(request.body)

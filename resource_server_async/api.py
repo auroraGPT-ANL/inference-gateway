@@ -4,7 +4,6 @@ from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 from ninja.errors import HttpError
-from django.http import HttpResponse
 from ninja.security import HttpBearer
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -38,9 +37,21 @@ if not settings.RUNNING_AUTOMATED_TEST_SUITE:
 # ========== API authorization layer ==========
 # ---------------------------------------------
 
+ALLOWED_STREAMING_ROUTES = [
+    "/api/streaming/data/",
+    "/api/streaming/error/",
+    "/api/streaming/done/"
+]
+
 # Global authorization check that applies to all API routes
 class GlobalAuth(HttpBearer):
     async def authenticate(self, request, access_token):
+
+        # Simple internal secret check for remote functions if this is an "internal" streaming call
+        if request.path_info in ALLOWED_STREAMING_ROUTES:
+            internal_secret = request.headers.get('X-Internal-Secret', '')
+            if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+                raise HttpError(401, "Unauthorized")
 
         # Initialize the access log data for the database entry
         access_log_data = self.__initialize_access_log_data(request)
