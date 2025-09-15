@@ -1,4 +1,5 @@
 from ninja import Query
+from ninja.errors import HttpError
 from asgiref.sync import sync_to_async
 from django.conf import settings
 import uuid
@@ -1129,9 +1130,15 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 #TODO: Either remove auth check or add internal secret to api.py
 # Streaming server endpoints (integrated into Django)
 
-@router.post("/api/streaming/data/")
+@router.post("/api/streaming/data/", auth=None)
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY"""
+
+    # IMPORTANT
+    # Raise error if request does not have the secret
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        raise HttpError(401, "Unauthorized")
         
     try:
         data = json.loads(request.body)
@@ -1173,10 +1180,16 @@ async def receive_streaming_data(request):
         log.error(f"Error in streaming data endpoint: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
-@router.post("/api/streaming/error/")
+@router.post("/api/streaming/error/", auth=None)
 async def receive_streaming_error(request):
     """Receive error from vLLM function - INTERNAL ONLY"""
     
+    # IMPORTANT
+    # Raise error if request does not have the secret
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        raise HttpError(401, "Unauthorized")
+
     try:
         data = json.loads(request.body)
         task_id = data.get('task_id')
@@ -1206,10 +1219,16 @@ async def receive_streaming_error(request):
         log.error(f"Error receiving streaming error: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
-@router.post("/api/streaming/done/")
+@router.post("/api/streaming/done/", auth=None)
 async def receive_streaming_done(request):
     """Receive completion signal from vLLM function - INTERNAL ONLY"""
     
+    # IMPORTANT
+    # Raise error if request does not have the secret
+    internal_secret = request.headers.get('X-Internal-Secret', '')
+    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
+        raise HttpError(401, "Unauthorized")
+
     try:
         data = json.loads(request.body)
         task_id = data.get('task_id')

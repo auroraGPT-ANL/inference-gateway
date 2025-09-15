@@ -1,5 +1,4 @@
 import uuid
-from django.core.exceptions import ValidationError
 from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
@@ -7,7 +6,7 @@ from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from resource_server_async.models import User, AccessLog
+from resource_server_async.models import User
 from resource_server_async.utils import create_access_log
 from utils.auth_utils import validate_access_token
 from utils.pydantic_models.db_models import AccessLogPydantic
@@ -37,21 +36,18 @@ if not settings.RUNNING_AUTOMATED_TEST_SUITE:
 # ========== API authorization layer ==========
 # ---------------------------------------------
 
-ALLOWED_STREAMING_ROUTES = [
-    "/api/streaming/data/",
-    "/api/streaming/error/",
-    "/api/streaming/done/"
-]
-
 # Global authorization check that applies to all API routes
 class GlobalAuth(HttpBearer):
-    async def authenticate(self, request, access_token):
 
-        # Simple internal secret check for remote functions if this is an "internal" streaming call
-        if request.path_info in ALLOWED_STREAMING_ROUTES:
-            internal_secret = request.headers.get('X-Internal-Secret', '')
-            if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-                raise HttpError(401, "Unauthorized")
+    # Custom error message if Authorization headers is missing
+    async def __call__(self, request):
+        auth = request.headers.get("Authorization")
+        if not auth:
+            raise HttpError(401, "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers.")
+        return await self.authenticate(request, None) # Request is the object being used by the validate_access_token function
+
+    # Auth check 
+    async def authenticate(self, request, access_token):
 
         # Initialize the access log data for the database entry
         access_log_data = self.__initialize_access_log_data(request)
@@ -94,7 +90,7 @@ class GlobalAuth(HttpBearer):
     
     # Initialize access log data
     def __initialize_access_log_data(self, request):
-        """Return initial state of an AccessLog database entry"""
+        """Return initial state of an AccessLogPydantic entry"""
 
         # Extract the origin IP address
         origin_ip = request.META.get("HTTP_X_FORWARDED_FOR")
