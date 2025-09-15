@@ -9,9 +9,9 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -24,9 +24,9 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -39,9 +39,9 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8002,
             "endpoint_uuid": "a5ac731e-e49a-4951-90d2-7709a05b3d6a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -54,9 +54,9 @@
             "model": "mistralai/Mixtral-8x22B-Instruct-v0.1",
             "api_port": 8000,
             "endpoint_uuid": "46a57aff-68a7-48b2-8157-e27347d06740",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },    
     {
@@ -69,7 +69,8 @@
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "be293b79-501f-484e-898c-a448c4e32c36",
-            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -82,7 +83,8 @@
             "model": "meta-llama/Meta-Llama-3-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "f8bcfd58-54c6-4731-aad1-d7a27850e642",
-            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -95,7 +97,8 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3",
             "api_port": 8000,
             "endpoint_uuid": "05257c2d-f136-4ffc-8d8c-66638f696335",
-            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb"
+            "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -108,7 +111,9 @@
             "model": "meta-llama-3-8b-instruct",
             "api_port": 8000,
             "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
         }
     },
     {
@@ -121,7 +126,8 @@
             "model": "mistral-7b-instruct-v03",
             "api_port": 8000,
             "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -134,7 +140,8 @@
             "model": "meta-llama-3-70b-instruct",
             "api_port": 8000,
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
-            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9"
+            "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -147,9 +154,9 @@
             "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -162,9 +169,9 @@
             "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -177,9 +184,9 @@
             "model": "mistralai/Mistral-Large-Instruct-2407",
             "api_port": 8000,
             "endpoint_uuid": "33bc18db-752b-4f60-81ad-2c7756990184",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -192,9 +199,9 @@
             "model": "Qwen/Qwen2.5-7B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -207,9 +214,9 @@
             "model": "Qwen/Qwen2.5-14B-Instruct",
             "api_port": 8001,
             "endpoint_uuid": "7ec80f1f-ef0a-4297-a74d-58a26521fb69",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -222,7 +229,7 @@
             "model": "mgoin/Nemotron-4-340B-Instruct-hf",
             "api_port": 8000,
             "endpoint_uuid": "34fa20a8-0d4a-49d2-8a73-39dc85bd2ed4",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3"
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236"
         }
     },
     {
@@ -235,7 +242,7 @@
             "model": "meta-llama/Meta-Llama-3.1-405B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "d39cbc54-b6ed-4d1f-894f-499dff5b1dc8",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3"
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236"
         }
     },
     {
@@ -248,9 +255,9 @@
             "model": "Qwen/Qwen2-VL-72B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "fb539f97-a72b-4515-a87c-7c8fe431dfc4",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -263,9 +270,9 @@
             "model": "Qwen/QwQ-32B-Preview",
             "api_port": 8000,
             "endpoint_uuid": "1e0ff07b-6468-496c-8024-5cb3911517ab",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -295,9 +302,9 @@
             "model": "meta-llama/Llama-3.2-90B-Vision-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "499a85ea-c9d0-400e-a836-aef6c0f2d43b",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -312,7 +319,7 @@
             "endpoint_uuid": "da5f2dbb-f265-4c61-a62a-2c1ec44c29eb",
             "function_uuid": "12d8339d-28eb-412b-ae37-d7b612f3f44d",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -325,9 +332,9 @@
             "model": "meta-llama/Llama-3.3-70B-Instruct",
             "api_port": 8181,
             "endpoint_uuid": "c3daad56-7af1-4ba4-bca4-63e4ce72f268",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -340,9 +347,9 @@
             "model": "argonne-private/AuroraGPT-7B",
             "api_port": 8888,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -356,9 +363,9 @@
             "model": "argonne/AuroraGPT-IT-v4-0125",
             "api_port": 8181,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -371,9 +378,9 @@
             "model": "argonne/AuroraGPT-DPO-UFB-0225",
             "api_port": 8182,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -386,9 +393,9 @@
             "model": "argonne-private/AuroraGPT-7B-OI",
             "api_port": 8184,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -402,9 +409,9 @@
             "model": "deepseek-ai/DeepSeek-V3",
             "api_port": 8000,
             "endpoint_uuid": "c8e147c8-5a53-438d-a286-d625560a252a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -418,7 +425,7 @@
             "model": "deepseek-ai/DeepSeek-R1",
             "api_port": 8000,
             "endpoint_uuid": "712bd6f6-7f1c-45cd-9672-81d579faf4db",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -432,9 +439,9 @@
             "model": "allenai/Llama-3.1-Tulu-3-405B",
             "api_port": 8000,
             "endpoint_uuid": "9ce1abd4-ee0b-475b-a90a-716f79c18af4",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -447,9 +454,9 @@
             "model": "argonne-private/AuroraGPT-SFT-1902",
             "api_port": 8889,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -463,9 +470,9 @@
             "model": "argonne/AuroraGPT-Tulu3-SFT-0125",
             "api_port": 8183,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -478,9 +485,9 @@
             "model": "Qwen/QwQ-32B",
             "api_port": 8000,
             "endpoint_uuid": "11509894-55f4-4c22-8866-d0382cab7f18",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -493,9 +500,9 @@
             "model": "Qwen/QVQ-72B-Preview",
             "api_port": 8000,
             "endpoint_uuid": "94248103-c719-4320-ac6b-6a885bf61d99",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
@@ -509,9 +516,9 @@
             "model": "Qwen/Qwen2.5-VL-72B-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "57d963f5-2f73-4f0a-898c-3cc05311764f",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -524,9 +531,9 @@
             "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "6f19b26a-6e4e-4e96-9253-c848a66bec40",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -539,9 +546,9 @@
             "model": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
             "api_port": 8000,
             "endpoint_uuid": "987f3fbd-3cf9-4c14-aadf-15be380d3d90",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -554,9 +561,9 @@
             "model": "Salesforce/SFR-Embedding-Mistral",
             "api_port": 8000,
             "endpoint_uuid": "e0ea324f-7722-4810-affe-5b7ef0994c2a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -569,9 +576,9 @@
             "model": "mistralai/Mistral-7B-Instruct-v0.3-embed",
             "api_port": 8001,
             "endpoint_uuid": "e0ea324f-7722-4810-affe-5b7ef0994c2a",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -584,9 +591,9 @@
             "model": "Qwen/Qwen3-32B",
             "api_port": 8000,
             "endpoint_uuid": "650c42d0-dcc2-4201-a889-9b8491c15d23",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -599,9 +606,9 @@
             "model": "Qwen/Qwen3-235B-A22B",
             "api_port": 8000,
             "endpoint_uuid": "ca49b863-616c-4d8a-b182-3bebe02b0aad",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -614,9 +621,9 @@
             "model": "google/gemma-3-27b-it",
             "api_port": 8000,
             "endpoint_uuid": "73f3219b-dbf2-4593-bc56-5cbf58bd2347",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -629,9 +636,9 @@
             "model": "openai/gpt-oss-20b",
             "api_port": 8001,
             "endpoint_uuid": "f28dafdf-87ea-4aae-9b62-9ca39ca9d2fd",
-            "function_uuid": "e1a41db4-9a32-49a1-9521-e703778381fd",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -644,9 +651,9 @@
             "model": "openai/gpt-oss-120b",
             "api_port": 8000,
             "endpoint_uuid": "f28dafdf-87ea-4aae-9b62-9ca39ca9d2fd",
-            "function_uuid": "e1a41db4-9a32-49a1-9521-e703778381fd",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -659,9 +666,9 @@
             "model": "argonne/AuroraGPT-KTO-UFB-0325",
             "api_port": 8184,
             "endpoint_uuid": "4f1275f4-e7f3-4f1f-8254-85141f42af49",
-            "function_uuid": "382303f6-cef7-4588-b309-e5ad944359f3",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "cdc4c3e4-97b2-41eb-91cb-64b3e07561bd"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     }
 ]
