@@ -6,7 +6,6 @@ class UserPydantic(BaseModel):
     id: str
     name: str
     username: str
-    email: str
     idp_id: str
     idp_name: str
     auth_service: str

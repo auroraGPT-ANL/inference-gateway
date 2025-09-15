@@ -67,7 +67,6 @@ class GlobalAuth(HttpBearer):
                 defaults={
                     'name': atv_response.user.name,
                     'username': atv_response.user.username,
-                    'email': atv_response.user.email,
                     'idp_id': atv_response.user.idp_id,
                     'idp_name': atv_response.user.idp_name,
                     'auth_service': atv_response.user.auth_service,

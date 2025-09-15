@@ -19,7 +19,6 @@ class User(models.Model):
     id = models.CharField(max_length=100, primary_key=True)
     name = models.CharField(max_length=100)
     username = models.CharField(max_length=100)
-    email = models.CharField(max_length=100)
 
     # Identity provider info
     idp_id = models.CharField(max_length=100, default="", blank=True)

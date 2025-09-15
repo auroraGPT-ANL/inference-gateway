@@ -211,7 +211,6 @@ def check_session_info(introspection):
                                 id=identity["sub"],
                                 name=identity["name"],
                                 username=identity["username"],
-                                email=identity["email"],
                                 idp_id=identity["identity_provider"],
                                 idp_name=identity["identity_provider_display_name"],
                                 auth_service=AuthService.GLOBUS.value
