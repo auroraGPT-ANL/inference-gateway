@@ -56,7 +56,7 @@ class AccessLog(models.Model):
     api_route = models.CharField(max_length=256, null=False, blank=False)
 
     # IP address from where the request is coming from
-    origin_ip = models.CharField(max_length=50, null=False, blank=False)    
+    origin_ip = models.CharField(max_length=250, null=False, blank=False)    
 
     # HTTP status of the request
     status_code = models.IntegerField(null=False)
