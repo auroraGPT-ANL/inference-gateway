@@ -670,5 +670,20 @@
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 46,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-china-nctiedachipexpert-8b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "China-NCTIEDA/ChipExpert-8B-Instruct",
+            "api_port": 8008,
+            "endpoint_uuid": "589738c2-325e-4068-8cf4-e28d07449f5a",
+            "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
+            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+        }
     }
 ]
