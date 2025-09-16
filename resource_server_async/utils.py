@@ -965,13 +965,19 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
         log.error(f"Error aggregating streaming content: {e}")
         return None
 
+@sync_to_async
+def get_log_entry_with_access_log(log_id: str) -> RequestLog:
+    """Extract a RequestLog entry and also recover the related AccessLog object."""
+    return RequestLog.objects.select_related("access_log").get(id=log_id)
+
+
 async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict, stream_task_id: str = None):
     """Asynchronously update streaming log entry with final content"""
     
     try:
-        # Get the log entry and preserve existing fields
-        get_log_async = sync_to_async(RequestLog.objects.get)
-        log_entry = await get_log_async(id=log_id)
+        # Get the RequestLog and AccessLog entry without using lazy loading
+        log_entry = await get_log_entry_with_access_log(log_id)
+        access_log = log_entry.access_log  # Safe: already fetched
         
         # Preserve the original task_uuid
         original_task_uuid = log_entry.task_uuid
@@ -980,16 +986,16 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         error_status = final_metrics.get('final_status')
         streaming_error = None
         response_status = 200  # Default success
-        
+
         if error_status == "error" and stream_task_id:
             # Get the actual error message
             streaming_error = get_streaming_error(stream_task_id)
             if streaming_error:
                 # Extract status code using the simple utility function
                 response_status = extract_status_code_from_error(streaming_error)
-        
+
         # Update the response status in the log entry
-        log_entry.access_log.status_code = response_status
+        access_log.status_code = response_status
         
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
@@ -1015,7 +1021,7 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "status": "failed"
             }
             log_entry.result = None
-            log_entry.access_log.error = json.dumps(error_response, indent=4)
+            access_log.error = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
             log_entry.result = json.dumps({
@@ -1033,8 +1039,8 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
             log_entry.task_uuid = original_task_uuid
         
         # Save the updated log and access entries
-        await sync_to_async(log_entry.save, thread_sensitive=True)()
-        await sync_to_async(log_entry.access_log.save, thread_sensitive=True)()
+        await update_database(db_Model=AccessLog, db_object=access_log)
+        await update_database(db_Model=RequestLog, db_object=log_entry)
         log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
         
     except Exception as e:
