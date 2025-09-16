@@ -236,7 +236,7 @@ def check_session_info(introspection):
         user_str = "could not recover user identity"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as ({user_str})."
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as {user_str}."
 
 
 # Validate access token sent by user
