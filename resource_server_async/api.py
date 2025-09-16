@@ -96,6 +96,11 @@ class GlobalAuth(HttpBearer):
         if origin_ip is None:
             origin_ip = request.META.get("REMOTE_ADDR")
 
+        # Remove duplicate if any
+        if origin_ip:
+            ip_list = [ip.strip() for ip in origin_ip.split(",")]
+            origin_ip = ", ".join(set(ip_list))
+
         # Return data initialization (without a user)
         return AccessLogPydantic(
             id=str(uuid.uuid4()),
