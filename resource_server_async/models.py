@@ -63,6 +63,10 @@ class AccessLog(models.Model):
     # Error message if any
     error = models.TextField(null=True)
 
+    # Globus Groups that were used to authorize the request
+    # If None, it simply used the high-assurance policy
+    authorized_groups = models.TextField(null=True)
+
     # Custom display
     def __str__(self):
         if self.user:
