@@ -27,6 +27,7 @@ class ATVResponse(BaseModel):
     is_valid: bool
     user: Optional[UserPydantic] = None
     user_group_uuids: List[str] = field(default_factory=lambda: [])
+    idp_group_overlap_str: Optional[str] = None
     error_message: str = ""
     error_code: int = 0
     
@@ -243,12 +244,14 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
     """
         Make sure the user is part of an authorized Globus Group (if any)
         associated with a given identity provider.
+
+        Returns: True/False if granted or not, error_message, group_overlap
     """
 
     # Extract the identity provider's UUID
     idp_domain = next((k for k, v in settings.AUTHORIZED_IDPS.items() if v == user.idp_id), None)
     if idp_domain is None:
-        return False, "Error: Could not check groups per IdP, user.idp_id did not match any AUTHORIZED_IDPS values."
+        return False, "Error: Could not check groups per IdP, user.idp_id did not match any AUTHORIZED_IDPS values.", None
     
     # If there is a Globus Group check tied to this identity provider ...
     if idp_domain in settings.AUTHORIZED_GROUPS_PER_IDP:
@@ -256,14 +259,15 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
         # Error if the user is a member of any authorized Globus Groups
         group_overlap = set(user_groups) & set(settings.AUTHORIZED_GROUPS_PER_IDP[idp_domain])
         if len(group_overlap) == 0:
-            return False, f"Error: Permission denied. User ({user.name} - {user.username}) not part of the Globus Groups applied for {user.idp_name}."
+            return False, f"Error: Permission denied. User ({user.name} - {user.username}) not part of the Globus Groups applied for {user.idp_name}.", None
         
         # Grant request if user is part of at least one authorized Globus Groups
         else:
-            return True, "" 
+            group_overlap = ", ".join(list(group_overlap))
+            return True, "", group_overlap
 
     # Grant request if no group restriction was found
-    return True, ""
+    return True, "", None
 
 
 # Validate access token sent by user
@@ -311,7 +315,7 @@ def validate_access_token(request):
             return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
         
     # Make sure the user is part of a per-IdP authorized group (if any)
-    successful, error_message = check_groups_per_idp(user, user_groups)
+    successful, error_message, idp_group_overlap_str = check_groups_per_idp(user, user_groups)
     if not successful:
         return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
@@ -330,5 +334,6 @@ def validate_access_token(request):
     return ATVResponse(
         is_valid=True,
         user=user,
-        user_group_uuids=user_groups
+        user_group_uuids=user_groups,
+        idp_group_overlap_str=idp_group_overlap_str,
     )
