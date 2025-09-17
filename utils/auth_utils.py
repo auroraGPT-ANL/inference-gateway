@@ -125,10 +125,9 @@ def _perform_token_introspection(bearer_token: str):
     except Exception as e:
         return None, [], f"Error: Could not create GroupsClient. {e}"
 
-    # Get the user's group memberships
+    # Get the list of user's group memberships
     try:
         user_groups_response = groups_client.get_my_groups()
-        # Convert to serializable list
         user_groups = [group["id"] for group in user_groups_response]
     except Exception as e:
         return None, [], f"Error: Could not recover user group memberships. {e}"
@@ -239,6 +238,34 @@ def check_session_info(introspection):
     return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as {user_str}."
 
 
+# Check Session Info
+def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
+    """
+        Make sure the user is part of an authorized Globus Group (if any)
+        associated with a given identity provider.
+    """
+
+    # Extract the identity provider's UUID
+    idp_domain = next((k for k, v in settings.AUTHORIZED_IDPS.items() if v == user.idp_id), None)
+    if idp_domain is None:
+        return False, "Error: Could not check groups per IdP, user.idp_id did not match any AUTHORIZED_IDPS values."
+    
+    # If there is a Globus Group check tied to this identity provider ...
+    if idp_domain in settings.AUTHORIZED_GROUPS_PER_IDP:
+
+        # Error if the user is a member of any authorized Globus Groups
+        group_overlap = set(user_groups) & set(settings.AUTHORIZED_GROUPS_PER_IDP[idp_domain])
+        if len(group_overlap) == 0:
+            return False, f"Error: Permission denied. User ({user.name} - {user.username}) not part of the Globus Groups applied for {user.idp_name}."
+        
+        # Grant request if user is part of at least one authorized Globus Groups
+        else:
+            return True, "" 
+
+    # Grant request if no group restriction was found
+    return True, ""
+
+
 # Validate access token sent by user
 def validate_access_token(request):
     """This function returns an instance of the ATVResponse pydantic data structure."""
@@ -282,6 +309,11 @@ def validate_access_token(request):
         successful, error_message = check_globus_policies(introspection)
         if not successful:
             return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
+        
+    # Make sure the user is part of a per-IdP authorized group (if any)
+    successful, error_message = check_groups_per_idp(user, user_groups)
+    if not successful:
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
