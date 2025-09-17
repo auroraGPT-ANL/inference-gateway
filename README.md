@@ -188,6 +188,7 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
 # AUTHORIZED_IDPS='{"Your Institution Domain": "your-institution-uuid"}'
+# AUTHORIZED_GROUPS_PER_IDP='{"Institution Domain": "coma-separated list of group uuids"}'
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
 # Client ID and Secret of the Globus Service Account application

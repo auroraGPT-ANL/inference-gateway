@@ -19,6 +19,7 @@ class AccessLogPydantic(BaseModel):
     origin_ip: Optional[str] = Field(default=None)
     status_code: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
+    authorized_groups: Optional[str] = Field(default=None)
 
 class RequestLogPydantic(BaseModel):
     id: str
