@@ -107,6 +107,8 @@ class RequestLog(models.Model):
     # Compute task ID
     task_uuid = models.CharField(null=True, max_length=100)
 
+    metrics_processed = models.BooleanField(default=False)
+
     # Custom display
     def __str__(self):
         return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
@@ -143,3 +145,83 @@ class BatchLog(models.Model):
     in_progress_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     failed_at = models.DateTimeField(null=True, blank=True)
+
+
+# Request metrics model (1:1 with RequestLog)
+class RequestMetrics(models.Model):
+
+    # Tie metrics to a single request (and reuse its UUID as primary key)
+    request = models.OneToOneField(
+        RequestLog,
+        primary_key=True,
+        on_delete=models.CASCADE,
+        related_name='metrics',
+        db_index=True,
+    )
+
+    # Duplicate key identifiers for faster filtering/aggregations
+    cluster = models.CharField(max_length=100, db_index=True)
+    framework = models.CharField(max_length=100, db_index=True)
+    model = models.CharField(max_length=100, db_index=True)
+
+    # Status code at time of response (from AccessLog)
+    status_code = models.IntegerField(null=True, db_index=True)
+
+    # Token usage
+    prompt_tokens = models.BigIntegerField(null=True)
+    completion_tokens = models.BigIntegerField(null=True)
+    total_tokens = models.BigIntegerField(null=True)
+
+    # Performance metrics
+    response_time_sec = models.FloatField(null=True)
+    throughput_tokens_per_sec = models.FloatField(null=True)
+
+    # Copy timestamps for efficient window queries
+    timestamp_compute_request = models.DateTimeField(null=True, db_index=True)
+    timestamp_compute_response = models.DateTimeField(null=True)
+
+    # Audit
+    created_at = models.DateTimeField(default=now, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["cluster", "framework"]),
+            models.Index(fields=["model"]),
+        ]
+
+    def __str__(self):
+        return f"<Metrics - {self.request_id}>"
+
+
+# Batch metrics model (1:1 with BatchLog)
+class BatchMetrics(models.Model):
+
+    batch = models.OneToOneField(
+        BatchLog,
+        primary_key=True,
+        on_delete=models.CASCADE,
+        related_name='metrics',
+        db_index=True,
+    )
+
+    cluster = models.CharField(max_length=100, db_index=True)
+    framework = models.CharField(max_length=100, db_index=True)
+    model = models.CharField(max_length=250, db_index=True)
+    status = models.CharField(max_length=50, null=True, blank=True, db_index=True)
+
+    total_tokens = models.BigIntegerField(null=True)
+    num_responses = models.BigIntegerField(null=True)
+    response_time_sec = models.FloatField(null=True)
+    throughput_tokens_per_sec = models.FloatField(null=True)
+
+    created_at = models.DateTimeField(default=now, db_index=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["model"]),
+            models.Index(fields=["cluster", "framework"]),
+        ]
+
+    def __str__(self):
+        return f"<BatchMetrics - {self.batch_id}>"
