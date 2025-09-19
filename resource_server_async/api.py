@@ -55,6 +55,9 @@ class GlobalAuth(HttpBearer):
         # Introspect the access token
         atv_response = validate_access_token(request)
 
+        # Add whether the access token got granted because of a special Globus Groups membership
+        access_log_data.authorized_groups = atv_response.idp_group_overlap_str
+
         # Raise an error if the access token if not valid or if the user is not authorized
         if not atv_response.is_valid:
             _ = await create_access_log(access_log_data, atv_response.error_message, atv_response.error_code)

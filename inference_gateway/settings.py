@@ -71,6 +71,11 @@ AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
 AUTHORIZED_IDP_DOMAINS = list(AUTHORIZED_IDPS.keys())
 AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDPS.values())
 
+# Extract list of allowed groups per identity providers
+AUTHORIZED_GROUPS_PER_IDP = json.loads(os.getenv("AUTHORIZED_GROUPS_PER_IDP", "{}"))
+for key, value in AUTHORIZED_GROUPS_PER_IDP.items():
+    AUTHORIZED_GROUPS_PER_IDP[key] = [v.strip() for v in value.split(",")]
+
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]
 
