@@ -47,6 +47,7 @@
     <div class="tabs">
     <div class="tab active" data-tab="overview">Overview</div>
     <div class="tab" data-tab="model">Model</div>
+    <div class="tab" data-tab="users">Users</div>
     <div class="tab" data-tab="health">Health</div>
     <div class="tab" data-tab="logs">Logs</div>
   </div>
@@ -99,6 +100,7 @@
       <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
         <button id="refreshLogs" title="Reload newest logs and reset pagination">Refresh</button>
         <button id="loadMore" title="Load more logs (next page)">Load more</button>
+        <span id="logsLoading" class="muted" style="display:none;">Loading…</span>
         <span id="logsCount" class="muted">Showing 0 records</span>
         <span class="muted" title="Use Refresh to reload from newest. Use Load more to fetch additional pages. Use Filter to search within loaded rows.">ℹ️</span>
         <label for="logFilter" style="margin-left:auto;">Filter:</label>
@@ -122,6 +124,35 @@
         </table>
       </div>
       
+    </div>
+  </div>
+
+  <div id="users" class="section">
+    <div class="card">
+      <div class="title">Users</div>
+      <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
+        <button id="refreshUsers" title="Reload users summary">Refresh</button>
+        <span id="usersLoading" class="muted" style="display:none;">Loading…</span>
+        <span id="usersCount" class="muted">Showing 0 users</span>
+        <label for="usersFilter" style="margin-left:auto;">Filter:</label>
+        <input id="usersFilter" type="text" placeholder="Search users" style="flex:1; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+      </div>
+      <div class="table-wrap">
+        <table id="usersTable">
+          <thead>
+            <tr>
+              <th class="sortable">Name <span class="sort-icon">↕</span></th>
+              <th class="sortable">Username <span class="sort-icon">↕</span></th>
+              <th class="sortable">Last Access <span class="sort-icon">↕</span></th>
+              <th class="sortable">Successful <span class="sort-icon">↕</span></th>
+              <th class="sortable">Failed <span class="sort-icon">↕</span></th>
+              <th class="sortable">Success % <span class="sort-icon">↕</span></th>
+              <th class="sortable">Last Failure <span class="sort-icon">↕</span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -229,6 +260,7 @@
     const rtUsersPerModelUrl = '/dashboard/analytics/users-per-model';
     const rtSeriesUrl = '/dashboard/analytics/series';
     const healthUrl = '/dashboard/analytics/health';
+    const usersTableUrl = '/dashboard/analytics/users-table';
     const rtBatchLogsUrl = '/dashboard/analytics/batch-logs';
 
     let donutChart = null;
@@ -244,6 +276,7 @@
     let page = 0;
     let pageBatch = 0;
     const pageSize = 500;
+    let usersData = [];
 
     function fmt(num) { return Number(num || 0).toLocaleString(); }
     function setText(id, val) { document.getElementById(id).textContent = val; }
@@ -397,14 +430,15 @@
         const tr = document.createElement('tr');
         const promptSafe = escapeHtml(r.prompt_snippet || '');
         const resultSafe = escapeHtml(r.result_snippet || '');
+        const apiSafe = escapeHtml(r.api_route || '');
         tr.innerHTML = `
           <td>${r.timestamp_request ? new Date(r.timestamp_request).toLocaleString() : ''}</td>
           <td>${r.user_name || r.user_username || '—'}</td>
           <td>${r.model || ''}</td>
-          <td>${r.status_code ?? '—'}</td>
+          <td title="${apiSafe}">${r.status_code ?? '—'}</td>
           <td>${(r.latency_seconds ?? 0).toFixed(3)}</td>
-          <td class="cell-scroll" title="${promptSafe}"><div>${promptSafe}</div></td>
-          <td class="cell-scroll" title="${resultSafe}"><div>${resultSafe}</div></td>
+          <td class="cell-scroll"><div>${promptSafe}</div></td>
+          <td class="cell-scroll"><div>${resultSafe}</div></td>
           <td class="cell-scroll" title="${escapeHtml(r.error_snippet || '')}"><div>${escapeHtml(r.error_snippet || '')}</div></td>
         `;
         tbody.appendChild(tr);
@@ -414,16 +448,22 @@
     }
 
     async function loadLogs(reset=false) {
-      if (reset) {
-        page = 0;
-        const tbody = document.querySelector('#logsTable tbody');
-        tbody.innerHTML='';
-        const countEl = document.getElementById('logsCount');
-        if (countEl) countEl.textContent = 'Showing 0 records';
+      const loadingEl = document.getElementById('logsLoading');
+      if (loadingEl) loadingEl.style.display = '';
+      try {
+        if (reset) {
+          page = 0;
+          const tbody = document.querySelector('#logsTable tbody');
+          tbody.innerHTML='';
+          const countEl = document.getElementById('logsCount');
+          if (countEl) countEl.textContent = 'Showing 0 records';
+        }
+        const res = await fetch(`${rtLogsUrl}?page=${page}&per_page=${pageSize}`);
+        const data = await res.json();
+        if (Array.isArray(data)) appendLogs(data);
+      } finally {
+        if (loadingEl) loadingEl.style.display = 'none';
       }
-      const res = await fetch(`${rtLogsUrl}?page=${page}&per_page=${pageSize}`);
-      const data = await res.json();
-      if (Array.isArray(data)) appendLogs(data);
     }
 
     function appendBatchLogs(rows) {
@@ -448,6 +488,41 @@
       if (Array.isArray(data)) appendBatchLogs(data);
     }
 
+    function appendUsers(rows) {
+      const tbody = document.querySelector('#usersTable tbody');
+      tbody.innerHTML = '';
+      for (const u of rows) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.name || ''}</td>
+          <td>${u.username || ''}</td>
+          <td>${u.last_access ? new Date(u.last_access).toLocaleString() : ''}</td>
+          <td>${fmt(u.successful)}</td>
+          <td>${fmt(u.failed)}</td>
+          <td>${(u.success_rate * 100).toFixed(1)}%</td>
+          <td>${u.last_failure ? new Date(u.last_failure).toLocaleString() : ''}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+      const countEl = document.getElementById('usersCount');
+      if (countEl) countEl.textContent = `Showing ${fmt(rows.length)} users`;
+    }
+
+    async function loadUsers() {
+      const loadingEl = document.getElementById('usersLoading');
+      if (loadingEl) loadingEl.style.display = '';
+      try {
+        const res = await fetch(usersTableUrl);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          usersData = data;
+          appendUsers(usersData);
+        }
+      } finally {
+        if (loadingEl) loadingEl.style.display = 'none';
+      }
+    }
+
     // Tabs
     document.querySelectorAll('.tab').forEach(el => {
       el.addEventListener('click', async () => {
@@ -457,6 +532,7 @@
         document.getElementById(el.dataset.tab).classList.add('active');
         if (el.dataset.tab === 'overview') { await loadMetrics(); await loadOverallSeries(); }
         if (el.dataset.tab === 'health') { await refreshHealth(); }
+        if (el.dataset.tab === 'users') { await loadUsers(); }
       });
     });
 
@@ -465,6 +541,46 @@
     document.getElementById('modelRefresh').addEventListener('click', async () => { await loadModelSeriesAndBoxes(); });
     document.getElementById('modelWindow').addEventListener('change', loadModelSeriesAndBoxes);
     document.getElementById('healthRefresh').addEventListener('click', async () => { await refreshHealth(); });
+    document.getElementById('refreshUsers').addEventListener('click', async () => { await loadUsers(); });
+
+    // Users filter
+    document.getElementById('usersFilter').addEventListener('input', function() {
+      const term = this.value.toLowerCase();
+      const rows = document.querySelectorAll('#usersTable tbody tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+
+    // Users sorting
+    document.querySelectorAll('#usersTable thead th').forEach((th, idx) => {
+      th.style.cursor = 'pointer';
+      let asc = true;
+      th.addEventListener('click', () => {
+        document.querySelectorAll('#usersTable thead th').forEach(h => h.classList.remove('sorted-asc','sorted-desc'));
+        const rows = Array.from(document.querySelectorAll('#usersTable tbody tr'));
+        rows.sort((a, b) => {
+          const ta = a.children[idx].textContent.trim();
+          const tb = b.children[idx].textContent.trim();
+          // Date parsing for Last Access (2) and Last Failure (6)
+          if (idx === 2 || idx === 6) {
+            const da = ta ? new Date(ta).getTime() : 0;
+            const db = tb ? new Date(tb).getTime() : 0;
+            return asc ? (da - db) : (db - da);
+          }
+          const na = parseFloat(ta.replace('%',''));
+          const nb = parseFloat(tb.replace('%',''));
+          if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
+          return asc ? ta.localeCompare(tb) : tb.localeCompare(ta);
+        });
+        const tbody = document.querySelector('#usersTable tbody');
+        tbody.innerHTML = '';
+        rows.forEach(r => tbody.appendChild(r));
+        th.classList.add(asc ? 'sorted-asc' : 'sorted-desc');
+        asc = !asc;
+      });
+    });
     document.getElementById('loadMore').addEventListener('click', async () => { page += 1; await loadLogs(false); });
     document.getElementById('refreshLogs').addEventListener('click', async () => { await loadLogs(true); });
     document.getElementById('loadMoreBatch').addEventListener('click', async () => { pageBatch += 1; await loadBatchLogs(false); });
