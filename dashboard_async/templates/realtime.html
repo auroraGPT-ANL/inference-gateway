@@ -47,7 +47,10 @@
     <div class="tabs">
     <div class="tab active" data-tab="overview">Overview</div>
     <div class="tab" data-tab="model">Model</div>
+<<<<<<< HEAD
     <div class="tab" data-tab="users">Users</div>
+=======
+>>>>>>> model_upgrades
     <div class="tab" data-tab="health">Health</div>
     <div class="tab" data-tab="logs">Logs</div>
   </div>
@@ -100,7 +103,10 @@
       <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
         <button id="refreshLogs" title="Reload newest logs and reset pagination">Refresh</button>
         <button id="loadMore" title="Load more logs (next page)">Load more</button>
+<<<<<<< HEAD
         <span id="logsLoading" class="muted" style="display:none;">Loading…</span>
+=======
+>>>>>>> model_upgrades
         <span id="logsCount" class="muted">Showing 0 records</span>
         <span class="muted" title="Use Refresh to reload from newest. Use Load more to fetch additional pages. Use Filter to search within loaded rows.">ℹ️</span>
         <label for="logFilter" style="margin-left:auto;">Filter:</label>
@@ -127,6 +133,7 @@
     </div>
   </div>
 
+<<<<<<< HEAD
   <div id="users" class="section">
     <div class="card">
       <div class="title">Users</div>
@@ -156,6 +163,8 @@
     </div>
   </div>
 
+=======
+>>>>>>> model_upgrades
   <div id="batch-logs" class="section">
     <div class="card">
       <div class="title">Batch Logs</div>
@@ -260,7 +269,10 @@
     const rtUsersPerModelUrl = '/dashboard/analytics/users-per-model';
     const rtSeriesUrl = '/dashboard/analytics/series';
     const healthUrl = '/dashboard/analytics/health';
+<<<<<<< HEAD
     const usersTableUrl = '/dashboard/analytics/users-table';
+=======
+>>>>>>> model_upgrades
     const rtBatchLogsUrl = '/dashboard/analytics/batch-logs';
 
     let donutChart = null;
@@ -276,7 +288,10 @@
     let page = 0;
     let pageBatch = 0;
     const pageSize = 500;
+<<<<<<< HEAD
     let usersData = [];
+=======
+>>>>>>> model_upgrades
 
     function fmt(num) { return Number(num || 0).toLocaleString(); }
     function setText(id, val) { document.getElementById(id).textContent = val; }
@@ -430,15 +445,25 @@
         const tr = document.createElement('tr');
         const promptSafe = escapeHtml(r.prompt_snippet || '');
         const resultSafe = escapeHtml(r.result_snippet || '');
+<<<<<<< HEAD
         const apiSafe = escapeHtml(r.api_route || '');
+=======
+>>>>>>> model_upgrades
         tr.innerHTML = `
           <td>${r.timestamp_request ? new Date(r.timestamp_request).toLocaleString() : ''}</td>
           <td>${r.user_name || r.user_username || '—'}</td>
           <td>${r.model || ''}</td>
+<<<<<<< HEAD
           <td title="${apiSafe}">${r.status_code ?? '—'}</td>
           <td>${(r.latency_seconds ?? 0).toFixed(3)}</td>
           <td class="cell-scroll"><div>${promptSafe}</div></td>
           <td class="cell-scroll"><div>${resultSafe}</div></td>
+=======
+          <td>${r.status_code ?? '—'}</td>
+          <td>${(r.latency_seconds ?? 0).toFixed(3)}</td>
+          <td class="cell-scroll" title="${promptSafe}"><div>${promptSafe}</div></td>
+          <td class="cell-scroll" title="${resultSafe}"><div>${resultSafe}</div></td>
+>>>>>>> model_upgrades
           <td class="cell-scroll" title="${escapeHtml(r.error_snippet || '')}"><div>${escapeHtml(r.error_snippet || '')}</div></td>
         `;
         tbody.appendChild(tr);
@@ -448,6 +473,7 @@
     }
 
     async function loadLogs(reset=false) {
+<<<<<<< HEAD
       const loadingEl = document.getElementById('logsLoading');
       if (loadingEl) loadingEl.style.display = '';
       try {
@@ -464,6 +490,18 @@
       } finally {
         if (loadingEl) loadingEl.style.display = 'none';
       }
+=======
+      if (reset) {
+        page = 0;
+        const tbody = document.querySelector('#logsTable tbody');
+        tbody.innerHTML='';
+        const countEl = document.getElementById('logsCount');
+        if (countEl) countEl.textContent = 'Showing 0 records';
+      }
+      const res = await fetch(`${rtLogsUrl}?page=${page}&per_page=${pageSize}`);
+      const data = await res.json();
+      if (Array.isArray(data)) appendLogs(data);
+>>>>>>> model_upgrades
     }
 
     function appendBatchLogs(rows) {
@@ -488,6 +526,7 @@
       if (Array.isArray(data)) appendBatchLogs(data);
     }
 
+<<<<<<< HEAD
     function appendUsers(rows) {
       const tbody = document.querySelector('#usersTable tbody');
       tbody.innerHTML = '';
@@ -523,6 +562,8 @@
       }
     }
 
+=======
+>>>>>>> model_upgrades
     // Tabs
     document.querySelectorAll('.tab').forEach(el => {
       el.addEventListener('click', async () => {
@@ -532,7 +573,10 @@
         document.getElementById(el.dataset.tab).classList.add('active');
         if (el.dataset.tab === 'overview') { await loadMetrics(); await loadOverallSeries(); }
         if (el.dataset.tab === 'health') { await refreshHealth(); }
+<<<<<<< HEAD
         if (el.dataset.tab === 'users') { await loadUsers(); }
+=======
+>>>>>>> model_upgrades
       });
     });
 
@@ -541,6 +585,7 @@
     document.getElementById('modelRefresh').addEventListener('click', async () => { await loadModelSeriesAndBoxes(); });
     document.getElementById('modelWindow').addEventListener('change', loadModelSeriesAndBoxes);
     document.getElementById('healthRefresh').addEventListener('click', async () => { await refreshHealth(); });
+<<<<<<< HEAD
     document.getElementById('refreshUsers').addEventListener('click', async () => { await loadUsers(); });
 
     // Users filter
@@ -581,6 +626,8 @@
         asc = !asc;
       });
     });
+=======
+>>>>>>> model_upgrades
     document.getElementById('loadMore').addEventListener('click', async () => { page += 1; await loadLogs(false); });
     document.getElementById('refreshLogs').addEventListener('click', async () => { await loadLogs(true); });
     document.getElementById('loadMoreBatch').addEventListener('click', async () => { pageBatch += 1; await loadBatchLogs(false); });

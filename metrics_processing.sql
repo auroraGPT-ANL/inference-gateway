@@ -20,12 +20,15 @@ CREATE INDEX IF NOT EXISTS idx_requestlog_unprocessed
 ON resource_server_async_requestlog (metrics_processed, timestamp_compute_response) 
 WHERE metrics_processed = FALSE AND timestamp_compute_response IS NOT NULL;
 
+<<<<<<< HEAD
 -- Other indexes
 CREATE INDEX idx_accesslog_status_code ON resource_server_async_accesslog(status_code);
 CREATE INDEX idx_requestlog_result_tokens
 ON resource_server_async_requestlog(id)
 WHERE result ~ '"total_tokens"\s*:\s*\d+';
 
+=======
+>>>>>>> model_upgrades
 -- Create lightweight trigger to mark records for processing
 CREATE OR REPLACE FUNCTION fn_mark_for_processing() RETURNS trigger AS $$
 BEGIN
@@ -60,12 +63,18 @@ BEGIN
       AND rl.timestamp_compute_response IS NOT NULL
       AND rl.result IS NOT NULL 
       AND rl.result != ''
+<<<<<<< HEAD
       AND rl.result ~ '"total_tokens"\s*:\s*\d+'  -- Pre-filter with regex
       AND EXISTS (
         SELECT 1 FROM resource_server_async_accesslog al 
         WHERE al.id = rl.access_log_id 
         AND al.status_code BETWEEN 200 AND 299
       )
+=======
+      AND al.status_code >= 200 
+      AND al.status_code < 300
+      AND rl.result ~ '"total_tokens"\s*:\s*\d+'
+>>>>>>> model_upgrades
     ORDER BY rl.timestamp_compute_response
     LIMIT batch_size
     FOR UPDATE SKIP LOCKED  -- Prevent conflicts with multiple workers
