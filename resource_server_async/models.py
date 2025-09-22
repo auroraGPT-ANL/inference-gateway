@@ -48,7 +48,7 @@ class AccessLog(models.Model):
     )
 
     # Timestamps (request received and response returned)
-    timestamp_request = models.DateTimeField(null=True)
+    timestamp_request = models.DateTimeField(null=True, db_index=True)
     timestamp_response = models.DateTimeField(null=True)
 
     # Which API route was requested (e.g. /resource_server/list-endpoints)
@@ -58,7 +58,7 @@ class AccessLog(models.Model):
     origin_ip = models.CharField(max_length=250, null=False, blank=False)    
 
     # HTTP status of the request
-    status_code = models.IntegerField(null=False)
+    status_code = models.IntegerField(null=False, db_index=True)
 
     # Error message if any
     error = models.TextField(null=True)

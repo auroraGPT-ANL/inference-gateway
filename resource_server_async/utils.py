@@ -28,7 +28,7 @@ from utils.globus_utils import (
     get_compute_executor
 )
 from resource_server.models import ModelStatus
-from resource_server_async.models import (AccessLog, RequestLog, BatchLog)
+from resource_server_async.models import (AccessLog, RequestLog, BatchLog, RequestMetrics, BatchMetrics)
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -382,11 +382,37 @@ async def update_batch_status_result(batch, cross_check=False):
         except Exception as e:
             return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
 
-        # Update batch result in the database
+        # Update batch result in the database and upsert BatchMetrics
         try:
             batch.result = batch_result
             await update_database(db_object=batch)
             await update_database(db_object=batch.access_log)
+
+            # Try to parse metrics summary from result if available
+            total_tokens = None
+            num_responses = None
+            response_time_sec = None
+            throughput = None
+            try:
+                result_data = json.loads(batch_result)
+                if isinstance(result_data, dict) and 'metrics' in result_data:
+                    metrics = result_data.get('metrics') or {}
+                    total_tokens = metrics.get('total_tokens')
+                    num_responses = metrics.get('num_responses')
+                    response_time_sec = metrics.get('response_time_sec')
+                    throughput = metrics.get('throughput_tokens_per_sec')
+            except Exception:
+                pass
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch,
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
+            except Exception as e:
+                log.error(f"Error upserting BatchMetrics: {e}")
         except Exception as e:
             return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
 
@@ -656,12 +682,26 @@ async def get_response(content, code, request):
         # Create RequestLog database entry
         if hasattr(request, "request_log_data"):
             request.request_log_data.access_log = access_log
-            _ = await create_request_log(request.request_log_data, content, code)
+            req_obj = await create_request_log(request.request_log_data, content, code)
+
+            # Create RequestMetrics immediately for non-streaming requests
+            await _upsert_request_metrics_auto(req_obj, access_log)
 
         # Create BatchLog database entry
         if hasattr(request, "batch_log_data"):
             request.batch_log_data.access_log = access_log
-            _ = await create_batch_log(request.batch_log_data, content, code)
+            batch_obj = await create_batch_log(request.batch_log_data, content, code)
+            # Create BatchMetrics skeleton; later updates can fill tokens/throughput
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch_obj,
+                    total_tokens=None,
+                    num_responses=None,
+                    response_time_sec=None,
+                    throughput_tokens_per_sec=None,
+                )
+            except Exception as e:
+                log.error(f"Error creating BatchMetrics: {e}")
 
     # Error message if something went wrong while creating database entries
     except Exception as e:
@@ -669,7 +709,17 @@ async def get_response(content, code, request):
 
     # Prepare and return the HTTP response
     if code == 200:
-        return HttpResponse(content, status=code)
+        # Ensure JSON content-type and avoid double-encoding
+        try:
+            # If content is a JSON string, validate and return as-is
+            if isinstance(content, str):
+                _ = json.loads(content)
+                return HttpResponse(content, status=code, content_type='application/json')
+            # If it's already a dict/list, dump once
+            return HttpResponse(json.dumps(content), status=code, content_type='application/json')
+        except Exception:
+            # Fallback: return raw
+            return HttpResponse(content, status=code)
     else:
         log.error(content)
         return HttpResponse(json.dumps(content), status=code)
@@ -740,10 +790,141 @@ async def create_request_log(request_log_data: RequestLogPydantic, content, code
 
     # Finalize data
     if code == 200:
-        request_log_data.result = json.dumps(content)
+        request_log_data.result = _ensure_json_string(content)
 
     # Create database entry
     return await update_database(db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True)
+
+
+# ---- Metrics helpers ----
+def _safe_json(value: str):
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except Exception:
+        return None
+
+def _ensure_json_string(content):
+    """Normalize any content into a proper JSON string.
+    - dict/list -> json.dumps(dict)
+    - str JSON -> parse then dump to avoid nested escaping
+    - str non-JSON -> wrap as {"raw": content}
+    - other -> json.dumps(str(content))
+    """
+    try:
+        if isinstance(content, (dict, list)):
+            return json.dumps(content)
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return json.dumps(parsed)
+            except Exception:
+                return json.dumps({"raw": content})
+        return json.dumps(str(content))
+    except Exception:
+        return json.dumps({"raw": "unserializable"})
+
+def _compute_response_time_sec(start_ts, end_ts):
+    try:
+        if start_ts and end_ts:
+            return (end_ts - start_ts).total_seconds()
+    except Exception:
+        return None
+    return None
+
+def _compute_throughput_tokens_per_sec(total_tokens, response_time_sec):
+    try:
+        if total_tokens is not None and response_time_sec and response_time_sec > 0:
+            return total_tokens / response_time_sec
+    except Exception:
+        return None
+    return None
+
+async def _upsert_request_metrics_auto(request_obj: RequestLog, access_obj: AccessLog,
+                                       response_time_sec: float = None,
+                                       prompt_tokens=None, completion_tokens=None, total_tokens=None):
+    # Derive tokens from stored result if not provided
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        p, c, t = _extract_usage_tokens_from_result(request_obj.result)
+        prompt_tokens, completion_tokens, total_tokens = p, c, t
+
+    # Derive response time from timestamps if not provided
+    if response_time_sec is None:
+        response_time_sec = _compute_response_time_sec(
+            request_obj.timestamp_compute_request, request_obj.timestamp_compute_response
+        )
+
+    throughput = _compute_throughput_tokens_per_sec(total_tokens, response_time_sec)
+
+    try:
+        await _upsert_request_metrics(
+            request_obj=request_obj,
+            access_obj=access_obj,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            response_time_sec=response_time_sec,
+            throughput_tokens_per_sec=throughput,
+        )
+    except Exception as e:
+        log.error(f"Error upserting RequestMetrics: {e}")
+
+def _extract_usage_tokens_from_result(result_str: str):
+    prompt_tokens = None
+    completion_tokens = None
+    total_tokens = None
+    data = _safe_json(result_str)
+    if isinstance(data, dict):
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+        if usage:
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+        # Some responses might nest metrics differently
+        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else None
+        if metrics and total_tokens is None:
+            total_tokens = metrics.get("total_tokens")
+    return prompt_tokens, completion_tokens, total_tokens
+
+@sync_to_async
+def _upsert_request_metrics(request_obj: RequestLog, access_obj: AccessLog,
+                            prompt_tokens, completion_tokens, total_tokens,
+                            response_time_sec, throughput_tokens_per_sec):
+    defaults = {
+        "cluster": request_obj.cluster,
+        "framework": request_obj.framework,
+        "model": request_obj.model,
+        "status_code": access_obj.status_code,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "response_time_sec": response_time_sec,
+        "throughput_tokens_per_sec": throughput_tokens_per_sec,
+        "timestamp_compute_request": request_obj.timestamp_compute_request,
+        "timestamp_compute_response": request_obj.timestamp_compute_response,
+    }
+    obj, _ = RequestMetrics.objects.update_or_create(request=request_obj, defaults=defaults)
+    # Mark processed on the request to avoid external re-processing
+    if not request_obj.metrics_processed:
+        request_obj.metrics_processed = True
+        request_obj.save()
+    return obj
+
+@sync_to_async
+def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
+                          response_time_sec, throughput_tokens_per_sec):
+    defaults = {
+        "cluster": batch_obj.cluster,
+        "framework": batch_obj.framework,
+        "model": batch_obj.model,
+        "status": batch_obj.status,
+        "total_tokens": total_tokens,
+        "num_responses": num_responses,
+        "response_time_sec": response_time_sec,
+        "throughput_tokens_per_sec": throughput_tokens_per_sec,
+        "completed_at": batch_obj.completed_at,
+    }
+    obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
+    return obj
 
 
 # Create batch log
@@ -752,7 +933,7 @@ async def create_batch_log(batch_log_data: BatchLogPydantic, content, code):
 
     # Finalize data
     if code == 200:
-        batch_log_data.result = json.dumps(content)
+        batch_log_data.result = _ensure_json_string(content)
 
     # Create database entry
     return await update_database(db_Model=BatchLog, db_data=batch_log_data.model_dump(), return_obj=True)
@@ -1041,6 +1222,14 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         # Save the updated log and access entries
         await update_database(db_Model=AccessLog, db_object=access_log)
         await update_database(db_Model=RequestLog, db_object=log_entry)
+
+        # Upsert RequestMetrics for streaming (derive from final data)
+        await _upsert_request_metrics_auto(
+            request_obj=log_entry,
+            access_obj=access_log,
+            response_time_sec=(final_metrics.get('total_processing_time') if final_metrics else None)
+        )
+
         log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
         
     except Exception as e:
