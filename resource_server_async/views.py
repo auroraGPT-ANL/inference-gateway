@@ -8,7 +8,7 @@ import asyncio
 import time
 from django.utils import timezone
 from django.utils.text import slugify
-from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 
 # Tool to log access requests
 import logging
