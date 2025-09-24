@@ -8,7 +8,7 @@ import asyncio
 import time
 from django.utils import timezone
 from django.utils.text import slugify
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 
 # Tool to log access requests
 import logging
@@ -21,7 +21,8 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
 import utils.globus_utils as globus_utils
-from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic
+from utils.auth_utils import validate_access_token
+from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
@@ -71,6 +72,29 @@ from resource_server_async.api import api, router
 
 # Deprecated: Simple in-memory cache for endpoint lookups (kept for fallback)
 endpoint_cache = {}
+
+
+# Whoami (GET)
+@router.get("/whoami")
+async def whoami(request):
+    """GET basic user information from access token, or error message otherwise."""
+
+    # Get user info
+    try:
+        user = UserPydantic(
+            id=request.auth.id,
+            name=request.auth.name,
+            username=request.auth.username,
+            idp_id=request.auth.idp_id,
+            idp_name=request.auth.idp_name,
+            auth_service=request.auth.auth_service
+        )
+    except Exception as e:
+        return await get_response(f"Error: could not create user from request.auth: {e}", 500, request)
+    
+    # Return user details
+    return await get_response(user.model_dump_json(), 200, request)
+
 
 # List Endpoints (GET)
 @router.get("/list-endpoints")
