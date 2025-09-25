@@ -85,6 +85,7 @@ async def whoami(request):
             id=request.auth.id,
             name=request.auth.name,
             username=request.auth.username,
+            user_group_uuids=request.user_group_uuids,
             idp_id=request.auth.idp_id,
             idp_name=request.auth.idp_name,
             auth_service=request.auth.auth_service
