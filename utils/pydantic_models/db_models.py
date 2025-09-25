@@ -1,11 +1,12 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 class UserPydantic(BaseModel):
     id: str
     name: str
     username: str
+    user_group_uuids: List[str]
     idp_id: str
     idp_name: str
     auth_service: str

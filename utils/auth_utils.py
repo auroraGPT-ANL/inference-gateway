@@ -181,7 +181,7 @@ def check_globus_groups(user_groups):
     
 
 # Check Session Info
-def check_session_info(introspection):
+def check_session_info(introspection, user_groups):
     """
         Look into the session_info field of the token introspection
         and check whether the authentication was made through one 
@@ -211,6 +211,7 @@ def check_session_info(introspection):
                                 id=identity["sub"],
                                 name=identity["name"],
                                 username=identity["username"],
+                                user_group_uuids=user_groups,
                                 idp_id=identity["identity_provider"],
                                 idp_name=identity["identity_provider_display_name"],
                                 auth_service=AuthService.GLOBUS.value
@@ -303,7 +304,7 @@ def validate_access_token(request):
         return ATVResponse(is_valid=False, error_message="Error: Access token expired.", error_code=401)
     
     # Make sure the authentication was made by an authorized identity provider
-    successful, user, error_message = check_session_info(introspection)
+    successful, user, error_message = check_session_info(introspection, user_groups)
     if not successful:
         return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
