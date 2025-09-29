@@ -157,7 +157,7 @@ def check_globus_policies(introspection):
             error_message += "and re-authenticate with the following command: "
             error_message += "'python3 inference_auth_token.py authenticate --force'. "
             error_message += "Make sure you authenticate with an authorized identity provider: "
-            error_message += f"{settings.AUTHORIZED_IDP_DOMAINS}."
+            error_message += f"{settings.AUTHORIZED_IDP_DOMAINS_STRING}."
             return False, error_message
 
     # Return True if the user met all of the policies requirements
@@ -237,7 +237,7 @@ def check_session_info(introspection, user_groups):
         user_str = "could not recover user identity"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as {user_str}."
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS_STRING}. Currently authenticated as {user_str}."
 
 
 # Check Session Info
