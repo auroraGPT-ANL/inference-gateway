@@ -143,40 +143,50 @@ def qstat_inference_function():
         if not user:
             raise RuntimeError("USER environment variable not set.")
 
-        # Get all jobs for the user
-        qstat_output = run_command(f"qstat -u {user}")
+        # Get extended info for *only* this user's jobs
+        qstat_cmd = f"TZ='America/Chicago' qstat -xf $(qselect -u {user})"
+        try:
+            full_output = run_command(qstat_cmd)
+        except RuntimeError:
+            # No jobs for this user
+            return {
+                "running": [],
+                "queued": [],
+                "others": [],
+                "private-batch-running": [],
+                "private-batch-queued": []
+            }
 
-        job_pattern = re.compile(r'^(\d+\.\S+)')
-        job_ids = []
+        # Split output into per-job blocks (look for "Job Id:")
+        jobs_raw, current = [], []
+        for line in full_output:
+            if line.startswith("Job Id:"):
+                if current:
+                    jobs_raw.append(current)
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            jobs_raw.append(current)
 
-        for line in qstat_output:
-            m = job_pattern.match(line)
-            if m:
-                job_id = m.group(1)
-                # Remove any trailing '*' from the job_id
-                job_id = job_id.rstrip('*')
-                job_ids.append(job_id)
+        # Buckets
+        running_jobs, queued_jobs, other_jobs = [], [], []
+        private_batch_running, private_batch_queued = [], []
 
-        # We'll store results in lists keyed by state category
-        running_jobs = []
-        queued_jobs = []
-        other_jobs = []
-        private_batch_running = []
-        private_batch_queued = []
-
-        for job_id in job_ids:
+        # Parse each job
+        for job_lines in jobs_raw:
+            attributes = parse_qstat_xf_output(job_lines)
+            job_id = job_lines[0].split()[2]
+            job_state = attributes.get('job_state', 'N/A')
             job_dict = {}
 
-            full_info = run_command(f"TZ='America/Chicago' qstat -xf {job_id}")
-            attributes = parse_qstat_xf_output(full_info)
-            job_state = attributes.get('job_state', 'N/A')
             submit_path = extract_submit_path(attributes.get('Submit_arguments', ''))
-
             if submit_path:
                 job_dict = extract_models_info_from_file(submit_path, job_dict)
+
             if job_state == 'R':
-                if "batch_job" in job_dict["Models"]:
-                    job_dict = determine_batch_job_status(job_id, job_dict)  
+                if "batch_job" in job_dict.get("Models", ""):
+                    job_dict = determine_batch_job_status(job_id, job_dict)
                     job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
                     private_batch_running.append(job_dict)
                 else:
@@ -184,27 +194,26 @@ def qstat_inference_function():
                     job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
                     running_jobs.append(job_dict)
             elif job_state == 'Q':
-                job_dict["Model Status"] = 'queued'
-                if "batch_job" in job_dict["Models"]:
+                job_dict["Model Status"] = "queued"
+                if "batch_job" in job_dict.get("Models", ""):
                     job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
                     private_batch_queued.append(job_dict)
                 else:
                     job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
                     queued_jobs.append(job_dict)
             else:
-                job_dict["Model Status"] = 'other'
-                job_dict = common_job_attributes(attributes, job_dict)
+                job_dict["Model Status"] = "other"
+                job_dict = common_job_attributes(attributes, job_dict, job_id, job_state)
                 other_jobs.append(job_dict)
-        # Create the final JSON structure
-        final_output = {
+
+        return {
             "running": running_jobs,
             "queued": queued_jobs,
             "others": other_jobs,
             "private-batch-running": private_batch_running,
-            "private-batch-queued": private_batch_queued
+            "private-batch-queued": private_batch_queued,
         }
 
-        return final_output
 
     def get_node_status():
         """

@@ -67,6 +67,11 @@ class AccessLog(models.Model):
     # If None, it simply used the high-assurance policy
     authorized_groups = models.TextField(null=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "status_code"]),  # NEW composite index
+        ]
+
     # Custom display
     def __str__(self):
         if self.user:
@@ -93,7 +98,7 @@ class RequestLog(models.Model):
     # Inference endpoint details
     cluster = models.CharField(max_length=100, null=False, blank=False)
     framework = models.CharField(max_length=100, null=False, blank=False)
-    model = models.CharField(max_length=100, null=False, blank=False)
+    model = models.CharField(max_length=100, null=False, blank=False, db_index=True)
     openai_endpoint = models.CharField(max_length=100, null=False, blank=False)
     
     # Timestamps (before and after the remote computation)
@@ -109,6 +114,11 @@ class RequestLog(models.Model):
 
     metrics_processed = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["cluster", "framework"]),
+            models.Index(fields=["model"]),
+        ]
     # Custom display
     def __str__(self):
         return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
@@ -160,12 +170,12 @@ class RequestMetrics(models.Model):
     )
 
     # Duplicate key identifiers for faster filtering/aggregations
-    cluster = models.CharField(max_length=100, db_index=True)
-    framework = models.CharField(max_length=100, db_index=True)
-    model = models.CharField(max_length=100, db_index=True)
+    cluster = models.CharField(max_length=100)
+    framework = models.CharField(max_length=100)
+    model = models.CharField(max_length=100)
 
     # Status code at time of response (from AccessLog)
-    status_code = models.IntegerField(null=True, db_index=True)
+    status_code = models.IntegerField(null=True)
 
     # Token usage
     prompt_tokens = models.BigIntegerField(null=True)
@@ -181,7 +191,7 @@ class RequestMetrics(models.Model):
     timestamp_compute_response = models.DateTimeField(null=True)
 
     # Audit
-    created_at = models.DateTimeField(default=now, db_index=True)
+    created_at = models.DateTimeField(default=now)
 
     class Meta:
         indexes = [
@@ -217,11 +227,11 @@ class BatchMetrics(models.Model):
     created_at = models.DateTimeField(default=now, db_index=True)
     completed_at = models.DateTimeField(null=True)
 
-    class Meta:
-        indexes = [
-            models.Index(fields=["model"]),
-            models.Index(fields=["cluster", "framework"]),
-        ]
+    # class Meta:
+    #     indexes = [
+    #         models.Index(fields=["model"]),
+    #         models.Index(fields=["cluster", "framework"]),
+    #     ]
 
     def __str__(self):
         return f"<BatchMetrics - {self.batch_id}>"

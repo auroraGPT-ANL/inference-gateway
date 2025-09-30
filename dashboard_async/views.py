@@ -145,6 +145,16 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
         qs = (
             AsyncAccessLog.objects
             .select_related("user", "request_log")
+            .only(  # only pull these fields, defer everything else
+                "id", "timestamp_request", "status_code", "api_route", "error",
+                "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
+                "request_log__id", "request_log__cluster", "request_log__model",
+                "request_log__openai_endpoint", "request_log__timestamp_compute_request",
+                "request_log__timestamp_compute_response", "request_log__task_uuid"
+            )
+            .defer(  # explicitly defer heavy text fields
+                "request_log__prompt", "request_log__result"
+            )
             .order_by("-timestamp_request", "-status_code")
         )
 
@@ -185,8 +195,8 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
                 "error_message": al.error,
                 "error_snippet": _truncate(al.error) if al and al.error else "",
                 "api_route": al.api_route,
-                "prompt_snippet": _truncate(rl.prompt) if rl else "",
-                "result_snippet": _truncate(rl.result) if rl else "",
+                "prompt_snippet": _truncate(getattr(rl, "prompt", "")),
+                "result_snippet": _truncate(getattr(rl, "result", "")),
                 "user_id": str(user.id) if user else None,
                 "user_name": user.name if user else None,
                 "user_username": user.username if user else None,
