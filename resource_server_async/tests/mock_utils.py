@@ -2,8 +2,9 @@
 
 import time
 import uuid
+from django.utils import timezone
 from concurrent.futures import Future
-from utils.pydantic_models.db_models import UserPydantic
+from utils.pydantic_models.db_models import UserPydantic, AccessLogPydantic
 from resource_server_async.models import AuthService
 from django.http import StreamingHttpResponse
 
@@ -204,4 +205,14 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
     return StreamingHttpResponse(
         streaming_content=[b'chunk1', b'chunk2', b'chunk3'],
         content_type='text/event-stream'
+    )
+
+# Mock __initialize_access_log_data function
+def mock_initialize_access_log_data(self, request):
+    return AccessLogPydantic(
+        id=str(uuid.uuid4()),
+        user=None,
+        timestamp_request=timezone.now(),
+        api_route="/mock/route",
+        origin_ip="127.0.0.1",
     )

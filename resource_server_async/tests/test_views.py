@@ -17,6 +17,7 @@ import utils.auth_utils as auth_utils
 import utils.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async import views as async_views
+from resource_server_async import api
 auth_utils.check_session_info = mock_utils.check_session_info
 auth_utils.get_globus_client = mock_utils.get_globus_client
 auth_utils.check_globus_policies = mock_utils.check_globus_policies
@@ -27,6 +28,7 @@ globus_utils.get_compute_executor = mock_utils.get_compute_executor
 asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
 async_views.handle_streaming_inference = mock_utils.handle_streaming_inference
+api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initialize_access_log_data
 
 # Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
 settings.MAX_BATCHES_PER_USER = 1000
@@ -367,10 +369,10 @@ class ResourceServerViewTestCase(TestCase):
     # Verify headers failures
     async def __verify_headers_failures(self, url=None, method=None):
 
-        # Should fail (not authenticated)
+        # Should fail (not authenticated, missing token)
         headers = mock_utils.get_mock_headers(access_token="")
         response = await method(url, headers=headers)
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 400)
 
         # Should fail (not a bearer token)
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=False)
