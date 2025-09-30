@@ -40,11 +40,11 @@ jobs:
           - 6379:6379
 
     env:
-      ENV=development
+      ENV: development
       SECRET_KEY: test-secret-key
       GLOBUS_APPLICATION_ID: test-globus-application-id
       GLOBUS_APPLICATION_SECRET: test-globus-application-secret
-      AUTHORIZED_IDPS='{"mock_domain.com": "mock_idp_id"}'
+      AUTHORIZED_IDPS: '{"mock_domain.com": "mock_idp_id"}'
       RUNNING_AUTOMATED_TEST_SUITE: True
       WORKING_DIRECTORY: './'
       PGHOST: localhost
