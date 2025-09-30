@@ -43,7 +43,7 @@ class GlobalAuth(HttpBearer):
     async def __call__(self, request):
         auth = request.headers.get("Authorization")
         if not auth:
-            raise HttpError(401, "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers.")
+            raise HttpError(400, "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers.")
         return await self.authenticate(request, None) # Request is the object being used by the validate_access_token function
 
     # Auth check 
