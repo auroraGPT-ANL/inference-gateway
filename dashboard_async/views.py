@@ -713,3 +713,119 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     except Exception as e:
         log.error(f"Error fetching batch logs rt: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@router.get("/analytics/query-logs")
+def query_logs_custom(request):
+    """Custom log query builder with flexible filters."""
+    try:
+        from django.db import connection
+        import re as regex_module
+        
+        # Parse query parameters
+        rows = int(request.GET.get('rows', 10))
+        rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
+        
+        status_op = request.GET.get('status_op', '')
+        status_val = request.GET.get('status_val', '')
+        name_filter = request.GET.get('name', '')
+        prompt_filter = request.GET.get('prompt', '')
+        api_filter = request.GET.get('api', '')
+        from_ts = request.GET.get('from_ts', '')
+        to_ts = request.GET.get('to_ts', '')
+        tzname = 'America/Chicago'  # Fixed timezone
+        
+        # Build WHERE clauses
+        conditions = ["1=1"]
+        params = []
+        
+        # Status filter
+        if status_op and status_val:
+            allowed_ops = ['=', '!=', '>', '<', '>=', '<=']
+            if status_op in allowed_ops:
+                conditions.append(f"a.status_code {status_op} %s")
+                params.append(int(status_val))
+        
+        # Name filter (ILIKE)
+        if name_filter:
+            conditions.append("u.name ILIKE %s")
+            params.append(name_filter)
+        
+        # Prompt filter (ILIKE)
+        if prompt_filter:
+            conditions.append("r.prompt ILIKE %s")
+            params.append(prompt_filter)
+        
+        # API route filter (ILIKE)
+        if api_filter:
+            conditions.append("a.api_route ILIKE %s")
+            params.append(api_filter)
+        
+        # Timestamp expression
+        ts_expr = "COALESCE(r.timestamp_compute_request, a.timestamp_request)"
+        
+        # Date filters
+        if from_ts:
+            conditions.append(f"{ts_expr} >= %s::timestamptz")
+            params.append(from_ts)
+        
+        if to_ts:
+            conditions.append(f"{ts_expr} <= %s::timestamptz")
+            params.append(to_ts)
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Build final query
+        query = f"""
+        SELECT json_agg(row_to_json(t))
+        FROM (
+            SELECT
+                r.id AS request_id,
+                r.cluster,
+                r.framework,
+                r.model,
+                r.openai_endpoint,
+                r.timestamp_compute_request,
+                r.timestamp_compute_response,
+                r.prompt,
+                r.result,
+                r.task_uuid,
+                a.id AS accesslog_id,
+                a.timestamp_request,
+                a.timestamp_response,
+                a.api_route,
+                a.origin_ip,
+                a.status_code,
+                a.error,
+                u.id AS user_id,
+                u.name AS user_name,
+                u.username AS user_username,
+                u.idp_id,
+                u.idp_name,
+                u.auth_service
+            FROM resource_server_async_accesslog a
+            LEFT JOIN resource_server_async_requestlog r
+              ON r.access_log_id = a.id
+            LEFT JOIN resource_server_async_user u
+              ON a.user_id = u.id
+            WHERE {where_clause}
+            ORDER BY {ts_expr} DESC
+            LIMIT %s
+        ) t
+        """
+        
+        # Execute query
+        with connection.cursor() as cursor:
+            # Set timezone first
+            cursor.execute("SET TIME ZONE %s", [tzname])
+            # Then execute the main query
+            cursor.execute(query, params + [rows])
+            result = cursor.fetchone()
+            
+        # Return JSON array or empty array if no results
+        data = result[0] if result and result[0] else []
+        return JsonResponse({"results": data, "count": len(data) if data else 0}, safe=False)
+        
+    except Exception as e:
+        log.error(f"Error in custom log query: {e}")
+        return JsonResponse({"error": str(e)}, status=500)

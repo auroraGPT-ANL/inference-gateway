@@ -36,6 +36,27 @@
     th.sortable.sorted-desc .sort-icon { color: #e6edf3; }
     .col-prompt { width: 480px; }
     .col-result { width: 480px; }
+    
+    /* Date/Time picker styling for dark theme */
+    input[type="datetime-local"], input[type="date"] {
+      background: #1f2937 !important;
+      color: #e6edf3 !important;
+      border: 1px solid #3b82f6 !important;
+      padding: 8px;
+      border-radius: 8px;
+      color-scheme: dark;
+    }
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      cursor: pointer;
+    }
+    input[type="datetime-local"]:focus,
+    input[type="date"]:focus {
+      outline: none;
+      border-color: #60a5fa !important;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
   </style>
 </head>
 
@@ -95,6 +116,71 @@
   </div>
 
   <div id="logs" class="section">
+    <!-- Log Query Builder -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="title">Log Query Builder</div>
+      <div class="muted" style="margin-bottom:12px;">Build custom queries with flexible filters. Results are formatted as JSON.</div>
+      
+      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px; margin-bottom:12px;">
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">Rows</label>
+          <input id="qbRows" type="number" value="10" min="1" max="10000" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">Status Code</label>
+          <div style="display:flex; gap:4px;">
+            <select id="qbStatusOp" style="width:80px; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;">
+              <option value="">--</option>
+              <option value="=">=</option>
+              <option value="!=">!=</option>
+              <option value=">">&gt;</option>
+              <option value="<">&lt;</option>
+              <option value=">=">&gt;=</option>
+              <option value="<=">&lt;=</option>
+            </select>
+            <input id="qbStatusVal" type="number" placeholder="e.g. 200" style="flex:1; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+          </div>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">User Name (ILIKE)</label>
+          <input id="qbName" type="text" placeholder="e.g. %aditya%" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">Prompt (ILIKE)</label>
+          <input id="qbPrompt" type="text" placeholder="e.g. %search term%" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">API Route (ILIKE)</label>
+          <input id="qbApi" type="text" placeholder="e.g. %/chat/completions%" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">From (Timestamp)</label>
+          <input id="qbFrom" type="datetime-local" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+        
+        <div>
+          <label style="display:block; margin-bottom:4px; color:#9fb1c3; font-size:12px;">To (Timestamp)</label>
+          <input id="qbTo" type="datetime-local" style="width:100%; padding:8px; border-radius:8px; border:1px solid #233042; background:#0b0f17; color:#e6edf3;"/>
+        </div>
+      </div>
+      
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+        <button id="qbExecute">Execute Query</button>
+        <button id="qbClear" style="background-color:#6b7280;">Clear Filters</button>
+        <button id="qbDownload" style="background-color:#059669;">Download JSON</button>
+        <span id="qbLoading" class="muted" style="display:none;">Loading…</span>
+        <span id="qbCount" class="muted"></span>
+      </div>
+      
+      <div id="qbResults" style="display:none; background:#0b0f17; border:1px solid #233042; border-radius:8px; padding:12px; height:400px; overflow:auto; font-family:'Courier New',monospace; font-size:12px; white-space:pre-wrap; word-break:break-word;"></div>
+    </div>
+
+    <!-- Standard Recent Requests Table -->
     <div class="card">
       <div class="title">Recent Requests</div>
       <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
@@ -624,6 +710,109 @@
         asc = !asc;
       });
     });
+
+    // Query Builder
+    let qbResultData = null;
+    
+    async function executeQueryBuilder() {
+      const loadingEl = document.getElementById('qbLoading');
+      const resultsEl = document.getElementById('qbResults');
+      const countEl = document.getElementById('qbCount');
+      
+      loadingEl.style.display = '';
+      countEl.textContent = '';
+      
+      try {
+        // Build query params
+        const params = new URLSearchParams();
+        
+        const rows = document.getElementById('qbRows').value;
+        if (rows) params.append('rows', rows);
+        
+        const statusOp = document.getElementById('qbStatusOp').value;
+        const statusVal = document.getElementById('qbStatusVal').value;
+        if (statusOp && statusVal) {
+          params.append('status_op', statusOp);
+          params.append('status_val', statusVal);
+        }
+        
+        const name = document.getElementById('qbName').value;
+        if (name) params.append('name', name);
+        
+        const prompt = document.getElementById('qbPrompt').value;
+        if (prompt) params.append('prompt', prompt);
+        
+        const api = document.getElementById('qbApi').value;
+        if (api) params.append('api', api);
+        
+        const fromTs = document.getElementById('qbFrom').value;
+        if (fromTs) params.append('from_ts', new Date(fromTs).toISOString());
+        
+        const toTs = document.getElementById('qbTo').value;
+        if (toTs) params.append('to_ts', new Date(toTs).toISOString());
+        
+        // Execute query
+        const res = await fetch(`/dashboard/analytics/query-logs?${params.toString()}`);
+        const data = await res.json();
+        
+        if (data.error) {
+          resultsEl.textContent = `Error: ${data.error}`;
+          resultsEl.style.display = 'block';
+          resultsEl.style.color = '#ef4444';
+          qbResultData = null;
+        } else {
+          qbResultData = data.results;
+          resultsEl.textContent = JSON.stringify(data.results, null, 2);
+          resultsEl.style.display = 'block';
+          resultsEl.style.color = '#e6edf3';
+          countEl.textContent = `${data.count} result${data.count !== 1 ? 's' : ''}`;
+        }
+      } catch (error) {
+        resultsEl.textContent = `Error: ${error.message}`;
+        resultsEl.style.display = 'block';
+        resultsEl.style.color = '#ef4444';
+        qbResultData = null;
+      } finally {
+        loadingEl.style.display = 'none';
+      }
+    }
+    
+    function clearQueryBuilder() {
+      document.getElementById('qbRows').value = '10';
+      document.getElementById('qbStatusOp').value = '';
+      document.getElementById('qbStatusVal').value = '';
+      document.getElementById('qbName').value = '';
+      document.getElementById('qbPrompt').value = '';
+      document.getElementById('qbApi').value = '';
+      document.getElementById('qbFrom').value = '';
+      document.getElementById('qbTo').value = '';
+      document.getElementById('qbResults').style.display = 'none';
+      document.getElementById('qbCount').textContent = '';
+      qbResultData = null;
+    }
+    
+    function downloadQueryResults() {
+      if (!qbResultData) {
+        alert('No query results to download. Please execute a query first.');
+        return;
+      }
+      
+      const jsonStr = JSON.stringify(qbResultData, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `log-query-${new Date().toISOString()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    
+    // Query Builder event listeners
+    document.getElementById('qbExecute').addEventListener('click', executeQueryBuilder);
+    document.getElementById('qbClear').addEventListener('click', clearQueryBuilder);
+    document.getElementById('qbDownload').addEventListener('click', downloadQueryResults);
 
     // Initial
     (async function init(){
