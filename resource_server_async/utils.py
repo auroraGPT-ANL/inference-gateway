@@ -151,8 +151,8 @@ def validate_body(request, pydantic_class):
     # Decode request body into a dictionary
     try:
         params = json.loads(request.body.decode("utf-8"))
-    except:
-        return {"error": f"Error: Request body cannot be decoded."}
+    except Exception as e:
+        return {"error": f"Error: Request body cannot be decoded: {e}"}
 
     # Send an error if the input data is not valid
     try:
