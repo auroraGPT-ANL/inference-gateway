@@ -33,6 +33,11 @@ api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initial
 # Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
 settings.MAX_BATCHES_PER_USER = 1000
 
+# Overwrite authorized IdPs for testing
+settings.AUTHORIZED_IDPS={"mock_domain.com": "mock_idp_id"}
+settings.AUTHORIZED_IDP_DOMAINS=["mock_domain.com"]
+settings.AUTHORIZED_IDP_UUIDS=["mock_idp_id"]
+
 # Settings variables
 ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
 ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
