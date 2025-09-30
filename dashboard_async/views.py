@@ -145,6 +145,7 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
         qs = (
             AsyncAccessLog.objects
             .select_related("user", "request_log")
+<<<<<<< HEAD
             .only(  # only pull these fields, defer everything else
                 "id", "timestamp_request", "status_code", "api_route", "error",
                 "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
@@ -155,6 +156,8 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
             .defer(  # explicitly defer heavy text fields
                 "request_log__prompt", "request_log__result"
             )
+=======
+>>>>>>> model_upgrades
             .order_by("-timestamp_request", "-status_code")
         )
 

@@ -157,7 +157,7 @@ def check_globus_policies(introspection):
             error_message += "and re-authenticate with the following command: "
             error_message += "'python3 inference_auth_token.py authenticate --force'. "
             error_message += "Make sure you authenticate with an authorized identity provider: "
-            error_message += f"{settings.AUTHORIZED_IDP_DOMAINS}."
+            error_message += f"{settings.AUTHORIZED_IDP_DOMAINS_STRING}."
             return False, error_message
 
     # Return True if the user met all of the policies requirements
@@ -181,7 +181,7 @@ def check_globus_groups(user_groups):
     
 
 # Check Session Info
-def check_session_info(introspection):
+def check_session_info(introspection, user_groups):
     """
         Look into the session_info field of the token introspection
         and check whether the authentication was made through one 
@@ -211,6 +211,7 @@ def check_session_info(introspection):
                                 id=identity["sub"],
                                 name=identity["name"],
                                 username=identity["username"],
+                                user_group_uuids=user_groups,
                                 idp_id=identity["identity_provider"],
                                 idp_name=identity["identity_provider_display_name"],
                                 auth_service=AuthService.GLOBUS.value
@@ -236,7 +237,7 @@ def check_session_info(introspection):
         user_str = "could not recover user identity"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS}. Currently authenticated as {user_str}."
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS_STRING}. Currently authenticated as {user_str}."
 
 
 # Check Session Info
@@ -303,7 +304,7 @@ def validate_access_token(request):
         return ATVResponse(is_valid=False, error_message="Error: Access token expired.", error_code=401)
     
     # Make sure the authentication was made by an authorized identity provider
-    successful, user, error_message = check_session_info(introspection)
+    successful, user, error_message = check_session_info(introspection, user_groups)
     if not successful:
         return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
