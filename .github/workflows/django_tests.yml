@@ -61,10 +61,10 @@ jobs:
       - name: Check Python syntax
         uses: cclauss/Find-Python-syntax-errors-action@v0.2.0
 
-      - name: Install Python 3.11.9
+      - name: Install Python 3.12.6
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11.9'
+          python-version: '3.12.6'
 
       - name: Install Poetry
         uses: abatilo/actions-poetry@v2
