@@ -74,6 +74,14 @@ from resource_server_async.api import api, router
 endpoint_cache = {}
 
 
+# Health Check (GET) - No authentication required
+# Lightweight endpoint for Kubernetes/load balancer health checks
+@router.get("/health", auth=None)
+async def health_check(request):
+    """Lightweight health check endpoint - returns OK if API is responding."""
+    return JsonResponse({'status': 'ok'}, status=200)
+
+
 # Whoami (GET)
 @router.get("/whoami")
 async def whoami(request):

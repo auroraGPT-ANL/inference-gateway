@@ -9,10 +9,14 @@ def vllm_inference_function(parameters):
     import json
     from requests.exceptions import RequestException
 
-    def handle_non_streaming_request(url, headers, payload, start_time):
+    def handle_non_streaming_request(url, headers, payload, start_time, is_health_check=False):
         """Handle non-streaming requests (original logic)"""
-        # Make the POST request
-        response = requests.post(url, headers=headers, json=payload, verify=False)
+        # For health checks, make GET request instead of POST
+        if is_health_check:
+            response = requests.get(url, headers=headers, verify=False, timeout=60)
+        else:
+            # Make the POST request for regular endpoints
+            response = requests.post(url, headers=headers, json=payload, verify=False)
 
         end_time = time.time()
         response_time = end_time - start_time
@@ -289,8 +293,18 @@ def vllm_inference_function(parameters):
         # Check if streaming is requested
         stream = parameters['model_params'].get('stream', False)
         
-        base_url = f"https://127.0.0.1:{api_port}/v1/"
-        url = base_url + openai_endpoint
+        # Check if this is a health check endpoint
+        is_health_check = 'health' in openai_endpoint.lower()
+        
+        # For health checks, use root path without /v1/ prefix
+        if is_health_check:
+            base_url = f"https://127.0.0.1:{api_port}/"
+            # Remove any ../ or v1/ prefixes from the endpoint
+            clean_endpoint = openai_endpoint.replace('../', '').replace('v1/', '')
+            url = base_url + clean_endpoint
+        else:
+            base_url = f"https://127.0.0.1:{api_port}/v1/"
+            url = base_url + openai_endpoint
 
         # Prepare the payload
         payload = parameters['model_params'].copy()
@@ -302,7 +316,7 @@ def vllm_inference_function(parameters):
             return handle_streaming_request(url, headers, payload, start_time)
         else:
             # Handle non-streaming request (original logic)
-            return handle_non_streaming_request(url, headers, payload, start_time)
+            return handle_non_streaming_request(url, headers, payload, start_time, is_health_check)
 
     except RequestException as e:
         # Handle network-related errors
