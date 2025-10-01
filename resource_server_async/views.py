@@ -784,7 +784,6 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(result, 200, request)
     
 
-#TODO: Finish updates here (incomplete)
 async def handle_streaming_inference(gce, endpoint, data, resources_ready, request):
     """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
     

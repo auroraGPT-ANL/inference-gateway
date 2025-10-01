@@ -8,6 +8,10 @@ class AuthCheckConfig(AppConfig):
     name = 'inference_gateway'
 
     def ready(self):
+
+        # Skip is this is an automated test suite
+        if settings.RUNNING_AUTOMATED_TEST_SUITE:
+            return
         
         # Make sure a single Globus policy is in place
         if len(settings.GLOBUS_POLICIES) == 0:

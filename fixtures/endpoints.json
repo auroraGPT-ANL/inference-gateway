@@ -684,7 +684,7 @@
             "function_uuid": "30a20662-1f9a-4d52-afbe-b0dff46d9236",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
-            "allowed_globus_groups": "NotVisible:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     }
 ]

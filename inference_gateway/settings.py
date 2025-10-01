@@ -253,8 +253,8 @@ ALLOWED_FRAMEWORKS = {
     "sophia": ["vllm","infinity"]
 }
 ALLOWED_OPENAI_ENDPOINTS = {
-    "polaris": ["chat/completions", "completions", "embeddings","health","metrics"],
-    "sophia": ["chat/completions", "completions", "embeddings","health","metrics"]
+    "polaris": ["chat/completions", "completions", "embeddings", "health", "metrics"],
+    "sophia": ["chat/completions", "completions", "embeddings", "health", "metrics"]
 }
 ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 
