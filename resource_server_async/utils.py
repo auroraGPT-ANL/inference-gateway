@@ -1,11 +1,25 @@
-from ninja import FilterSchema
-from django.utils import timezone
-from django.db import IntegrityError
+import uuid
+import json
+import logging
+import redis
+import time
+import asyncio
+import re
 from enum import Enum
+from django.core.cache import cache
+from django.http import HttpResponse
+from django.utils import timezone
+from django.conf import settings
+from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic
+from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
+from rest_framework.exceptions import ValidationError
+from asgiref.sync import sync_to_async
+from asyncache import cached as asynccached
+from cachetools import TTLCache
 from utils.globus_utils import (
     submit_and_get_result,
     get_endpoint_status,
@@ -13,21 +27,12 @@ from utils.globus_utils import (
     get_compute_client_from_globus_app,
     get_compute_executor
 )
-from rest_framework.exceptions import ValidationError
-import json
-from uuid import UUID
-from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
-from cachetools import TTLCache
 from resource_server.models import ModelStatus
-from django.conf import settings
-import logging
-import redis
+from resource_server_async.models import (AccessLog, RequestLog, BatchLog, RequestMetrics, BatchMetrics)
 
 log = logging.getLogger(__name__) # Add logger
 
 # --- Removed Configuration Loading ---
-
 
 # Constants are now loaded from settings.py
 ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
@@ -139,12 +144,6 @@ def validate_batch_body(request):
     return validate_body(request, BatchPydantic)
 
 
-# Validate file body
-#def validate_file_body(request):
-#    """Build data dictionary for inference file path import request if user inputs are valid."""
-#    return validate_body(request, OpenAIFileUploadParamSerializer)
-
-
 # Validate body
 def validate_body(request, pydantic_class):
     """Validate body data from incoming user requests against a given pydantic model."""
@@ -152,8 +151,8 @@ def validate_body(request, pydantic_class):
     # Decode request body into a dictionary
     try:
         params = json.loads(request.body.decode("utf-8"))
-    except:
-        return {"error": f"Error: Request body cannot be decoded."}
+    except Exception as e:
+        return {"error": f"Error: Request body cannot be decoded: {e}"}
 
     # Send an error if the input data is not valid
     try:
@@ -192,7 +191,7 @@ def extract_group_uuids(globus_groups):
     # Make sure that all UUID strings have the UUID format
     for uuid_to_test in group_uuids:
         try:
-            uuid_obj = UUID(uuid_to_test).version
+            uuid_obj = uuid.UUID(uuid_to_test).version
         except Exception as e:
             return [], f"Error: Could not extract UUID format from the database. {e}"
     
@@ -311,8 +310,9 @@ async def update_batch_status_result(batch, cross_check=False):
         if "TaskExecutionFailed" in error_message:
             try:
                 batch.status = "failed"
-                batch.error = error_message
+                batch.access_log.error = error_message
                 await update_database(db_object=batch)
+                await update_database(db_object=batch.access_log)
                 return batch.status, batch.result, "", 200
             except Exception as e:
                 return "", "", f"Error: Could not update batch status in database: {e}", 400
@@ -343,7 +343,7 @@ async def update_batch_status_result(batch, cross_check=False):
                     batch.in_progress_at = timezone.now()
                 elif batch_status == "failed":
                     batch.failed_at = timezone.now()
-                    batch.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
+                    batch.access_log.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
             else:
                 batch_status = batch.status
 
@@ -365,6 +365,7 @@ async def update_batch_status_result(batch, cross_check=False):
     try:
         batch.status = batch_status
         await update_database(db_object=batch)
+        await update_database(db_object=batch.access_log)
     except Exception as e:
         return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
     
@@ -381,10 +382,37 @@ async def update_batch_status_result(batch, cross_check=False):
         except Exception as e:
             return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
 
-        # Update batch result in the database
+        # Update batch result in the database and upsert BatchMetrics
         try:
             batch.result = batch_result
             await update_database(db_object=batch)
+            await update_database(db_object=batch.access_log)
+
+            # Try to parse metrics summary from result if available
+            total_tokens = None
+            num_responses = None
+            response_time_sec = None
+            throughput = None
+            try:
+                result_data = json.loads(batch_result)
+                if isinstance(result_data, dict) and 'metrics' in result_data:
+                    metrics = result_data.get('metrics') or {}
+                    total_tokens = metrics.get('total_tokens')
+                    num_responses = metrics.get('num_responses')
+                    response_time_sec = metrics.get('response_time_sec')
+                    throughput = metrics.get('throughput_tokens_per_sec')
+            except Exception:
+                pass
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch,
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
+            except Exception as e:
+                log.error(f"Error upserting BatchMetrics: {e}")
         except Exception as e:
             return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
 
@@ -458,8 +486,23 @@ async def cross_check_status(batch):
 
 
 # Update database
-async def update_database(db_Model=None, db_data=None, db_object=None):
-    """Create new entry in the database or save the modification of existing entry."""
+async def update_database(db_Model=None, db_data=None, db_object=None, return_obj=False):
+    """
+    Create new entry in the database or save the modification of existing entry.
+    It returns the database object.
+    
+    Arguments
+    ---------
+        db_Model: Django database model from models.py (e.g. AccessLog, RequestLog)
+        db_data (dict): Data that will be ingested into the database model
+        db_object: Database model object
+        return_obj (bool): Whether the database object should be returned
+
+    Notes
+    -----
+        If db_object is None, it will be created from db_data
+        If db_data is provided, it will already create db_object from it
+    """
 
     # Create new database object if needed
     try:
@@ -471,16 +514,19 @@ async def update_database(db_Model=None, db_data=None, db_object=None):
     # Save database entry
     try:
         await sync_to_async(db_object.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        raise IntegrityError(f"Could not save {type(db_Model)} database entry: {e}")
     except Exception as e:
-        raise Exception(f"Could not save {type(db_Model)} database entry: {e}")
+        error_message = f"Could not save {type(db_Model)} database entry: {e}"
+        log.error(error_message)
+        raise Exception(error_message)
+    
+    # Return the database object if needed
+    if return_obj:
+        return db_object
 
 
 # Redis streaming data management functions
 def get_redis_client():
     """Get Redis client for streaming data storage"""
-    from django.core.cache import cache
     try:
         # Try to use Django's cache if it's Redis
         if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {})):
@@ -494,7 +540,6 @@ def get_redis_client():
 
 def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
     """Store streaming chunk with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -513,7 +558,6 @@ def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
 
 def get_streaming_data(task_id: str):
     """Get streaming chunks for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -530,7 +574,6 @@ def get_streaming_data(task_id: str):
 
 def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
     """Set streaming status with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -545,7 +588,6 @@ def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
 
 def get_streaming_status(task_id: str):
     """Get streaming status for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -562,7 +604,6 @@ def get_streaming_status(task_id: str):
 
 def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
     """Set streaming error with automatic cleanup"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -577,7 +618,6 @@ def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
 
 def get_streaming_error(task_id: str):
     """Get streaming error for a task"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -596,7 +636,6 @@ def get_streaming_error(task_id: str):
 # Endpoint caching utilities
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from Redis cache with fallback to in-memory"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cached_endpoint = cache.get(cache_key)
@@ -609,7 +648,6 @@ def get_endpoint_from_cache(endpoint_slug):
 
 def cache_endpoint(endpoint_slug, endpoint_data):
     """Cache endpoint data in Redis with TTL"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         # Cache endpoint data for 5 minutes
@@ -620,7 +658,6 @@ def cache_endpoint(endpoint_slug, endpoint_data):
 
 def remove_endpoint_from_cache(endpoint_slug):
     """Remove endpoint from Redis cache"""
-    from django.core.cache import cache
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cache.delete(cache_key)
@@ -629,82 +666,67 @@ def remove_endpoint_from_cache(endpoint_slug):
         log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
 
 
-# Database response utilities
-async def get_plain_response(content, code):
-    """Log error (if any) and return HTTP json.dumps response without writing to the database."""
-    if code >= 300:
-        log.error(content)
-    from django.http import HttpResponse
-    import json
-    return HttpResponse(json.dumps(content), status=code)
+# Get HTTP response
+async def get_response(content, code, request):
+    """Create database entries and prepare the HTTP response for the user."""
 
-async def get_list_response(db_data, content, code):
-    """Log database model (including error message if any) and return the HTTP response."""
-    from django.utils import timezone
-    from django.http import HttpResponse
-    from django.db import IntegrityError
-    from resource_server.models import ListEndpointsLog
-    import json
-
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["timestamp_response"] = timezone.now()
-    if not code == 200:
-        db_data["error_message"] = content
-
-    # Create and save database entry
+    # Try to create database entries
     try:
-        db_log = ListEndpointsLog(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save ListEndpointLog database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the ListEndpointLog database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-        
-    # Return the response or the error message
-    return HttpResponse(json.dumps(content), status=code)
 
-async def get_response(db_data, content, code):
-    """Log result or error in the current database model and return the HTTP response."""
-    from django.utils import timezone
-    from django.http import HttpResponse
-    from django.db import IntegrityError
-    from resource_server.models import Log
-    import json
-    
-    # Update the current database data
-    db_data["response_status"] = code
-    db_data["result"] = content
-    db_data["timestamp_response"] = timezone.now()
-
-    # Create and save database entry
-    try:
-        db_log = Log(**db_data)
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-    except IntegrityError as e:
-        message = f"Error: Could not create or save Log database entry: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
-    except Exception as e:
-        message = f"Error: Something went wrong while trying to write to the Log database: {e}"
-        log.error(message)
-        return HttpResponse(json.dumps(message), status=400)
+        # First, create AccessLog database entry (should always have one)
+        if hasattr(request, "access_log_data"):
+            access_log = await create_access_log(request.access_log_data, content, code)
+        else:
+            return HttpResponse(json.dumps("Error: get_response did not receive AccessLog data"), status=400)
         
-    # Return the response or the error message
+        # Create RequestLog database entry
+        if hasattr(request, "request_log_data"):
+            request.request_log_data.access_log = access_log
+            req_obj = await create_request_log(request.request_log_data, content, code)
+
+            # Create RequestMetrics immediately for non-streaming requests
+            await _upsert_request_metrics_auto(req_obj, access_log)
+
+        # Create BatchLog database entry
+        if hasattr(request, "batch_log_data"):
+            request.batch_log_data.access_log = access_log
+            batch_obj = await create_batch_log(request.batch_log_data, content, code)
+            # Create BatchMetrics skeleton; later updates can fill tokens/throughput
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch_obj,
+                    total_tokens=None,
+                    num_responses=None,
+                    response_time_sec=None,
+                    throughput_tokens_per_sec=None,
+                )
+            except Exception as e:
+                log.error(f"Error creating BatchMetrics: {e}")
+
+    # Error message if something went wrong while creating database entries
+    except Exception as e:
+        return HttpResponse(json.dumps(f"Error: Could not create database entries: {e}"), status=400)
+
+    # Prepare and return the HTTP response
     if code == 200:
-        return HttpResponse(content, status=code)
+        # Ensure JSON content-type and avoid double-encoding
+        try:
+            # If content is a JSON string, validate and return as-is
+            if isinstance(content, str):
+                _ = json.loads(content)
+                return HttpResponse(content, status=code, content_type='application/json')
+            # If it's already a dict/list, dump once
+            return HttpResponse(json.dumps(content), status=code, content_type='application/json')
+        except Exception:
+            # Fallback: return raw
+            return HttpResponse(content, status=code)
     else:
         log.error(content)
         return HttpResponse(json.dumps(content), status=code)
 
+
 async def get_batch_response(db_data, content, code, db_Model):
     """Log result or error in the current database model and return the HTTP response."""
-    from django.http import HttpResponse
-    import json
     
     # Create database entry
     try:
@@ -725,7 +747,6 @@ async def get_batch_response(db_data, content, code, db_Model):
 # Streaming setup utilities
 def prepare_streaming_task_data(data, stream_task_id):
     """Prepare data payload for streaming task with server configuration"""
-    from django.conf import settings
     
     # Get the streaming server configuration from settings
     stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
@@ -749,46 +770,179 @@ def create_streaming_response_headers():
     }
 
 
-# Authentication utilities
-async def validate_request_authentication(request):
-    """
-    Validate request authentication and return standardized response.
-    Returns (is_valid, atv_response_or_error_response, user_group_uuids_or_none)
-    """
-    from utils.auth_utils import validate_access_token
+# Create access log
+async def create_access_log(access_log_data: AccessLogPydantic, content, code):
+    """Create a new AccessLog database entry."""
+
+    # Finalize data
+    access_log_data.timestamp_response = timezone.now()
+    access_log_data.status_code = code
+    if not code == 200:
+        access_log_data.error = json.dumps(content)
+
+    # Create and return database entry
+    return await update_database(db_Model=AccessLog, db_data=access_log_data.model_dump(), return_obj=True)
     
-    # Check if request is authenticated
-    atv_response = validate_access_token(request)
-    if not atv_response.is_valid:
-        error_response = await get_plain_response(atv_response.error_message, atv_response.error_code)
-        return False, error_response, None
-    
-    # Gather the list of Globus Group memberships of the authenticated user
+
+# Create request log
+async def create_request_log(request_log_data: RequestLogPydantic, content, code):
+    """Create a new RequestLog database entry."""
+
+    # Finalize data
+    if code == 200:
+        request_log_data.result = _ensure_json_string(content)
+
+    # Create database entry
+    return await update_database(db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True)
+
+
+# ---- Metrics helpers ----
+def _safe_json(value: str):
     try:
-        user_group_uuids = atv_response.user_group_uuids
-        return True, atv_response, user_group_uuids
+        return json.loads(value) if isinstance(value, str) else value
+    except Exception:
+        return None
+
+def _ensure_json_string(content):
+    """Normalize any content into a proper JSON string.
+    - dict/list -> json.dumps(dict)
+    - str JSON -> parse then dump to avoid nested escaping
+    - str non-JSON -> wrap as {"raw": content}
+    - other -> json.dumps(str(content))
+    """
+    try:
+        if isinstance(content, (dict, list)):
+            return json.dumps(content)
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return json.dumps(parsed)
+            except Exception:
+                return json.dumps({"raw": content})
+        return json.dumps(str(content))
+    except Exception:
+        return json.dumps({"raw": "unserializable"})
+
+def _compute_response_time_sec(start_ts, end_ts):
+    try:
+        if start_ts and end_ts:
+            return (end_ts - start_ts).total_seconds()
+    except Exception:
+        return None
+    return None
+
+def _compute_throughput_tokens_per_sec(total_tokens, response_time_sec):
+    try:
+        if total_tokens is not None and response_time_sec and response_time_sec > 0:
+            return total_tokens / response_time_sec
+    except Exception:
+        return None
+    return None
+
+async def _upsert_request_metrics_auto(request_obj: RequestLog, access_obj: AccessLog,
+                                       response_time_sec: float = None,
+                                       prompt_tokens=None, completion_tokens=None, total_tokens=None):
+    # Derive tokens from stored result if not provided
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        p, c, t = _extract_usage_tokens_from_result(request_obj.result)
+        prompt_tokens, completion_tokens, total_tokens = p, c, t
+
+    # Derive response time from timestamps if not provided
+    if response_time_sec is None:
+        response_time_sec = _compute_response_time_sec(
+            request_obj.timestamp_compute_request, request_obj.timestamp_compute_response
+        )
+
+    throughput = _compute_throughput_tokens_per_sec(total_tokens, response_time_sec)
+
+    try:
+        await _upsert_request_metrics(
+            request_obj=request_obj,
+            access_obj=access_obj,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            response_time_sec=response_time_sec,
+            throughput_tokens_per_sec=throughput,
+        )
     except Exception as e:
-        error_response = await get_plain_response(f"Error: Could access user's Globus Group memberships: {e}", 400)
-        return False, error_response, None
+        log.error(f"Error upserting RequestMetrics: {e}")
 
-def create_db_data_template(atv_response, sync=True):
-    """Create standard database data template for logging"""
-    from django.utils import timezone
-    
-    return {
-        "name": atv_response.name,
-        "username": atv_response.username,
-        "timestamp_receive": timezone.now(),
-        "sync": sync
+def _extract_usage_tokens_from_result(result_str: str):
+    prompt_tokens = None
+    completion_tokens = None
+    total_tokens = None
+    data = _safe_json(result_str)
+    if isinstance(data, dict):
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+        if usage:
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+        # Some responses might nest metrics differently
+        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else None
+        if metrics and total_tokens is None:
+            total_tokens = metrics.get("total_tokens")
+    return prompt_tokens, completion_tokens, total_tokens
+
+@sync_to_async
+def _upsert_request_metrics(request_obj: RequestLog, access_obj: AccessLog,
+                            prompt_tokens, completion_tokens, total_tokens,
+                            response_time_sec, throughput_tokens_per_sec):
+    defaults = {
+        "cluster": request_obj.cluster,
+        "framework": request_obj.framework,
+        "model": request_obj.model,
+        "status_code": access_obj.status_code,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "response_time_sec": response_time_sec,
+        "throughput_tokens_per_sec": throughput_tokens_per_sec,
+        "timestamp_compute_request": request_obj.timestamp_compute_request,
+        "timestamp_compute_response": request_obj.timestamp_compute_response,
     }
+    obj, _ = RequestMetrics.objects.update_or_create(request=request_obj, defaults=defaults)
+    # Mark processed on the request to avoid external re-processing
+    if not request_obj.metrics_processed:
+        request_obj.metrics_processed = True
+        request_obj.save()
+    return obj
 
+@sync_to_async
+def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
+                          response_time_sec, throughput_tokens_per_sec):
+    defaults = {
+        "cluster": batch_obj.cluster,
+        "framework": batch_obj.framework,
+        "model": batch_obj.model,
+        "status": batch_obj.status,
+        "total_tokens": total_tokens,
+        "num_responses": num_responses,
+        "response_time_sec": response_time_sec,
+        "throughput_tokens_per_sec": throughput_tokens_per_sec,
+        "completed_at": batch_obj.completed_at,
+    }
+    obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
+    return obj
+
+
+# Create batch log
+async def create_batch_log(batch_log_data: BatchLogPydantic, content, code):
+    """Create a new BatchLog database entry."""
+
+    # Finalize data
+    if code == 200:
+        batch_log_data.result = _ensure_json_string(content)
+
+    # Create database entry
+    return await update_database(db_Model=BatchLog, db_data=batch_log_data.model_dump(), return_obj=True)
+    
 
 # Enhanced streaming utilities for content collection
 
 def format_streaming_error_for_openai(error_message: str):
     """Pass through JSON errors as-is, minimal processing for non-JSON errors"""
-    import json
-    import re
     
     try:
         # Try to parse if it's already a JSON error from vLLM
@@ -836,7 +990,6 @@ def format_streaming_error_for_openai(error_message: str):
 
 def extract_status_code_from_error(error_message: str):
     """Extract status code from error message for database logging"""
-    import re
     
     try:
         # Look for explicit status codes in error message
@@ -993,16 +1146,19 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
         log.error(f"Error aggregating streaming content: {e}")
         return None
 
+@sync_to_async
+def get_log_entry_with_access_log(log_id: str) -> RequestLog:
+    """Extract a RequestLog entry and also recover the related AccessLog object."""
+    return RequestLog.objects.select_related("access_log").get(id=log_id)
+
+
 async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict, stream_task_id: str = None):
     """Asynchronously update streaming log entry with final content"""
-    from resource_server.models import Log
-    from django.utils import timezone
-    import json
     
     try:
-        # Get the log entry and preserve existing fields
-        get_log_async = sync_to_async(Log.objects.get)
-        log_entry = await get_log_async(id=log_id)
+        # Get the RequestLog and AccessLog entry without using lazy loading
+        log_entry = await get_log_entry_with_access_log(log_id)
+        access_log = log_entry.access_log  # Safe: already fetched
         
         # Preserve the original task_uuid
         original_task_uuid = log_entry.task_uuid
@@ -1011,16 +1167,16 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         error_status = final_metrics.get('final_status')
         streaming_error = None
         response_status = 200  # Default success
-        
+
         if error_status == "error" and stream_task_id:
             # Get the actual error message
             streaming_error = get_streaming_error(stream_task_id)
             if streaming_error:
                 # Extract status code using the simple utility function
                 response_status = extract_status_code_from_error(streaming_error)
-        
+
         # Update the response status in the log entry
-        log_entry.response_status = response_status
+        access_log.status_code = response_status
         
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
@@ -1045,7 +1201,8 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "throughput_tokens_per_second": 0,
                 "status": "failed"
             }
-            log_entry.result = json.dumps(error_response, indent=4)
+            log_entry.result = None
+            access_log.error = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
             log_entry.result = json.dumps({
@@ -1056,14 +1213,23 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "throughput_tokens_per_second": 0
             }, indent=4)
         
-        log_entry.timestamp_response = timezone.now()
+        log_entry.timestamp_compute_response = timezone.now()
         
         # Ensure task_uuid is preserved (don't let it get overwritten)
         if original_task_uuid and not log_entry.task_uuid:
             log_entry.task_uuid = original_task_uuid
         
-        # Save the updated log entry
-        await sync_to_async(log_entry.save, thread_sensitive=True)()
+        # Save the updated log and access entries
+        await update_database(db_Model=AccessLog, db_object=access_log)
+        await update_database(db_Model=RequestLog, db_object=log_entry)
+
+        # Upsert RequestMetrics for streaming (derive from final data)
+        await _upsert_request_metrics_auto(
+            request_obj=log_entry,
+            access_obj=access_log,
+            response_time_sec=(final_metrics.get('total_processing_time') if final_metrics else None)
+        )
+
         log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
         
     except Exception as e:
@@ -1071,7 +1237,6 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
 
 def cleanup_streaming_data(task_id: str):
     """Clean up streaming data from Redis/cache after processing"""
-    from django.core.cache import cache
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -1099,8 +1264,6 @@ def cleanup_streaming_data(task_id: str):
 
 async def process_streaming_completion_async(task_id: str, stream_task_id: str, log_id: str, globus_task_future, start_time: float, original_prompt=None):
     """Background task to process streaming completion and update database"""
-    import asyncio
-    import time
     
     try:
         # Wait a bit for initial streaming data to arrive

@@ -1,4 +1,8 @@
+from pydantic import BaseModel
+from typing import Optional, List
 from dataclasses import dataclass, field
+from resource_server_async.models import AuthService
+from utils.pydantic_models.db_models import UserPydantic
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -19,12 +23,11 @@ class AuthUtilsError(Exception):
  
 
 # Data structure returned by the access token validation function
-@dataclass
-class atv_response:
+class ATVResponse(BaseModel):
     is_valid: bool
-    name: str = ""
-    username: str = ""
-    user_group_uuids: list = field(default_factory=lambda: [])
+    user: Optional[UserPydantic] = None
+    user_group_uuids: List[str] = field(default_factory=lambda: [])
+    idp_group_overlap_str: Optional[str] = None
     error_message: str = ""
     error_code: int = 0
     
@@ -123,10 +126,9 @@ def _perform_token_introspection(bearer_token: str):
     except Exception as e:
         return None, [], f"Error: Could not create GroupsClient. {e}"
 
-    # Get the user's group memberships
+    # Get the list of user's group memberships
     try:
         user_groups_response = groups_client.get_my_groups()
-        # Convert to serializable list
         user_groups = [group["id"] for group in user_groups_response]
     except Exception as e:
         return None, [], f"Error: Could not recover user group memberships. {e}"
@@ -155,7 +157,7 @@ def check_globus_policies(introspection):
             error_message += "and re-authenticate with the following command: "
             error_message += "'python3 inference_auth_token.py authenticate --force'. "
             error_message += "Make sure you authenticate with an authorized identity provider: "
-            error_message += f"{settings.AUTHORIZED_IDP_NAMES}."
+            error_message += f"{settings.AUTHORIZED_IDP_DOMAINS_STRING}."
             return False, error_message
 
     # Return True if the user met all of the policies requirements
@@ -179,125 +181,160 @@ def check_globus_groups(user_groups):
     
 
 # Check Session Info
-def check_session_info(introspection):
+def check_session_info(introspection, user_groups):
     """
         Look into the session_info field of the token introspection
         and check whether the authentication was made through one 
-        of the authorized identity providers.
+        of the authorized identity providers. Collect and return the
+        User details if possible
     """
 
     # Try to check if an authentication came from authorized provider
     try:
 
+        # Define the list of IdP providers present in the session_info field
+        # This array is used to log un-authorized attempts
+        session_info_idp_ids = []
+
         # If there is an authorized authentication (or if no AUTHORIZED_IDP_UUIDS was provided) ...
         for _, auth in introspection["session_info"]["authentications"].items():
+            session_info_idp_ids.append(auth["idp"])
             if auth["idp"] in settings.AUTHORIZED_IDP_UUIDS or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
 
-                # Extract the username tied to the authorized identity provider
-                for identity_set in introspection["identity_set_detail"]:
-                    if auth["idp"] == identity_set["identity_provider"]:
-                        auth_username = identity_set["username"]
+                # Find the user info linked to the authorized identity provider
+                for identity in introspection["identity_set_detail"]:
+                    if auth["idp"] == identity["identity_provider"]:
 
-                # Return successful check along with username
-                return True, auth_username, ""
+                        # Create the User object from the Globus introspection
+                        try:
+                            user = UserPydantic(
+                                id=identity["sub"],
+                                name=identity["name"],
+                                username=identity["username"],
+                                user_group_uuids=user_groups,
+                                idp_id=identity["identity_provider"],
+                                idp_name=identity["identity_provider_display_name"],
+                                auth_service=AuthService.GLOBUS.value
+                            )
+                        except Exception as e:
+                            return False, None, f"Error: Could not create User object: {e}"
+
+                # Return successful check along with user details
+                return True, user, ""
             
     # Revoke access if something went wrong during the check
     except Exception as e:
         return False, None, f"Error: Could not inspect session info: {e}"
     
+    # If user not authorized, extract user details for error message
+    try:
+        user_str = []
+        for identity in introspection["identity_set_detail"]:
+            if identity["identity_provider"] in session_info_idp_ids:
+                user_str.append(f"{identity['name']} ({identity['username']})")
+        user_str = ", ".join(user_str)
+    except Exception as e:
+        user_str = "could not recover user identity"
+    
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_NAMES}"
+    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS_STRING}. Currently authenticated as {user_str}."
+
+
+# Check Session Info
+def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
+    """
+        Make sure the user is part of an authorized Globus Group (if any)
+        associated with a given identity provider.
+
+        Returns: True/False if granted or not, error_message, group_overlap
+    """
+
+    # Extract the identity provider's UUID
+    idp_domain = next((k for k, v in settings.AUTHORIZED_IDPS.items() if v == user.idp_id), None)
+    if idp_domain is None:
+        return False, "Error: Could not check groups per IdP, user.idp_id did not match any AUTHORIZED_IDPS values.", None
+    
+    # If there is a Globus Group check tied to this identity provider ...
+    if idp_domain in settings.AUTHORIZED_GROUPS_PER_IDP:
+
+        # Error if the user is a member of any authorized Globus Groups
+        group_overlap = set(user_groups) & set(settings.AUTHORIZED_GROUPS_PER_IDP[idp_domain])
+        if len(group_overlap) == 0:
+            return False, f"Error: Permission denied. User ({user.name} - {user.username}) not part of the Globus Groups applied for {user.idp_name}.", None
+        
+        # Grant request if user is part of at least one authorized Globus Groups
+        else:
+            group_overlap = ", ".join(list(group_overlap))
+            return True, "", group_overlap
+
+    # Grant request if no group restriction was found
+    return True, "", None
 
 
 # Validate access token sent by user
 def validate_access_token(request):
-    """This function returns a atv_response data structure."""
+    """This function returns an instance of the ATVResponse pydantic data structure."""
 
     # Make sure the request is authenticated
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         error_message = "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers."
-        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
 
     # Make sure the bearer flag is mentioned
     try:
         ttype, bearer_token = auth_header.split()
         if ttype != "Bearer":
-            return atv_response(is_valid=False, error_message="Error: Authorization type should be Bearer.", error_code=400)
+            return ATVResponse(is_valid=False, error_message="Error: Authorization type should be Bearer.", error_code=400)
     except (AttributeError, ValueError):
         error_message = "Error: Auth only allows header type Authorization: Bearer <token>."
-        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
     except Exception as e:
         error_message = f"Error: Something went wrong while reading headers. {e}"
-        return atv_response(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
 
     # Introspect the access token
     introspection, user_groups, error_message = introspect_token(bearer_token)
     if len(error_message) > 0:
-        return atv_response(is_valid=False, error_message=f"Token introspection: {error_message}", error_code=401)
+        return ATVResponse(is_valid=False, error_message=f"Token introspection: {error_message}", error_code=401)
 
     # Make sure the token is not expired
     expires_in = introspection["exp"] - time.time()
     if expires_in <= 0:
-        return atv_response(is_valid=False, error_message="Error: Access token expired.", error_code=401)
+        return ATVResponse(is_valid=False, error_message="Error: Access token expired.", error_code=401)
     
     # Make sure the authentication was made by an authorized identity provider
-    successful, auth_username, error_message = check_session_info(introspection)
+    successful, user, error_message = check_session_info(introspection, user_groups)
     if not successful:
-        return atv_response(is_valid=False, error_message=error_message, error_code=403)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user comes from an allowed domain
     # Those must be a high-assurance policies
     if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
         successful, error_message = check_globus_policies(introspection)
         if not successful:
-            return atv_response(is_valid=False, error_message=error_message, error_code=403)
+            return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
+        
+    # Make sure the user is part of a per-IdP authorized group (if any)
+    successful, error_message, idp_group_overlap_str = check_groups_per_idp(user, user_groups)
+    if not successful:
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
         successful, error_message = check_globus_groups(user_groups)
         if not successful:
-            return atv_response(is_valid=False, error_message=error_message, error_code=403)
+            return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the user's identity can be recorded
-    if len(introspection["name"]) == 0 or len(auth_username) == 0:
-        return atv_response(is_valid=False, error_message="Error: Name and usernames could not be recovered.", error_code=400)
+    if len(user.name) == 0 or len(user.username) == 0:
+        return ATVResponse(is_valid=False, error_message="Error: Name and usernames could not be recovered.", error_code=400)
 
     # Return valid token response
-    log.info(f"{introspection['name']} requesting {introspection['scope']}")
-    return atv_response(
+    log.info(f"{user.name} requesting {introspection['scope']}")
+    return ATVResponse(
         is_valid=True,
-        name=introspection["name"],
-        username=auth_username,
-        user_group_uuids=user_groups
+        user=user,
+        user_group_uuids=user_groups,
+        idp_group_overlap_str=idp_group_overlap_str,
     )
-
-
-# Globus Authenticated (for decorator, which works with Django Rest, but not with Django Ninja)
-def globus_authenticated(f):
-    """
-        Decorator that will validate request headers to make sure the user
-        is authenticated and allowed to access the vLLM service API.
-    """
-
-    @functools.wraps(f)
-    def check_bearer_token(self, request, *args, **kwargs):
-        try:
-
-            # Record the time close to when the HTTP request was received by the server
-            kwargs["timestamp_receive"] = timezone.now()
-
-            # Validate access token
-            atv_response = validate_access_token(request)
-            if not atv_response.is_valid:
-                return Response(atv_response.error_message, status=atv_response.error_code)
-
-            # Prepare user details to be passed to the Django view
-            kwargs["user"] = {"name": atv_response.name, "username": atv_response.username}
-
-            return f(self, request, *args, **kwargs) 
-        except Exception as e:
-            log.error({"Error: check_bearer_token": e})
-            return Response({"Error: ": e}, status=500)
-
-    return check_bearer_token

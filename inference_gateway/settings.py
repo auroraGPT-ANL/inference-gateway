@@ -68,8 +68,21 @@ GLOBUS_MANAGEMENT_TASK_GROUP_ID = os.getenv("GLOBUS_MANAGEMENT_TASK_GROUP_ID", N
 
 # Extract allowed identity providers
 AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
-AUTHORIZED_IDP_NAMES = list(AUTHORIZED_IDPS.keys())
+AUTHORIZED_IDP_DOMAINS = list(AUTHORIZED_IDPS.keys())
 AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDPS.values())
+
+# Extract list of allowed groups per identity providers
+AUTHORIZED_GROUPS_PER_IDP = json.loads(os.getenv("AUTHORIZED_GROUPS_PER_IDP", "{}"))
+for key, value in AUTHORIZED_GROUPS_PER_IDP.items():
+    AUTHORIZED_GROUPS_PER_IDP[key] = [v.strip() for v in value.split(",")]
+
+# Define AUTHORIZED_IDP_DOMAINS_STRING for error-message string to hide restricted identity provided
+idp_overlap = set(AUTHORIZED_IDP_DOMAINS) & set(AUTHORIZED_GROUPS_PER_IDP.keys())
+if len(idp_overlap) == 0:
+    AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(AUTHORIZED_IDP_DOMAINS)
+else:
+    domains_string = [domain for domain in AUTHORIZED_IDP_DOMAINS if not domain in AUTHORIZED_GROUPS_PER_IDP]
+    AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(domains_string) + ", or providers with approved projects"
 
 # THIS SHOULD BE CHANGED
 ALLOWED_HOSTS = ["*"]
@@ -91,7 +104,9 @@ INSTALLED_APPS = [
     'resource_server_async',
     'drf_spectacular',
     # 'dashboard',
-    'dashboard_async'
+    'dashboard_async',
+    # Configuration checks (mostly for making sure auth guards are in place)
+    'inference_gateway.apps.AuthCheckConfig'
 ]
 
 MIDDLEWARE = [
@@ -238,8 +253,8 @@ ALLOWED_FRAMEWORKS = {
     "sophia": ["vllm","infinity"]
 }
 ALLOWED_OPENAI_ENDPOINTS = {
-    "polaris": ["chat/completions", "completions", "embeddings"],
-    "sophia": ["chat/completions", "completions", "embeddings"]
+    "polaris": ["chat/completions", "completions", "embeddings", "health", "metrics"],
+    "sophia": ["chat/completions", "completions", "embeddings", "health", "metrics"]
 }
 ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 

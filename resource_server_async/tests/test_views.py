@@ -3,17 +3,21 @@ from django.core.management import call_command
 from resource_server.models import Endpoint
 import json
 import uuid
+import logging
+log = logging.getLogger(__name__)
 
 # Tools to test with Django Ninja
 from django.test import TestCase
-from ninja.testing import TestClient
-from resource_server_async.views import router
+from ninja.testing import TestAsyncClient
+from resource_server_async.api import router
 
 # Overwrite utils functions to prevent contacting Globus services
 import asyncio
 import utils.auth_utils as auth_utils
 import utils.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
+from resource_server_async import views as async_views
+from resource_server_async import api
 auth_utils.check_session_info = mock_utils.check_session_info
 auth_utils.get_globus_client = mock_utils.get_globus_client
 auth_utils.check_globus_policies = mock_utils.check_globus_policies
@@ -23,13 +27,25 @@ globus_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_
 globus_utils.get_compute_executor = mock_utils.get_compute_executor
 asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
+async_views.handle_streaming_inference = mock_utils.handle_streaming_inference
+api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initialize_access_log_data
 
 # Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
 settings.MAX_BATCHES_PER_USER = 1000
 
-# Constants
-from resource_server_async.utils import ALLOWED_CLUSTERS, ALLOWED_FRAMEWORKS, ALLOWED_OPENAI_ENDPOINTS
+# Overwrite authorized IdPs for testing
+settings.AUTHORIZED_IDPS={"mock_domain.com": "mock_idp_id"}
+settings.AUTHORIZED_IDP_DOMAINS=["mock_domain.com"]
+settings.AUTHORIZED_IDP_UUIDS=["mock_idp_id"]
 
+# Settings variables
+ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
+ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
+ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
+
+# Define OpenAI endpoints to be removed
+for cluster, endpoints in ALLOWED_OPENAI_ENDPOINTS.items():
+    ALLOWED_OPENAI_ENDPOINTS[cluster] = [e for e in endpoints if e not in ["health", "metrics"]]
 
 # Test views.py
 class ResourceServerViewTestCase(TestCase):
@@ -56,7 +72,7 @@ class ResourceServerViewTestCase(TestCase):
 
         # Create request Django Ninja test client instance
         self.kwargs = {"content_type": "application/json"}
-        self.client = TestClient(router)
+        self.client = TestAsyncClient(router)
 
         # Load valid test input data (OpenAI format)
         base_path = "utils/tests/json"
@@ -69,6 +85,8 @@ class ResourceServerViewTestCase(TestCase):
             self.valid_params["embeddings"] = json.load(json_file)
         with open(f"{base_path}/valid_batch.json") as json_file:
             self.valid_params["batch"] = json.load(json_file)
+        self.valid_params["health"] = {}
+        self.valid_params["metrics"] = {}
 
         # Extract streaming test cases from valid chat completions
         self.streaming_test_cases = [
@@ -86,31 +104,37 @@ class ResourceServerViewTestCase(TestCase):
             self.invalid_params["embeddings"] = json.load(json_file)
         with open(f"{base_path}/invalid_batch.json") as json_file:
             self.invalid_params["batch"] = json.load(json_file)
+        self.invalid_params["health"] = {}
+        self.invalid_params["metrics"] = {}
 
 
     # Test get_list_endpoints (GET) 
-    def test_get_list_endpoints_view(self):
+    async def test_get_list_endpoints_view(self):
 
         # Define the targeted Django URL
-        url = "/resource_server/list-endpoints"
+        url = "/list-endpoints"
 
         # Make sure GET requests fail if something is wrong with the authentication
-        self.__verify_headers_failures(url=url, method=self.client.get)
+        await self.__verify_headers_failures(url=url, method=self.client.get)
 
         # Make sure non-GET requests are not allowed
         for method in [self.client.post, self.client.put, self.client.delete]:
-            response = method(url)
+            response = await method(url)
             self.assertEqual(response.status_code, 405)
 
         # Extract number of public and premium endpoint objects from the database
-        db_endpoints_public = len(Endpoint.objects.filter(allowed_globus_groups=""))
-        db_endpoints_premium = len(Endpoint.objects.filter(allowed_globus_groups=mock_utils.MOCK_ALLOWED_GROUP))
+        db_endpoints_public = 0
+        async for _ in Endpoint.objects.filter(allowed_globus_groups=""):
+            db_endpoints_public += 1
+        db_endpoints_premium = 0
+        async for _ in Endpoint.objects.filter(allowed_globus_groups=mock_utils.MOCK_ALLOWED_GROUP):
+            db_endpoints_premium += 1
 
         # For valid tokens with and without premium access ...
         for headers in [self.headers, self.premium_headers]:
 
             # Make sure GET requests succeed when providing a valid access token
-            response = self.client.get(url, headers=headers)
+            response = await self.client.get(url, headers=headers)
             response_data = self.__get_response_json(response)
             self.assertEqual(response.status_code, 200)
 
@@ -128,15 +152,15 @@ class ResourceServerViewTestCase(TestCase):
 
 
     # Test post_inference view (POST)
-    def test_post_inference_view(self):
+    async def test_post_inference_view(self):
 
         # Make sure POST requests fail when targetting an unsupported cluster, framework, or openai endpoint
         for wrong_url in self.__get_wrong_endpoint_urls():
-            response = self.client.post(wrong_url, headers=self.headers)
+            response = await self.client.post(wrong_url, headers=self.headers)
             self.assertEqual(response.status_code, 400)
 
         # For each supported endpoint in the database ...
-        for endpoint in Endpoint.objects.all():
+        async for endpoint in Endpoint.objects.all():
             
             # Build the targeted Django URLs
             url_dict = self.__get_endpoint_urls(endpoint)
@@ -145,11 +169,11 @@ class ResourceServerViewTestCase(TestCase):
             for openai_endpoint, url in url_dict.items():
 
                 # Make sure POST requests fail if something is wrong with the authentication
-                self.__verify_headers_failures(url=url, method=self.client.post)
+                await self.__verify_headers_failures(url=url, method=self.client.post)
 
                 # Make sure non-POST requests are not allowed
                 for method in [self.client.get, self.client.put, self.client.delete]:
-                    response = method(url)
+                    response = await method(url)
                     self.assertEqual(response.status_code, 405)
 
                 # If the endpoint can be accessed by the mock access token ...
@@ -163,7 +187,7 @@ class ResourceServerViewTestCase(TestCase):
                         valid_params["model"] = endpoint.model
 
                         # Make sure POST requests succeed
-                        response = self.client.post(url, data=json.dumps(valid_params), headers=headers, **self.kwargs)
+                        response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 200)
                         
                         # For streaming responses, we might get different response format
@@ -180,36 +204,36 @@ class ResourceServerViewTestCase(TestCase):
 
                     # Make sure POST requests fail when providing invalid inputs
                     for invalid_params in self.invalid_params[openai_endpoint]:
-                        response = self.client.post(url, data=json.dumps(invalid_params), headers=headers, **self.kwargs)
+                        response = await self.client.post(url, data=json.dumps(invalid_params).encode('utf-8'), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 400)
 
                 # Make sure users can't access private endpoint if not in allowed groups
                 if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
-                    response = self.client.post(url, data=json.dumps(valid_params), headers=self.headers, **self.kwargs)
+                    response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=self.headers, **self.kwargs)
                     self.assertEqual(response.status_code, 401)
 
     
     # Test post_batch_inference view (POST)
-    def test_post_batch_inference_view(self):
+    async def test_post_batch_inference_view(self):
 
         # Make sure POST requests fail when targetting an unsupported cluster or framework
         for wrong_url in self.__get_wrong_batch_urls():
-            response = self.client.post(wrong_url, headers=self.headers)
+            response = await self.client.post(wrong_url, headers=self.headers)
             self.assertEqual(response.status_code, 400)
 
         # For each endpoint that support batch in the database ...
-        for endpoint in Endpoint.objects.all():
+        async for endpoint in Endpoint.objects.all():
             if len(endpoint.batch_endpoint_uuid) > 0:
             
                 # Build the targeted Django URL
-                url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/batches"
+                url = f"/{endpoint.cluster}/{endpoint.framework}/v1/batches"
 
                 # Make sure POST requests fail if something is wrong with the authentication
-                self.__verify_headers_failures(url=url, method=self.client.post)
+                await self.__verify_headers_failures(url=url, method=self.client.post)
 
                 # Make sure non-POST requests are not allowed
                 for method in [self.client.get, self.client.put, self.client.delete]:
-                    response = method(url)
+                    response = await method(url)
                     self.assertEqual(response.status_code, 405)
 
                 # If the endpoint can be accessed by the mock access token ...
@@ -226,7 +250,7 @@ class ResourceServerViewTestCase(TestCase):
                         valid_params["input_file"] = f"/path/{str(uuid.uuid4())}"
 
                         # Make sure POST requests succeed
-                        response = self.client.post(url, data=json.dumps(valid_params), headers=headers, **self.kwargs)
+                        response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 200)
 
                         # Check whether the response makes sense (do not check batch_id, it's randomly generated in the view)
@@ -235,17 +259,17 @@ class ResourceServerViewTestCase(TestCase):
 
                     # Make sure POST requests fail when providing invalid inputs
                     for invalid_params in self.invalid_params["batch"]:
-                        response = self.client.post(url, data=json.dumps(invalid_params), headers=headers, **self.kwargs)
+                        response = await self.client.post(url, data=json.dumps(invalid_params).encode('utf-8'), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 400)
 
                 # Make sure users can't access private endpoint if not in allowed groups
                 if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
-                    response = self.client.post(url, data=json.dumps(valid_params), headers=self.headers, **self.kwargs)
+                    response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=self.headers, **self.kwargs)
                     self.assertEqual(response.status_code, 401)
 
 
     # Test streaming functionality (POST)
-    def test_post_streaming_inference_view(self):
+    async def test_post_streaming_inference_view(self):
         """Test streaming responses for chat/completions endpoint using real test data
         Note: stream=True is supported, but stream_options is only available in /completions endpoint"""
         
@@ -254,10 +278,10 @@ class ResourceServerViewTestCase(TestCase):
             self.skipTest("No streaming test cases found in valid_chat_completions.json")
         
         # For each supported endpoint in the database that supports chat/completions...
-        for endpoint in Endpoint.objects.all():
+        async for endpoint in Endpoint.objects.all():
             
             # Build the targeted Django URL for chat/completions
-            url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
+            url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
             
             # Skip if this cluster doesn't support chat/completions
             if "chat/completions" not in ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
@@ -275,7 +299,7 @@ class ResourceServerViewTestCase(TestCase):
                     test_params["model"] = endpoint.model
                     
                     # Test streaming request
-                    response = self.client.post(url, data=json.dumps(test_params), headers=headers, **self.kwargs)
+                    response = await self.client.post(url, data=json.dumps(test_params).encode('utf-8'), headers=headers, **self.kwargs)
                     
                     # For streaming, we expect a 200 response
                     self.assertEqual(response.status_code, 200)
@@ -293,7 +317,7 @@ class ResourceServerViewTestCase(TestCase):
                     non_streaming_params["model"] = endpoint.model
                     non_streaming_params["stream"] = False
                     
-                    response = self.client.post(url, data=json.dumps(non_streaming_params), headers=headers, **self.kwargs)
+                    response = await self.client.post(url, data=json.dumps(non_streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
                     self.assertEqual(response.status_code, 200)
                     # For non-streaming, we can expect the exact mock response
                     response_data = self.__get_response_json(response)
@@ -302,15 +326,15 @@ class ResourceServerViewTestCase(TestCase):
 
 
     # Test streaming-specific parameter validation
-    def test_streaming_parameter_validation(self):
+    async def test_streaming_parameter_validation(self):
         """Test validation of streaming-specific parameters
         Tests that stream=True works but invalid stream values are rejected"""
         
         # For each supported endpoint that allows streaming...
-        for endpoint in Endpoint.objects.all():
+        async for endpoint in Endpoint.objects.all():
             
             # Build the targeted Django URL for chat/completions
-            url = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
+            url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
             
             # Skip if this cluster doesn't support chat/completions
             if "chat/completions" not in ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
@@ -327,7 +351,7 @@ class ResourceServerViewTestCase(TestCase):
                     "stream": "invalid_string"  # Should be boolean
                 }
                 
-                response = self.client.post(url, data=json.dumps(invalid_stream_params), headers=headers, **self.kwargs)
+                response = await self.client.post(url, data=json.dumps(invalid_stream_params).encode('utf-8'), headers=headers, **self.kwargs)
                 # This should result in a 400 error due to pydantic validation failure
                 self.assertEqual(response.status_code, 400)
                 
@@ -339,7 +363,7 @@ class ResourceServerViewTestCase(TestCase):
                     "max_tokens": 50
                 }
                 
-                response = self.client.post(url, data=json.dumps(valid_streaming_params), headers=headers, **self.kwargs)
+                response = await self.client.post(url, data=json.dumps(valid_streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
                 # Should work correctly
                 self.assertEqual(response.status_code, 200)
                 # Verify we get some response content
@@ -348,26 +372,26 @@ class ResourceServerViewTestCase(TestCase):
 
 
     # Verify headers failures
-    def __verify_headers_failures(self, url=None, method=None):
+    async def __verify_headers_failures(self, url=None, method=None):
 
-        # Should fail (not authenticated)
+        # Should fail (not authenticated, missing token)
         headers = mock_utils.get_mock_headers(access_token="")
-        response = method(url, headers=headers)
+        response = await method(url, headers=headers)
         self.assertEqual(response.status_code, 400)
 
         # Should fail (not a bearer token)
         headers = mock_utils.get_mock_headers(access_token=self.active_token, bearer=False)
-        response = method(url, headers=headers)
+        response = await method(url, headers=headers)
         self.assertEqual(response.status_code, 400)
 
         # Should fail (not a valid token)
         headers = mock_utils.get_mock_headers(access_token=self.invalid_token, bearer=True)
-        response = method(url, headers=headers)
+        response = await method(url, headers=headers)
         self.assertEqual(response.status_code, 401)
 
         # Should fail (expired token)
         headers = mock_utils.get_mock_headers(access_token=self.expired_token, bearer=True)
-        response = method(url, headers=headers)
+        response = await method(url, headers=headers)
         self.assertEqual(response.status_code, 401)
         
 
@@ -444,7 +468,7 @@ class ResourceServerViewTestCase(TestCase):
     def __get_endpoint_urls(self, endpoint):
         urls = {}
         for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]:
-             urls[openai_endpoint] = f"/resource_server/{endpoint.cluster}/{endpoint.framework}/v1/{openai_endpoint}/"
+             urls[openai_endpoint] = f"/{endpoint.cluster}/{endpoint.framework}/v1/{openai_endpoint}/"
         return urls
 
 
@@ -458,19 +482,19 @@ class ResourceServerViewTestCase(TestCase):
         cluster = "unsupported-cluster"
         framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
         endpoint = ALLOWED_OPENAI_ENDPOINTS[ALLOWED_CLUSTERS[0]][0]
-        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/{endpoint}/",)
+        wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
         # Unsupported framework
         cluster = ALLOWED_CLUSTERS[0]
         framework = "unsupported-framework"
         endpoint = ALLOWED_OPENAI_ENDPOINTS[ALLOWED_CLUSTERS[0]][0]
-        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/{endpoint}/",)
+        wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
         # Unsupported openai endpoint
         cluster = ALLOWED_CLUSTERS[0]
         framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
         endpoint = "unsupported-endpoint"
-        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/{endpoint}/",)
+        wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
         # Return list of unsupported URLs
         return wrong_urls
@@ -485,12 +509,12 @@ class ResourceServerViewTestCase(TestCase):
         # Unsupported cluster
         cluster = "unsupported-cluster"
         framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
-        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/batches",)
+        wrong_urls.append(f"/{cluster}/{framework}/v1/batches",)
 
         # Unsupported framework
         cluster = ALLOWED_CLUSTERS[0]
         framework = "unsupported-framework"
-        wrong_urls.append(f"/resource_server/{cluster}/{framework}/v1/batches",)
+        wrong_urls.append(f"/{cluster}/{framework}/v1/batches",)
 
         # Return list of unsupported URLs
         return wrong_urls

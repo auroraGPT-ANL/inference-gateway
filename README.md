@@ -1,7 +1,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![Build](https://github.com/auroraGPT-ANL/inference-gateway/workflows/Django/badge.svg)
 
-# Inference Gateway for FIRST toolkit
+# Inference Gateway for FIRST toolkit 
 
 FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables LLM (Large Language Model) inference as a service, allowing secure, remote execution of LLMs through an [OpenAI](https://platform.openai.com/docs/overview)-compatible API. FIRST's Inference Gateway is a RESTful API that validates and authorizes inference requests to scientific computing clusters using [Globus Auth](https://www.globus.org/globus-auth-service) and [Globus Compute](https://www.globus.org/compute).
 
@@ -187,7 +187,8 @@ GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
 # Optional: Restrict access to specific Globus Groups (space-separated UUIDs)
 # GLOBUS_GROUPS="<group-uuid-1> <group-uuid-2>"
 # Optional: Enforce specific Identity Provider usage (JSON string)
-# AUTHORIZED_IDPS='{"Your Institution": "your-institution-uuid"}'
+# AUTHORIZED_IDPS='{"Your Institution Domain": "your-institution-uuid"}'
+# AUTHORIZED_GROUPS_PER_IDP='{"Institution Domain": "coma-separated list of group uuids"}'
 # Optional: Enforce Globus high assurance policies (space-separated UUIDs)
 # GLOBUS_POLICIES="<policy-uuid-1>"
 # Client ID and Secret of the Globus Service Account application
