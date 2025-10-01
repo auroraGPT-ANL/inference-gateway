@@ -5,6 +5,8 @@ import redis
 import time
 import asyncio
 import re
+import secrets
+import hmac
 from enum import Enum
 from django.core.cache import cache
 from django.http import HttpResponse
@@ -633,6 +635,119 @@ def get_streaming_error(task_id: str):
         return None
 
 
+# Per-Task Token Security Functions
+def generate_streaming_task_token(stream_task_id: str) -> str:
+    """Generate a unique authentication token for a streaming task.
+    
+    Uses secrets module for cryptographically strong random token generation.
+    Returns a URL-safe base64 encoded string with 256 bits of entropy.
+    """
+    token = secrets.token_urlsafe(32)  # 32 bytes = 256 bits of entropy
+    log.info(f"Generated streaming token for task {stream_task_id}")
+    return token
+
+
+def store_streaming_task_token(task_id: str, token: str, ttl: int = 600):
+    """Store the authentication token for a streaming task with automatic cleanup.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        token: Cryptographic token to store
+        ttl: Time to live in seconds (default 1 hour)
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:token:{task_id}"
+            redis_client.set(key, token, ex=ttl)
+        else:
+            # Fallback to Django cache
+            key = f"stream_token_{task_id}"
+            cache.set(key, token, ttl)
+        log.info(f"Stored streaming token for task {task_id}")
+    except Exception as e:
+        log.error(f"Error storing streaming token for task {task_id}: {e}")
+        raise
+
+
+def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
+    """Validate that the provided token matches the stored token for this task.
+    
+    Uses constant-time comparison to prevent timing attacks.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        provided_token: Token provided in the request
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = f"stream:token:{task_id}"
+            stored_token = redis_client.get(key)
+            if stored_token:
+                stored_token = stored_token.decode('utf-8') if isinstance(stored_token, bytes) else stored_token
+                # Use constant-time comparison to prevent timing attacks
+                is_valid = hmac.compare_digest(stored_token, provided_token)
+                if is_valid:
+                    log.info(f"Valid token for task {task_id}")
+                else:
+                    log.warning(f"Invalid token provided for task {task_id}")
+                return is_valid
+        else:
+            # Fallback to Django cache
+            key = f"stream_token_{task_id}"
+            stored_token = cache.get(key)
+            if stored_token:
+                is_valid = hmac.compare_digest(stored_token, provided_token)
+                if is_valid:
+                    log.info(f"Valid token for task {task_id}")
+                else:
+                    log.warning(f"Invalid token provided for task {task_id}")
+                return is_valid
+        
+        log.warning(f"No stored token found for task {task_id}")
+        return False
+    except Exception as e:
+        log.error(f"Error validating streaming token for task {task_id}: {e}")
+        return False
+
+
+def validate_task_exists_and_active(task_id: str) -> bool:
+    """Verify that the task_id was actually created by the system and is still active.
+    
+    A task is considered active if its token exists in the cache/Redis.
+    This prevents attackers from using random/guessed UUIDs.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        
+    Returns:
+        True if task exists and is active, False otherwise
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Check if token exists (token existence = task is active)
+            key = f"stream:token:{task_id}"
+            exists = redis_client.exists(key) > 0
+            if not exists:
+                log.warning(f"Task {task_id} does not exist or is no longer active")
+            return exists
+        else:
+            # Fallback to Django cache
+            key = f"stream_token_{task_id}"
+            exists = cache.get(key) is not None
+            if not exists:
+                log.warning(f"Task {task_id} does not exist or is no longer active")
+            return exists
+    except Exception as e:
+        log.error(f"Error checking task existence for {task_id}: {e}")
+        return False
+
+
 # Endpoint caching utilities
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from Redis cache with fallback to in-memory"""
@@ -746,18 +861,27 @@ async def get_batch_response(db_data, content, code, db_Model):
 
 # Streaming setup utilities
 def prepare_streaming_task_data(data, stream_task_id):
-    """Prepare data payload for streaming task with server configuration"""
+    """Prepare data payload for streaming task with server configuration and security token.
+    
+    Generates a unique cryptographic token for this streaming task and stores it
+    for validation of incoming streaming callbacks.
+    """
     
     # Get the streaming server configuration from settings
     stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
     stream_server_port = getattr(settings, 'STREAMING_SERVER_PORT', 443)
     stream_server_protocol = getattr(settings, 'STREAMING_SERVER_PROTOCOL', 'https')
     
+    # Generate unique authentication token for this task
+    task_token = generate_streaming_task_token(stream_task_id)
+    store_streaming_task_token(stream_task_id, task_token)
+    
     # Add streaming server details to the model_params section for the vLLM function
     data["model_params"]["streaming_server_host"] = stream_server_host
     data["model_params"]["streaming_server_port"] = stream_server_port
     data["model_params"]["streaming_server_protocol"] = stream_server_protocol
     data["model_params"]["stream_task_id"] = stream_task_id
+    data["model_params"]["stream_task_token"] = task_token  # Per-task authentication token
     
     return data
 

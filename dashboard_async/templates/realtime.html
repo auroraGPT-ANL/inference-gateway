@@ -29,6 +29,10 @@
     button:hover { background-color: #1d4ed8; }
     select { background: #0b0f17; color: #e6edf3; border: 1px solid #233042; border-radius: 8px; padding: 8px; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .user-menu { display: flex; gap: 12px; align-items: center; }
+    .user-name { color: #9fb1c3; font-size: 14px; }
+    .logout-btn { background-color: #6b7280; padding: 8px 12px; font-size: 14px; }
+    .logout-btn:hover { background-color: #4b5563; }
     .cell-scroll { max-width: 480px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
     th.sortable { position: relative; padding-right: 18px; }
     th.sortable .sort-icon { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); color: #9fb1c3; font-size: 12px; }
@@ -63,6 +67,11 @@
 <body>
   <div class="header">
     <h1>Inference Dashboard</h1>
+    <div class="user-menu">
+      <span class="user-name">{{ user.username }}</span>
+      <a href="{% url 'dashboard_password_change' %}"><button>Change Password</button></a>
+      <a href="{% url 'dashboard_logout' %}"><button class="logout-btn">Logout</button></a>
+    </div>
   </div>
 
     <div class="tabs">

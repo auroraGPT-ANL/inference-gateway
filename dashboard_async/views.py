@@ -7,6 +7,12 @@ from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
 from django.http import JsonResponse
 from django.core.cache import cache
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import views as auth_views
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.urls import reverse_lazy
 import json
 from resource_server.models import Endpoint, Log, Batch
 from resource_server_async.models import (
@@ -26,19 +32,82 @@ router = Router()
 api.add_router("/", router)
 
 
+# ========================= Authentication Views =========================
+
+def dashboard_login_view(request):
+    """Custom login view with styled template."""
+    if request.user.is_authenticated:
+        return redirect('dashboard_analytics')
+    
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            from django.contrib.auth import login
+            user = form.get_user()
+            login(request, user)
+            next_url = request.POST.get('next') or request.GET.get('next') or 'dashboard_analytics'
+            return redirect(next_url)
+    else:
+        form = AuthenticationForm()
+    
+    return render(request, 'login.html', {
+        'form': form,
+        'next': request.GET.get('next', '')
+    })
+
+
+def dashboard_logout_view(request):
+    """Custom logout view."""
+    from django.contrib.auth import logout
+    logout(request)
+    messages.info(request, 'You have been logged out successfully.')
+    return redirect('dashboard_login')
+
+
+@login_required
+def dashboard_password_change_view(request):
+    """Custom password change view with styled template."""
+    if request.method == 'POST':
+        form = PasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            from django.contrib.auth import update_session_auth_hash
+            update_session_auth_hash(request, user)  # Keep user logged in
+            messages.success(request, 'Your password has been changed successfully.')
+            return redirect('dashboard_password_change_done')
+    else:
+        form = PasswordChangeForm(request.user)
+    
+    return render(request, 'password_change.html', {'form': form})
+
+
+@login_required
+def dashboard_password_change_done_view(request):
+    """Password change confirmation page."""
+    return render(request, 'password_change_done.html')
+
+
 # ========================= New Realtime Dashboard (Async tables, no MVs) =========================
 
 
+@login_required
 @router.get("/analytics")
 def analytics_realtime_view(request):
     from django.shortcuts import render
     return render(request, "realtime.html")
 
 
+@login_required
 @router.get("/analytics/metrics")
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
+        # Check cache first (2 minute TTL for overall metrics)
+        cache_key = "dashboard:realtime_metrics"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
 
         # Choose source: union view if present, else base table
@@ -116,7 +185,7 @@ def get_realtime_metrics(request):
                 for row in cursor.fetchall()
             ]
 
-        return {
+        result = {
             "totals": {
                 "total_tokens": int(total_tokens or 0),
                 "total_requests": int(total_requests or 0),
@@ -128,11 +197,16 @@ def get_realtime_metrics(request):
             "per_model": per_model,
             "time_bounds": None,
         }
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching realtime metrics: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/logs")
 def get_realtime_logs(request, page: int = 0, per_page: int = 500):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
@@ -234,9 +308,17 @@ def _parse_series_window(window: str):
     return timedelta(days=1), "hour"
 
 
+@login_required
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request):
+    """Get unique users per model with caching to reduce DB load."""
     try:
+        # Check cache first (5 minute TTL)
+        cache_key = "dashboard:users_per_model"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
@@ -250,12 +332,17 @@ def get_users_per_model(request):
                 """
             )
             rows = cursor.fetchall()
-        return [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/users-table")
 def get_users_table(request):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
@@ -299,6 +386,7 @@ def get_users_table(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/series")
 def get_overall_series(request, window: str = "24h"):
     try:
@@ -364,6 +452,7 @@ def get_overall_series(request, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/model/series")
 def get_model_series(request, model: str, window: str = "24h"):
     try:
@@ -414,6 +503,7 @@ def get_model_series(request, model: str, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/model/box")
 def get_model_box(request, model: str, window: str = "24h"):
     try:
@@ -447,6 +537,7 @@ def get_model_box(request, model: str, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """Proxy health info so the browser doesn't need a bearer token.
@@ -505,7 +596,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
                 "start_info": "",
             } for m in sorted(configured_models)]
             payload = {"items": items, "free_nodes": None}
-            cache.set(cache_key, payload, timeout=60)
+            # Cache for 2 minutes
+            cache.set(cache_key, payload, timeout=120)
             return JsonResponse(payload)
 
         running = q.get("running", []) or []
@@ -558,6 +650,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
 # ========= Additional realtime endpoints =========
 
+@login_required
 @router.get("/analytics/requests-per-user")
 def get_requests_per_user(request):
     """Overall requests per user (from RequestMetrics joined to AccessLog/User)."""
@@ -586,6 +679,7 @@ def get_requests_per_user(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/batch/overview")
 def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
@@ -652,6 +746,7 @@ def get_batch_overview(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/batch/model-summary")
 def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
@@ -683,6 +778,7 @@ def get_batch_model_summary(request, model: str):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/batch-logs")
 def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     """Paginated batch logs from Async tables with user info and duration."""
@@ -715,6 +811,7 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+@login_required
 @router.get("/analytics/query-logs")
 def query_logs_custom(request):
     """Custom log query builder with flexible filters."""

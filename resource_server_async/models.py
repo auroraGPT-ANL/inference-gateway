@@ -69,7 +69,8 @@ class AccessLog(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["user", "status_code"]),  # NEW composite index
+            models.Index(fields=["user", "status_code"], name="idx_accesslog_user_status"),  # Composite for joins
+            models.Index(fields=["user_id"], name="idx_accesslog_user_id", condition=models.Q(user_id__isnull=False) & ~models.Q(user_id="")),  # For COUNT DISTINCT queries
         ]
 
     # Custom display
@@ -116,8 +117,9 @@ class RequestLog(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["cluster", "framework"]),
-            models.Index(fields=["model"]),
+            models.Index(fields=["cluster", "framework"], name="idx_rlog_clstr_frmwrk"),
+            models.Index(fields=["model"], name="idx_requestlog_model"),
+            models.Index(fields=["access_log_id", "model"], name="idx_requestlog_access_model"),  # Critical for dashboard joins
         ]
     # Custom display
     def __str__(self):
@@ -195,8 +197,8 @@ class RequestMetrics(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["cluster", "framework"]),
-            models.Index(fields=["model"]),
+            models.Index(fields=["cluster", "framework"], name="idx_rmetrics_clstr_frmwrk"),
+            models.Index(fields=["model"], name="idx_requestmetrics_model"),
         ]
 
     def __str__(self):

@@ -42,6 +42,9 @@ from resource_server_async.utils import (
     get_streaming_status,
     set_streaming_error,
     get_streaming_error,
+    # Per-task token security functions
+    validate_streaming_task_token,
+    validate_task_exists_and_active,
     # Background streaming functions
     process_streaming_completion_async,
     # Cache functions
@@ -1165,13 +1168,21 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
 @router.post("/api/streaming/data/", auth=None)
 async def receive_streaming_data(request):
-    """Receive streaming data from vLLM function - INTERNAL ONLY"""
+    """Receive streaming data from vLLM function - INTERNAL ONLY
+    
+    Security layers:
+    1. Global shared secret validation
+    2. Task ID format validation
+    3. Task existence verification
+    4. Per-task token validation
+    5. Data size validation
+    """
 
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    # SECURITY LAYER 1: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming data request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
         
     try:
         data = json.loads(request.body)
@@ -1181,13 +1192,24 @@ async def receive_streaming_data(request):
         if not task_id or chunk_data is None:
             return JsonResponse({"error": "Missing task_id or data"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
+        # SECURITY LAYER 2: Validate task_id format (UUID)
         try:
             uuid.UUID(task_id)
         except ValueError:
             return JsonResponse({"error": "Invalid task_id format"}, status=400)
         
-        # SECURITY: Validate chunk_data size (prevent DoS)
+        # SECURITY LAYER 3: Validate task exists and is active
+        if not validate_task_exists_and_active(task_id):
+            log.warning(f"Received streaming data for non-existent or inactive task: {task_id}")
+            return JsonResponse({"error": "Invalid or expired task_id"}, status=403)
+        
+        # SECURITY LAYER 4: Validate per-task token
+        provided_token = request.headers.get('X-Stream-Task-Token', '')
+        if not validate_streaming_task_token(task_id, provided_token):
+            log.warning(f"Invalid task token for streaming task: {task_id}")
+            return JsonResponse({"error": "Invalid task authentication token"}, status=403)
+        
+        # SECURITY LAYER 5: Validate chunk_data size (prevent DoS)
         if len(chunk_data) > 100000:  # 100KB limit
             return JsonResponse({"error": "Chunk data too large"}, status=413)
         
@@ -1215,13 +1237,21 @@ async def receive_streaming_data(request):
 
 @router.post("/api/streaming/error/", auth=None)
 async def receive_streaming_error(request):
-    """Receive error from vLLM function - INTERNAL ONLY"""
+    """Receive error from vLLM function - INTERNAL ONLY
     
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    Security layers:
+    1. Global shared secret validation
+    2. Task ID format validation
+    3. Task existence verification
+    4. Per-task token validation
+    5. Error message size validation
+    """
+    
+    # SECURITY LAYER 1: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming error request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
 
     try:
         data = json.loads(request.body)
@@ -1231,13 +1261,24 @@ async def receive_streaming_error(request):
         if not task_id or error is None:
             return JsonResponse({"error": "Missing task_id or error"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
+        # SECURITY LAYER 2: Validate task_id format (UUID)
         try:
             uuid.UUID(task_id)
         except ValueError:
             return JsonResponse({"error": "Invalid task_id format"}, status=400)
         
-        # SECURITY: Validate error size (prevent DoS)
+        # SECURITY LAYER 3: Validate task exists and is active
+        if not validate_task_exists_and_active(task_id):
+            log.warning(f"Received streaming error for non-existent or inactive task: {task_id}")
+            return JsonResponse({"error": "Invalid or expired task_id"}, status=403)
+        
+        # SECURITY LAYER 4: Validate per-task token
+        provided_token = request.headers.get('X-Stream-Task-Token', '')
+        if not validate_streaming_task_token(task_id, provided_token):
+            log.warning(f"Invalid task token for streaming error on task: {task_id}")
+            return JsonResponse({"error": "Invalid task authentication token"}, status=403)
+        
+        # SECURITY LAYER 5: Validate error size (prevent DoS)
         if len(error) > 10000:  # 10KB limit
             return JsonResponse({"error": "Error message too large"}, status=413)
         
@@ -1254,13 +1295,20 @@ async def receive_streaming_error(request):
 
 @router.post("/api/streaming/done/", auth=None)
 async def receive_streaming_done(request):
-    """Receive completion signal from vLLM function - INTERNAL ONLY"""
+    """Receive completion signal from vLLM function - INTERNAL ONLY
     
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    Security layers:
+    1. Global shared secret validation
+    2. Task ID format validation
+    3. Task existence verification
+    4. Per-task token validation
+    """
+    
+    # SECURITY LAYER 1: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming done request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
 
     try:
         data = json.loads(request.body)
@@ -1269,11 +1317,22 @@ async def receive_streaming_done(request):
         if not task_id:
             return JsonResponse({"error": "Missing task_id"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
+        # SECURITY LAYER 2: Validate task_id format (UUID)
         try:
             uuid.UUID(task_id)
         except ValueError:
             return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        
+        # SECURITY LAYER 3: Validate task exists and is active
+        if not validate_task_exists_and_active(task_id):
+            log.warning(f"Received streaming done for non-existent or inactive task: {task_id}")
+            return JsonResponse({"error": "Invalid or expired task_id"}, status=403)
+        
+        # SECURITY LAYER 4: Validate per-task token
+        provided_token = request.headers.get('X-Stream-Task-Token', '')
+        if not validate_streaming_task_token(task_id, provided_token):
+            log.warning(f"Invalid task token for streaming done on task: {task_id}")
+            return JsonResponse({"error": "Invalid task authentication token"}, status=403)
         
         # Mark as completed with automatic cleanup
         set_streaming_status(task_id, "completed")

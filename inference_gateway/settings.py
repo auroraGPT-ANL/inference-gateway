@@ -303,6 +303,11 @@ else:
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
+# Authentication settings for dashboard
+LOGIN_URL = '/dashboard/login/'
+LOGIN_REDIRECT_URL = '/dashboard/analytics'
+LOGOUT_REDIRECT_URL = '/dashboard/login/'
+
 # Streaming server configuration
 STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
 STREAMING_SERVER_PORT = int(os.environ.get('STREAMING_SERVER_PORT', 443))  # HTTPS port
