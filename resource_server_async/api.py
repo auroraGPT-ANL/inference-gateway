@@ -1,13 +1,15 @@
 import uuid
+from django.conf import settings
 from django.utils import timezone
+from django.core.cache import cache
+from django.contrib.auth import get_user_model
 from ninja import NinjaAPI, Router
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from resource_server_async.models import User
-from resource_server_async.utils import create_access_log
+from resource_server_async.utils import create_access_log, is_cached
 from utils.auth_utils import validate_access_token
 from utils.pydantic_models.db_models import AccessLogPydantic
 
@@ -24,8 +26,8 @@ api = NinjaAPI(urls_namespace='resource_server_async_api')
 
 # Define rate limits
 throttle = [
-    AnonRateThrottle('50/s'),
-    AuthRateThrottle('50/s'),
+    AnonRateThrottle('10/s'), # Per anonymous user, if request.user is not defined
+    AuthRateThrottle(f"{settings.RATE_LIMIT_PER_SEC_PER_USER}/s"), # Per user, as defined by the request.user object
 ]
 
 # Apply limits to the API
@@ -38,6 +40,9 @@ if not settings.RUNNING_AUTOMATED_TEST_SUITE:
 
 # Global authorization check that applies to all API routes
 class GlobalAuth(HttpBearer):
+
+    # Django User class to populate request.user
+    RequestLightWeigthUser = get_user_model()
 
     # Custom error message if Authorization headers is missing
     async def __call__(self, request):
@@ -60,7 +65,9 @@ class GlobalAuth(HttpBearer):
 
         # Raise an error if the access token if not valid or if the user is not authorized
         if not atv_response.is_valid:
-            _ = await create_access_log(access_log_data, atv_response.error_message, atv_response.error_code)
+            cache_key = access_log_data.origin_ip + atv_response.error_message + str(atv_response.error_code)
+            if not is_cached(cache_key, create_empty=True):
+                _ = await create_access_log(access_log_data, atv_response.error_message, atv_response.error_code)
             raise HttpError(atv_response.error_code, atv_response.error_message)
         
         # Create a new database entry for the user (or get existing entry if already exist)
@@ -77,8 +84,11 @@ class GlobalAuth(HttpBearer):
             )
         except Exception as e:
             error_message = f"Error: Could not create or recover user entry in the database: {e}"
-            _ = await create_access_log(access_log_data, error_message, 500)
-            raise HttpError(500, error_message)
+            status_code = 500
+            cache_key = access_log_data.origin_ip + error_message + str(status_code)
+            if not is_cached(cache_key, create_empty=True):
+                _ = await create_access_log(access_log_data, error_message, status_code)
+            raise HttpError(status_code, error_message)
 
         # Add user database object to the access log pydantic data
         access_log_data.user = user
@@ -86,6 +96,13 @@ class GlobalAuth(HttpBearer):
         # Add info to the request object
         request.access_log_data = access_log_data
         request.user_group_uuids = atv_response.user_group_uuids
+
+        # Add User object to request so that Ninja throttle can be applied per authenticated user (AuthRateThrottle)
+        request.user = self.RequestLightWeigthUser(
+            id=atv_response.user.id,
+            username=atv_response.user.username, 
+            is_superuser=False
+        )
 
         # Make the user database object accessible through the request.auth attribute
         return user
