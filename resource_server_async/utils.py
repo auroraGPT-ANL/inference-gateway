@@ -55,6 +55,28 @@ class ResourceServerError(Exception):
     pass
 
 
+# Is cached
+def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
+    """
+        Returns True if key exists in the cache, False otherwise.
+        If create_empty=True, a non-existing key will be created with a "" value (function will still returns False).
+    """
+
+    # If the key does not exist ...
+    if cache.get(key) is None:
+
+        # Create an empty entry if needed
+        if create_empty:
+            cache.set(key, "", ttl)
+
+        # Return False since the key did not exist at first
+        return False
+    
+    # Return True if the key already exists
+    else:
+        return True
+                
+
 # Validate cluster and framework
 def validate_cluster_framework(cluster: str, framework: str):
 
