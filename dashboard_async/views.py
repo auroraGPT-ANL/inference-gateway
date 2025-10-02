@@ -5,8 +5,15 @@ from django.utils.timezone import now
 from django.utils import timezone
 from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
-from django.http import JsonResponse
+from ninja.security import SessionAuth
+from django.http import JsonResponse, HttpRequest
 from django.core.cache import cache
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import views as auth_views
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.urls import reverse_lazy
 import json
 from resource_server.models import Endpoint, Log, Batch
 from resource_server_async.models import (
@@ -20,25 +27,298 @@ import logging
 
 log = logging.getLogger(__name__)
 
-api = NinjaAPI(urls_namespace="dashboard_api")
+
+# Custom authentication for Django Ninja that uses Globus session authentication
+class DjangoSessionAuth(SessionAuth):
+    """Use Globus session authentication for API endpoints."""
+    
+    def authenticate(self, request: HttpRequest, key):
+        from dashboard_async.globus_auth import validate_dashboard_token
+        import time
+        
+        # Check for Globus tokens in session
+        if 'globus_tokens' not in request.session:
+            return None
+        
+        try:
+            tokens = request.session['globus_tokens']
+            auth_tokens = tokens.get('auth.globus.org', {})
+            access_token = auth_tokens.get('access_token')
+            expires_at = auth_tokens.get('expires_at_seconds', 0)
+            
+            # Check if token is still valid (not expired)
+            if time.time() >= expires_at:
+                return None
+            
+            # Validate token with groups check
+            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+            
+            if is_valid:
+                # Return user data for use in API views
+                return user_data
+            
+        except Exception as e:
+            log.warning(f"API auth error: {e}")
+        
+        return None
+
+
+# Create Ninja API with session authentication
+api = NinjaAPI(urls_namespace="dashboard_api", auth=DjangoSessionAuth())
 router = Router()
 
 api.add_router("/", router)
 
 
+# ========================= Authentication Views =========================
+
+def dashboard_login_view(request):
+    """Initiate Globus OAuth2 login flow."""
+    from dashboard_async.globus_auth import validate_dashboard_token
+    
+    # Check if already authenticated via Globus
+    if 'globus_tokens' in request.session:
+        tokens = request.session['globus_tokens']
+        access_token = tokens['auth.globus.org']['access_token']
+        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+        
+        if is_valid:
+            return redirect('dashboard_analytics')
+        else:
+            # Clear invalid session to prevent loops
+            request.session.flush()
+    
+    # Clear any stale OAuth state from previous failed attempts
+    # This prevents reusing OAuth state after errors
+    request.session.pop('oauth_state', None)
+    request.session.pop('next_url', None)
+    
+    # Generate new state for CSRF protection
+    import secrets
+    state = secrets.token_urlsafe(32)
+    request.session['oauth_state'] = state
+    request.session['next_url'] = request.GET.get('next', 'dashboard_analytics')
+    
+    # Force session save before redirect
+    request.session.modified = True
+    request.session.save()
+    
+    # Get Globus authorization URL
+    from dashboard_async.globus_auth import get_authorization_url
+    auth_url = get_authorization_url(state=state)
+    
+    return redirect(auth_url)
+
+
+def dashboard_callback_view(request):
+    """Handle Globus OAuth2 callback."""
+    from dashboard_async.globus_auth import exchange_code_for_tokens, validate_dashboard_token
+    
+    # Check for errors from Globus
+    error = request.GET.get('error')
+    if error:
+        error_description = request.GET.get('error_description', error)
+        log.error(f"Globus OAuth error: {error} - {error_description}")
+        
+        request.session.pop('oauth_state', None)
+        request.session.pop('next_url', None)
+        
+        if error == 'unauthorized_client':
+            messages.error(request, 
+                f'OAuth Configuration Error: The redirect URI is not registered with Globus. '
+                f'Error: {error_description}')
+        else:
+            messages.error(request, f'Authentication failed: {error_description}')
+        
+        return render(request, 'login.html', {'form': None})
+    
+    # Verify CSRF state
+    state = request.GET.get('state')
+    saved_state = request.session.get('oauth_state')
+    
+    if not state or state != saved_state:
+        log.warning(f"CSRF state mismatch")
+        messages.error(request, 'Invalid authentication state. Please try again.')
+        request.session.pop('oauth_state', None)
+        return render(request, 'login.html', {'form': None})
+    
+    # Exchange authorization code for tokens
+    auth_code = request.GET.get('code')
+    if not auth_code:
+        log.error("No authorization code in callback")
+        messages.error(request, 'No authorization code received from Globus.')
+        return render(request, 'login.html', {'form': None})
+    
+    try:
+        # Get tokens from Globus
+        tokens = exchange_code_for_tokens(auth_code)
+        request.session['globus_tokens'] = tokens
+        
+        # Validate token and get user info
+        access_token = tokens['auth.globus.org']['access_token']
+        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+        
+        if not is_valid:
+            log.error(f"Token validation failed: {error}")
+            
+            # Clear all OAuth-related session data
+            request.session.pop('globus_tokens', None)
+            request.session.pop('oauth_state', None)
+            request.session.pop('next_url', None)
+            
+            # Render error page directly (don't redirect to avoid loop)
+            messages.error(request, error)
+            return render(request, 'login.html', {'form': None})
+        
+        # Store user info in session
+        request.session['globus_user'] = {
+            'id': user_data.id,
+            'name': user_data.name,
+            'username': user_data.username,
+            'idp_id': user_data.idp_id,
+            'idp_name': user_data.idp_name,
+        }
+        
+        request.session.modified = True
+        request.session.save()
+        
+        log.info(f"Dashboard login successful: {user_data.name} ({user_data.username})")
+        
+        # Redirect to original destination
+        next_url = request.session.pop('next_url', 'dashboard_analytics')
+        request.session.pop('oauth_state', None)
+        
+        return redirect(next_url)
+        
+    except Exception as e:
+        log.error(f"OAuth callback error: {e}")
+        messages.error(request, f'Authentication error: {str(e)}')
+        return redirect('dashboard_login')
+
+
+def dashboard_logout_view(request):
+    """Logout and clear both local and Globus sessions."""
+    from dashboard_async.globus_auth import revoke_token
+    from django.conf import settings
+    from urllib.parse import urlencode
+    
+    # Revoke Globus tokens if present
+    if 'globus_tokens' in request.session:
+        try:
+            access_token = request.session['globus_tokens']['auth.globus.org']['access_token']
+            revoke_token(access_token)
+        except Exception as e:
+            log.warning(f"Token revocation error during logout: {e}")
+    
+    # Clear local session
+    request.session.flush()
+    
+    # Build Globus logout URL with redirect back to login
+    # This ensures the Globus session is also cleared
+    logout_redirect = request.build_absolute_uri('/dashboard/login')
+    globus_logout_url = f"https://auth.globus.org/v2/web/logout?{urlencode({'redirect_uri': logout_redirect})}"
+    
+    log.info("Logging out and clearing Globus session")
+    
+    # Redirect to Globus logout, which will then redirect back to our login
+    return redirect(globus_logout_url)
+
+
+# Password change views removed - Globus manages authentication
+
+
+# ========================= Globus Authentication Decorator =========================
+
+def globus_login_required(view_func):
+    """
+    Decorator to require Globus authentication for dashboard views.
+    Validates Globus token from session and refreshes if needed.
+    """
+    from functools import wraps
+    from dashboard_async.globus_auth import validate_dashboard_token, refresh_access_token
+    import time
+    
+    @wraps(view_func)
+    def wrapped_view(request, *args, **kwargs):
+        # Check if Globus tokens exist in session
+        if 'globus_tokens' not in request.session:
+            messages.warning(request, 'Please log in to access the dashboard.')
+            return redirect(f"/dashboard/login?next={request.path}")
+        
+        try:
+            tokens = request.session['globus_tokens']
+            auth_tokens = tokens.get('auth.globus.org', {})
+            access_token = auth_tokens.get('access_token')
+            expires_at = auth_tokens.get('expires_at_seconds', 0)
+            
+            # Check if token is expired or about to expire (within 5 minutes)
+            if time.time() >= (expires_at - 300):
+                # Try to refresh token
+                refresh_token = auth_tokens.get('refresh_token')
+                if refresh_token:
+                    try:
+                        new_tokens = refresh_access_token(refresh_token)
+                        # Update session with new tokens
+                        request.session['globus_tokens']['auth.globus.org'].update(new_tokens)
+                        access_token = new_tokens['access_token']
+                    except Exception as e:
+                        log.warning(f"Token refresh failed: {e}")
+                        messages.error(request, 'Your session has expired. Please log in again.')
+                        return redirect('dashboard_login')
+                else:
+                    messages.error(request, 'Your session has expired. Please log in again.')
+                    return redirect('dashboard_login')
+            
+            # Validate token
+            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+            
+            if not is_valid:
+                log.warning(f"Token validation failed: {error}")
+                messages.error(request, f'Authentication failed: {error}')
+                # Clear invalid session
+                request.session.flush()
+                return redirect('dashboard_login')
+            
+            # Store user info in request for use in view
+            request.globus_user = user_data
+            
+            return view_func(request, *args, **kwargs)
+            
+        except Exception as e:
+            log.error(f"Authentication error: {e}")
+            messages.error(request, 'Authentication error. Please log in again.')
+            request.session.flush()
+            return redirect('dashboard_login')
+    
+    return wrapped_view
+
+
 # ========================= New Realtime Dashboard (Async tables, no MVs) =========================
 
 
-@router.get("/analytics")
+@globus_login_required
 def analytics_realtime_view(request):
-    from django.shortcuts import render
-    return render(request, "realtime.html")
-
+    """Main dashboard view - regular Django view (not API endpoint)."""
+    # Access Globus user info via request.globus_user
+    context = {
+        'user': request.globus_user
+    }
+    return render(request, "realtime.html", context)
 
 @router.get("/analytics/metrics")
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
+        # Check cache first (2 minute TTL for overall metrics)
+        cache_key = "dashboard:realtime_metrics"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
 
         # Choose source: union view if present, else base table
@@ -116,7 +396,7 @@ def get_realtime_metrics(request):
                 for row in cursor.fetchall()
             ]
 
-        return {
+        result = {
             "totals": {
                 "total_tokens": int(total_tokens or 0),
                 "total_requests": int(total_requests or 0),
@@ -128,10 +408,13 @@ def get_realtime_metrics(request):
             "per_model": per_model,
             "time_bounds": None,
         }
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching realtime metrics: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/logs")
 def get_realtime_logs(request, page: int = 0, per_page: int = 500):
@@ -145,6 +428,16 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
         qs = (
             AsyncAccessLog.objects
             .select_related("user", "request_log")
+            .only(  # only pull these fields, defer everything else
+                "id", "timestamp_request", "status_code", "api_route", "error",
+                "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
+                "request_log__id", "request_log__cluster", "request_log__model",
+                "request_log__openai_endpoint", "request_log__timestamp_compute_request",
+                "request_log__timestamp_compute_response", "request_log__task_uuid"
+            )
+            .defer(  # explicitly defer heavy text fields
+                "request_log__prompt", "request_log__result"
+            )
             .order_by("-timestamp_request", "-status_code")
         )
 
@@ -185,8 +478,8 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
                 "error_message": al.error,
                 "error_snippet": _truncate(al.error) if al and al.error else "",
                 "api_route": al.api_route,
-                "prompt_snippet": _truncate(rl.prompt) if rl else "",
-                "result_snippet": _truncate(rl.result) if rl else "",
+                "prompt_snippet": _truncate(getattr(rl, "prompt", "")),
+                "result_snippet": _truncate(getattr(rl, "result", "")),
                 "user_id": str(user.id) if user else None,
                 "user_name": user.name if user else None,
                 "user_username": user.username if user else None,
@@ -223,10 +516,16 @@ def _parse_series_window(window: str):
     # default
     return timedelta(days=1), "hour"
 
-
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request):
+    """Get unique users per model with caching to reduce DB load."""
     try:
+        # Check cache first (5 minute TTL)
+        cache_key = "dashboard:users_per_model"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
@@ -240,11 +539,14 @@ def get_users_per_model(request):
                 """
             )
             rows = cursor.fetchall()
-        return [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/users-table")
 def get_users_table(request):
@@ -287,7 +589,6 @@ def get_users_table(request):
     except Exception as e:
         log.error(f"Error fetching users table: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/series")
 def get_overall_series(request, window: str = "24h"):
@@ -353,7 +654,6 @@ def get_overall_series(request, window: str = "24h"):
         log.error(f"Error fetching overall series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/model/series")
 def get_model_series(request, model: str, window: str = "24h"):
     try:
@@ -403,7 +703,6 @@ def get_model_series(request, model: str, window: str = "24h"):
         log.error(f"Error fetching model series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/model/box")
 def get_model_box(request, model: str, window: str = "24h"):
     try:
@@ -435,7 +734,6 @@ def get_model_box(request, model: str, window: str = "24h"):
     except Exception as e:
         log.error(f"Error fetching model box: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
@@ -495,7 +793,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
                 "start_info": "",
             } for m in sorted(configured_models)]
             payload = {"items": items, "free_nodes": None}
-            cache.set(cache_key, payload, timeout=60)
+            # Cache for 2 minutes
+            cache.set(cache_key, payload, timeout=120)
             return JsonResponse(payload)
 
         running = q.get("running", []) or []
@@ -545,9 +844,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         log.error(f"Error fetching health status: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 # ========= Additional realtime endpoints =========
-
 @router.get("/analytics/requests-per-user")
 def get_requests_per_user(request):
     """Overall requests per user (from RequestMetrics joined to AccessLog/User)."""
@@ -574,7 +871,6 @@ def get_requests_per_user(request):
     except Exception as e:
         log.error(f"Error fetching requests per user: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/batch/overview")
 def get_batch_overview(request):
@@ -641,7 +937,6 @@ def get_batch_overview(request):
         log.error(f"Error fetching batch overview: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/batch/model-summary")
 def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
@@ -672,7 +967,6 @@ def get_batch_model_summary(request, model: str):
         log.error(f"Error fetching batch model summary: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/batch-logs")
 def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     """Paginated batch logs from Async tables with user info and duration."""
@@ -702,4 +996,120 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
         return results
     except Exception as e:
         log.error(f"Error fetching batch logs rt: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@router.get("/analytics/query-logs")
+def query_logs_custom(request):
+    """Custom log query builder with flexible filters."""
+    try:
+        from django.db import connection
+        import re as regex_module
+        
+        # Parse query parameters
+        rows = int(request.GET.get('rows', 10))
+        rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
+        
+        status_op = request.GET.get('status_op', '')
+        status_val = request.GET.get('status_val', '')
+        name_filter = request.GET.get('name', '')
+        prompt_filter = request.GET.get('prompt', '')
+        api_filter = request.GET.get('api', '')
+        from_ts = request.GET.get('from_ts', '')
+        to_ts = request.GET.get('to_ts', '')
+        tzname = 'America/Chicago'  # Fixed timezone
+        
+        # Build WHERE clauses
+        conditions = ["1=1"]
+        params = []
+        
+        # Status filter
+        if status_op and status_val:
+            allowed_ops = ['=', '!=', '>', '<', '>=', '<=']
+            if status_op in allowed_ops:
+                conditions.append(f"a.status_code {status_op} %s")
+                params.append(int(status_val))
+        
+        # Name filter (ILIKE)
+        if name_filter:
+            conditions.append("u.name ILIKE %s")
+            params.append(name_filter)
+        
+        # Prompt filter (ILIKE)
+        if prompt_filter:
+            conditions.append("r.prompt ILIKE %s")
+            params.append(prompt_filter)
+        
+        # API route filter (ILIKE)
+        if api_filter:
+            conditions.append("a.api_route ILIKE %s")
+            params.append(api_filter)
+        
+        # Timestamp expression
+        ts_expr = "COALESCE(r.timestamp_compute_request, a.timestamp_request)"
+        
+        # Date filters
+        if from_ts:
+            conditions.append(f"{ts_expr} >= %s::timestamptz")
+            params.append(from_ts)
+        
+        if to_ts:
+            conditions.append(f"{ts_expr} <= %s::timestamptz")
+            params.append(to_ts)
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Build final query
+        query = f"""
+        SELECT json_agg(row_to_json(t))
+        FROM (
+            SELECT
+                r.id AS request_id,
+                r.cluster,
+                r.framework,
+                r.model,
+                r.openai_endpoint,
+                r.timestamp_compute_request,
+                r.timestamp_compute_response,
+                r.prompt,
+                r.result,
+                r.task_uuid,
+                a.id AS accesslog_id,
+                a.timestamp_request,
+                a.timestamp_response,
+                a.api_route,
+                a.origin_ip,
+                a.status_code,
+                a.error,
+                u.id AS user_id,
+                u.name AS user_name,
+                u.username AS user_username,
+                u.idp_id,
+                u.idp_name,
+                u.auth_service
+            FROM resource_server_async_accesslog a
+            LEFT JOIN resource_server_async_requestlog r
+              ON r.access_log_id = a.id
+            LEFT JOIN resource_server_async_user u
+              ON a.user_id = u.id
+            WHERE {where_clause}
+            ORDER BY {ts_expr} DESC
+            LIMIT %s
+        ) t
+        """
+        
+        # Execute query
+        with connection.cursor() as cursor:
+            # Set timezone first
+            cursor.execute("SET TIME ZONE %s", [tzname])
+            # Then execute the main query
+            cursor.execute(query, params + [rows])
+            result = cursor.fetchone()
+            
+        # Return JSON array or empty array if no results
+        data = result[0] if result and result[0] else []
+        return JsonResponse({"results": data, "count": len(data) if data else 0}, safe=False)
+        
+    except Exception as e:
+        log.error(f"Error in custom log query: {e}")
         return JsonResponse({"error": str(e)}, status=500)

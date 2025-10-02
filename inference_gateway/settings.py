@@ -39,6 +39,39 @@ POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
+
+# Globus Dashboard Application Credentials
+GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")
+GLOBUS_DASHBOARD_APPLICATION_SECRET = os.getenv("GLOBUS_DASHBOARD_APPLICATION_SECRET")
+
+# Dashboard Globus OAuth settings
+GLOBUS_DASHBOARD_REDIRECT_URI = os.getenv(
+    "GLOBUS_DASHBOARD_REDIRECT_URI",
+    "http://localhost:8000/dashboard/callback"  # Update for production
+)
+
+# Scopes needed for dashboard access
+GLOBUS_DASHBOARD_SCOPES = [
+    "openid",
+    "profile",
+    "email",
+    "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
+]
+
+# Dashboard-specific Globus Group requirement
+# Users must be members of this group to access the dashboard
+GLOBUS_DASHBOARD_GROUP = os.getenv("GLOBUS_DASHBOARD_GROUP", "")
+DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
+
+
+GLOBUS_DASHBOARD_POLICY_ID = os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
+# Extract Globus policies that will determine which domains get access
+GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_DASHBOARD_POLICY_ID", ""))
+NUMBER_OF_GLOBUS_DASHBOARD_POLICIES = len(GLOBUS_DASHBOARD_POLICIES)
+GLOBUS_DASHBOARD_POLICIES = ",".join(GLOBUS_DASHBOARD_POLICIES)
+
+
+
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 MAX_BATCHES_PER_USER = int(os.getenv("MAX_BATCHES_PER_USER", 1))
@@ -302,9 +335,26 @@ else:
         }
     }
 
-# Session engine to use Redis for session storage (optional, improves performance)
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# Session engine - use cached_db for speed + reliability (perfect for OAuth)
+# This gives you Redis speed with DB persistence as fallback
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+
+# Session cookie settings for OAuth flow
+SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cookies on redirects from same site (required for OAuth)
+SESSION_COOKIE_HTTPONLY = True   # Prevent JavaScript access (security)
+SESSION_COOKIE_NAME = 'dashboard_sessionid'  # Unique name to avoid conflicts
+SESSION_COOKIE_AGE = 86400  # 24 hours (matches typical OAuth token lifetime)
+SESSION_SAVE_EVERY_REQUEST = False  # Don't save on every request (performance)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close (better UX)
+
+# CSRF cookie settings for production security
+CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
+CSRF_COOKIE_SAMESITE = 'Lax'  # Match session cookie
+
+# Authentication settings for dashboard
+LOGIN_URL = '/dashboard/login/'
+LOGIN_REDIRECT_URL = '/dashboard/analytics'
+LOGOUT_REDIRECT_URL = '/dashboard/login/'
 
 # Streaming server configuration
 STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
