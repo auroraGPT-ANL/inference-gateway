@@ -309,7 +309,6 @@ def analytics_realtime_view(request):
     }
     return render(request, "realtime.html", context)
 
-
 @router.get("/analytics/metrics")
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
@@ -417,7 +416,6 @@ def get_realtime_metrics(request):
         log.error(f"Error fetching realtime metrics: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/logs")
 def get_realtime_logs(request, page: int = 0, per_page: int = 500):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
@@ -518,7 +516,6 @@ def _parse_series_window(window: str):
     # default
     return timedelta(days=1), "hour"
 
-
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request):
     """Get unique users per model with caching to reduce DB load."""
@@ -550,7 +547,6 @@ def get_users_per_model(request):
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/users-table")
 def get_users_table(request):
@@ -593,7 +589,6 @@ def get_users_table(request):
     except Exception as e:
         log.error(f"Error fetching users table: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/series")
 def get_overall_series(request, window: str = "24h"):
@@ -659,7 +654,6 @@ def get_overall_series(request, window: str = "24h"):
         log.error(f"Error fetching overall series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/model/series")
 def get_model_series(request, model: str, window: str = "24h"):
     try:
@@ -709,7 +703,6 @@ def get_model_series(request, model: str, window: str = "24h"):
         log.error(f"Error fetching model series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/model/box")
 def get_model_box(request, model: str, window: str = "24h"):
     try:
@@ -741,7 +734,6 @@ def get_model_box(request, model: str, window: str = "24h"):
     except Exception as e:
         log.error(f"Error fetching model box: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
@@ -852,9 +844,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         log.error(f"Error fetching health status: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 # ========= Additional realtime endpoints =========
-
 @router.get("/analytics/requests-per-user")
 def get_requests_per_user(request):
     """Overall requests per user (from RequestMetrics joined to AccessLog/User)."""
@@ -881,7 +871,6 @@ def get_requests_per_user(request):
     except Exception as e:
         log.error(f"Error fetching requests per user: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/batch/overview")
 def get_batch_overview(request):
@@ -948,7 +937,6 @@ def get_batch_overview(request):
         log.error(f"Error fetching batch overview: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @router.get("/analytics/batch/model-summary")
 def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
@@ -978,7 +966,6 @@ def get_batch_model_summary(request, model: str):
     except Exception as e:
         log.error(f"Error fetching batch model summary: {e}")
         return JsonResponse({"error": str(e)}, status=500)
-
 
 @router.get("/analytics/batch-logs")
 def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
