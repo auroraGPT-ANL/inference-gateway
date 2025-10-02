@@ -748,6 +748,210 @@ def validate_task_exists_and_active(task_id: str) -> bool:
         return False
 
 
+# P0 OPTIMIZATION: Validation result caching
+_validation_cache = TTLCache(maxsize=10000, ttl=300)  # Cache for 5 minutes
+
+def get_cached_validation_result(task_id: str, provided_token: str) -> tuple:
+    """Get cached validation result if available.
+    
+    Returns:
+        (is_valid, cached) tuple where cached indicates if result was from cache
+    """
+    cache_key = f"{task_id}:{provided_token[:16]}"  # Use first 16 chars for key
+    
+    try:
+        if cache_key in _validation_cache:
+            return _validation_cache[cache_key], True
+        return None, False
+    except Exception:
+        return None, False
+
+
+def cache_validation_result(task_id: str, provided_token: str, is_valid: bool):
+    """Cache validation result to avoid repeated Redis calls."""
+    cache_key = f"{task_id}:{provided_token[:16]}"
+    
+    try:
+        _validation_cache[cache_key] = is_valid
+    except Exception as e:
+        log.warning(f"Failed to cache validation result: {e}")
+
+
+def validate_streaming_request_optimized(task_id: str, provided_token: str) -> tuple:
+    """Optimized validation that combines existence check and token validation with caching.
+    
+    Returns:
+        (is_valid, error_message) tuple
+    """
+    # P0 OPTIMIZATION: Check cache first
+    cached_result, was_cached = get_cached_validation_result(task_id, provided_token)
+    if was_cached:
+        if cached_result:
+            return True, None
+        else:
+            return False, "Invalid or expired task authentication"
+    
+    # Validate task_id format (UUID)
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        return False, "Invalid task_id format"
+    
+    # P0 OPTIMIZATION: Use Redis pipeline to batch operations
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Batch both operations in a single round-trip
+            pipe = redis_client.pipeline()
+            token_key = f"stream:token:{task_id}"
+            pipe.exists(token_key)
+            pipe.get(token_key)
+            exists, stored_token = pipe.execute()
+            
+            if not exists:
+                cache_validation_result(task_id, provided_token, False)
+                return False, "Invalid or expired task_id"
+            
+            if stored_token:
+                stored_token = stored_token.decode('utf-8') if isinstance(stored_token, bytes) else stored_token
+                is_valid = hmac.compare_digest(stored_token, provided_token)
+                
+                # Cache the result
+                cache_validation_result(task_id, provided_token, is_valid)
+                
+                if is_valid:
+                    return True, None
+                else:
+                    return False, "Invalid task authentication token"
+            
+            return False, "No authentication token found"
+        else:
+            # Fallback to Django cache (not optimized)
+            if not validate_task_exists_and_active(task_id):
+                cache_validation_result(task_id, provided_token, False)
+                return False, "Invalid or expired task_id"
+            
+            if not validate_streaming_task_token(task_id, provided_token):
+                cache_validation_result(task_id, provided_token, False)
+                return False, "Invalid task authentication token"
+            
+            cache_validation_result(task_id, provided_token, True)
+            return True, None
+            
+    except Exception as e:
+        log.error(f"Error in optimized validation: {e}")
+        return False, f"Validation error: {str(e)}"
+
+
+# P0 OPTIMIZATION: Redis pipeline for SSE polling
+def get_streaming_data_and_status_batch(task_id: str):
+    """Get both streaming data and status in a single Redis round-trip.
+    
+    Returns:
+        (chunks, status, error) tuple
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Use pipeline to batch multiple operations
+            pipe = redis_client.pipeline()
+            data_key = f"stream:data:{task_id}"
+            status_key = f"stream:status:{task_id}"
+            error_key = f"stream:error:{task_id}"
+            
+            pipe.lrange(data_key, 0, -1)
+            pipe.get(status_key)
+            pipe.get(error_key)
+            
+            results = pipe.execute()
+            
+            # Process chunks
+            raw_chunks = results[0]
+            chunks = [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk 
+                     for chunk in reversed(raw_chunks)] if raw_chunks else []
+            
+            # Process status
+            status = results[1]
+            status = status.decode('utf-8') if isinstance(status, bytes) else status
+            
+            # Process error
+            error = results[2]
+            error = error.decode('utf-8') if isinstance(error, bytes) else error
+            
+            return chunks, status, error
+        else:
+            # Fallback to Django cache (not batched)
+            chunks = get_streaming_data(task_id)
+            status = get_streaming_status(task_id)
+            error = get_streaming_error(task_id)
+            return chunks, status, error
+            
+    except Exception as e:
+        log.error(f"Error in batched streaming data retrieval: {e}")
+        return [], None, None
+
+
+# P0 OPTIMIZATION: Batched chunk storage for streaming endpoints
+def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
+    """Store multiple streaming chunks in a single Redis operation.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        chunk_list: List of chunk data strings to store
+        ttl: Time to live in seconds
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Use Redis with TTL and pipeline for batch operations
+            key = f"stream:data:{task_id}"
+            pipe = redis_client.pipeline()
+            
+            # Add all chunks at once
+            for chunk_data in chunk_list:
+                pipe.lpush(key, chunk_data)
+            
+            # Set TTL once at the end
+            pipe.expire(key, ttl)
+            pipe.execute()
+        else:
+            # Fallback to Django cache (individual operations)
+            for chunk_data in chunk_list:
+                store_streaming_data(task_id, chunk_data, ttl)
+    except Exception as e:
+        log.error(f"Error storing batched streaming data: {e}")
+
+
+# P0 OPTIMIZATION: Permission check caching
+_permission_cache = TTLCache(maxsize=50000, ttl=300)  # Cache for 5 minutes
+
+def get_cached_permission_check(username: str, endpoint_slug: str, user_group_uuids: list) -> tuple:
+    """Get cached permission check result.
+    
+    Returns:
+        (is_allowed, cached) tuple
+    """
+    # Create a stable cache key from user and endpoint
+    cache_key = f"{username}:{endpoint_slug}:{hash(tuple(sorted(user_group_uuids)))}"
+    
+    try:
+        if cache_key in _permission_cache:
+            return _permission_cache[cache_key], True
+        return None, False
+    except Exception:
+        return None, False
+
+
+def cache_permission_check(username: str, endpoint_slug: str, user_group_uuids: list, is_allowed: bool):
+    """Cache permission check result."""
+    cache_key = f"{username}:{endpoint_slug}:{hash(tuple(sorted(user_group_uuids)))}"
+    
+    try:
+        _permission_cache[cache_key] = is_allowed
+    except Exception as e:
+        log.warning(f"Failed to cache permission check: {e}")
+
+
 # Endpoint caching utilities
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from Redis cache with fallback to in-memory"""

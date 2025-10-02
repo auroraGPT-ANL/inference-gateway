@@ -5,7 +5,8 @@ from django.utils.timezone import now
 from django.utils import timezone
 from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
-from django.http import JsonResponse
+from ninja.security import SessionAuth
+from django.http import JsonResponse, HttpRequest
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import views as auth_views
@@ -26,7 +27,19 @@ import logging
 
 log = logging.getLogger(__name__)
 
-api = NinjaAPI(urls_namespace="dashboard_api")
+
+# Custom authentication for Django Ninja that uses Django's session authentication
+class DjangoSessionAuth(SessionAuth):
+    """Use Django's session authentication for API endpoints."""
+    
+    def authenticate(self, request: HttpRequest, key):
+        if request.user.is_authenticated:
+            return request.user
+        return None
+
+
+# Create Ninja API with session authentication
+api = NinjaAPI(urls_namespace="dashboard_api", auth=DjangoSessionAuth())
 router = Router()
 
 api.add_router("/", router)
@@ -91,13 +104,11 @@ def dashboard_password_change_done_view(request):
 
 
 @login_required
-@router.get("/analytics")
 def analytics_realtime_view(request):
-    from django.shortcuts import render
+    """Main dashboard view - regular Django view (not API endpoint)."""
     return render(request, "realtime.html")
 
 
-@login_required
 @router.get("/analytics/metrics")
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
@@ -206,7 +217,6 @@ def get_realtime_metrics(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/logs")
 def get_realtime_logs(request, page: int = 0, per_page: int = 500):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
@@ -308,7 +318,6 @@ def _parse_series_window(window: str):
     return timedelta(days=1), "hour"
 
 
-@login_required
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request):
     """Get unique users per model with caching to reduce DB load."""
@@ -342,7 +351,6 @@ def get_users_per_model(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/users-table")
 def get_users_table(request):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
@@ -386,7 +394,6 @@ def get_users_table(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/series")
 def get_overall_series(request, window: str = "24h"):
     try:
@@ -452,7 +459,6 @@ def get_overall_series(request, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/model/series")
 def get_model_series(request, model: str, window: str = "24h"):
     try:
@@ -503,7 +509,6 @@ def get_model_series(request, model: str, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/model/box")
 def get_model_box(request, model: str, window: str = "24h"):
     try:
@@ -537,7 +542,6 @@ def get_model_box(request, model: str, window: str = "24h"):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """Proxy health info so the browser doesn't need a bearer token.
@@ -650,7 +654,6 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
 # ========= Additional realtime endpoints =========
 
-@login_required
 @router.get("/analytics/requests-per-user")
 def get_requests_per_user(request):
     """Overall requests per user (from RequestMetrics joined to AccessLog/User)."""
@@ -679,7 +682,6 @@ def get_requests_per_user(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/batch/overview")
 def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
@@ -746,7 +748,6 @@ def get_batch_overview(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/batch/model-summary")
 def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
@@ -778,7 +779,6 @@ def get_batch_model_summary(request, model: str):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/batch-logs")
 def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     """Paginated batch logs from Async tables with user info and duration."""
@@ -811,7 +811,6 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @router.get("/analytics/query-logs")
 def query_logs_custom(request):
     """Custom log query builder with flexible filters."""

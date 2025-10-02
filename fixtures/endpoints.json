@@ -319,7 +319,8 @@
             "endpoint_uuid": "da5f2dbb-f265-4c61-a62a-2c1ec44c29eb",
             "function_uuid": "12d8339d-28eb-412b-ae37-d7b612f3f44d",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -685,6 +686,21 @@
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 47,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-qwenqwen3-next-80b-a3b-thinking",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+            "api_port": 8000,
+            "endpoint_uuid": "f6ea43cd-7c3e-49ba-9ffd-b1103f9e005c",
+            "function_uuid": "052d9c64-1807-4443-9098-0f7ce7827817",
+            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     }
 ]

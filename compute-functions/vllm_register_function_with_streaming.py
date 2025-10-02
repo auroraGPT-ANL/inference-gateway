@@ -8,12 +8,122 @@ def vllm_inference_function(parameters):
     import requests
     import json
     from requests.exceptions import RequestException
+    
+    # Constants
+    DEFAULT_SECRET = 'default-secret-change-me'
+    STREAMING_DATA_TIMEOUT = 2  # seconds - fast timeout for data chunks
+    STREAMING_CONTROL_TIMEOUT = 5  # seconds - for error/done messages
+    VLLM_REQUEST_TIMEOUT = 120  # seconds - for health check requests
+    BATCH_SIZE = 20  # Number of chunks to batch before sending
+    BATCH_TIMEOUT = 0.5  # seconds - send batch if this time elapsed
+
+    def get_proxy_config():
+        """Get proxy configuration from environment variables"""
+        proxies = {}
+        if os.environ.get('http_proxy'):
+            proxies['http'] = os.environ.get('http_proxy')
+        if os.environ.get('https_proxy'):
+            proxies['https'] = os.environ.get('https_proxy')
+        return proxies
+
+    def get_streaming_headers(task_token):
+        """Generate headers for streaming server requests with authentication"""
+        return {
+            'Content-Type': 'application/json',
+            'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', DEFAULT_SECRET),
+            'X-Stream-Task-Token': task_token
+        }
+    
+    def get_or_create_session():
+        """Get or create a shared session for streaming requests"""
+        if not hasattr(get_or_create_session, 'session'):
+            session = requests.Session()
+            session.proxies.update(get_proxy_config())
+            get_or_create_session.session = session
+        return get_or_create_session.session
+
+    def send_to_streaming_server(host, port, protocol, endpoint, payload, task_token, timeout):
+        """
+        Generic function to send data to streaming server via HTTP.
+        
+        Args:
+            host: Streaming server host
+            port: Streaming server port
+            protocol: http or https
+            endpoint: API endpoint path (data/error/done)
+            payload: Request payload
+            task_token: Per-task authentication token
+            timeout: Request timeout in seconds
+            
+        Returns:
+            tuple: (success: bool, error_message: str or None)
+        """
+        try:
+            url = f"{protocol}://{host}:{port}/resource_server/api/streaming/{endpoint}/"
+            headers = get_streaming_headers(task_token)
+            session = get_or_create_session()
+            
+            response = session.post(
+                url, 
+                json=payload, 
+                headers=headers, 
+                timeout=timeout, 
+                verify=False
+            )
+            
+            if response.status_code == 200:
+                return True, None
+            else:
+                error_msg = f"Streaming server returned status {response.status_code}: {response.text}"
+                return False, error_msg
+                
+        except requests.exceptions.Timeout as e:
+            return False, f"Timeout connecting to streaming server: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
+            return False, f"Connection error to streaming server: {str(e)}"
+        except Exception as e:
+            return False, f"Unexpected error sending to streaming server: {str(e)}"
+
+    def send_data_to_streaming_server(host, port, protocol, task_id, data, task_token):
+        """Send streaming data to streaming server"""
+        payload = {
+            "task_id": task_id,
+            "data": data,
+            "type": "data"
+        }
+        success, error = send_to_streaming_server(
+            host, port, protocol, "data", payload, task_token, STREAMING_DATA_TIMEOUT
+        )
+        return success
+
+    def send_error_to_streaming_server(host, port, protocol, task_id, error, task_token):
+        """Send error to streaming server"""
+        payload = {
+            "task_id": task_id,
+            "error": error,
+            "type": "error"
+        }
+        success, _ = send_to_streaming_server(
+            host, port, protocol, "error", payload, task_token, STREAMING_CONTROL_TIMEOUT
+        )
+        return success
+
+    def send_done_to_streaming_server(host, port, protocol, task_id, task_token):
+        """Send completion to streaming server"""
+        payload = {
+            "task_id": task_id,
+            "type": "done"
+        }
+        success, _ = send_to_streaming_server(
+            host, port, protocol, "done", payload, task_token, STREAMING_CONTROL_TIMEOUT
+        )
+        return success
 
     def handle_non_streaming_request(url, headers, payload, start_time, is_health_check=False):
         """Handle non-streaming requests (original logic)"""
         # For health checks, make GET request instead of POST
         if is_health_check:
-            response = requests.get(url, headers=headers, verify=False, timeout=60)
+            response = requests.get(url, headers=headers, verify=False, timeout=VLLM_REQUEST_TIMEOUT)
         else:
             # Make the POST request for regular endpoints
             response = requests.post(url, headers=headers, json=payload, verify=False)
@@ -54,106 +164,6 @@ def vllm_inference_function(parameters):
             error_msg += f"Response headers: {dict(response.headers)}"
             raise Exception(error_msg)
 
-    def send_data_to_streaming_server(host, port, protocol, task_id, data, task_token):
-        """Send streaming data to streaming server via HTTP with proxy support and per-task authentication"""
-        try:
-            url = f"{protocol}://{host}:{port}/resource_server/api/streaming/data/"
-            payload = {
-                "task_id": task_id,
-                "data": data,
-                "type": "data"
-            }
-            
-            # Use proxy configuration from environment
-            proxies = {}
-            if os.environ.get('http_proxy'):
-                proxies['http'] = os.environ.get('http_proxy')
-            if os.environ.get('https_proxy'):
-                proxies['https'] = os.environ.get('https_proxy')
-            
-            # Use session for connection reuse and reduce timeout
-            if not hasattr(send_data_to_streaming_server, 'session'):
-                send_data_to_streaming_server.session = requests.Session()
-                send_data_to_streaming_server.session.proxies.update(proxies)
-            
-            # Add BOTH global secret AND per-task token for authentication
-            headers = {
-                'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me'),
-                'X-Stream-Task-Token': task_token
-            }
-            response = send_data_to_streaming_server.session.post(url, json=payload, headers=headers, timeout=2, verify=False)
-            
-            if response.status_code == 200:
-                return True
-            else:
-                return False
-                
-        except Exception as e:
-            return False
-
-    def send_error_to_streaming_server(host, port, protocol, task_id, error, task_token):
-        """Send error to streaming server via HTTP with proxy support and per-task authentication"""
-        try:
-            url = f"{protocol}://{host}:{port}/resource_server/api/streaming/error/"
-            payload = {
-                "task_id": task_id,
-                "error": error,
-                "type": "error"
-            }
-            
-            # Use proxy configuration from environment
-            proxies = {}
-            if os.environ.get('http_proxy'):
-                proxies['http'] = os.environ.get('http_proxy')
-            if os.environ.get('https_proxy'):
-                proxies['https'] = os.environ.get('https_proxy')
-            
-            # Add BOTH global secret AND per-task token for authentication
-            headers = {
-                'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me'),
-                'X-Stream-Task-Token': task_token
-            }
-            response = requests.post(url, json=payload, headers=headers, timeout=5, proxies=proxies, verify=False)
-            
-            if response.status_code == 200:
-                return True
-            else:
-                return False
-                
-        except Exception as e:
-            return False
-
-    def send_done_to_streaming_server(host, port, protocol, task_id, task_token):
-        """Send completion to streaming server via HTTP with proxy support and per-task authentication"""
-        try:
-            url = f"{protocol}://{host}:{port}/resource_server/api/streaming/done/"
-            payload = {
-                "task_id": task_id,
-                "type": "done"
-            }
-            
-            # Use proxy configuration from environment
-            proxies = {}
-            if os.environ.get('http_proxy'):
-                proxies['http'] = os.environ.get('http_proxy')
-            if os.environ.get('https_proxy'):
-                proxies['https'] = os.environ.get('https_proxy')
-            
-            # Add BOTH global secret AND per-task token for authentication
-            headers = {
-                'X-Internal-Secret': os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me'),
-                'X-Stream-Task-Token': task_token
-            }
-            response = requests.post(url, json=payload, headers=headers, timeout=5, proxies=proxies, verify=False)
-            
-            if response.status_code == 200:
-                return True
-            else:
-                return False
-                
-        except Exception as e:
-            return False
-
     def handle_streaming_request(url, headers, payload, start_time):
         """Handle streaming requests with real-time chunk streaming to streaming server"""
         # Get streaming server details from payload
@@ -163,16 +173,31 @@ def vllm_inference_function(parameters):
         stream_task_id = payload.get('stream_task_id')
         stream_task_token = payload.get('stream_task_token')
         
-        if not all([stream_server_host, stream_server_port, stream_task_id, stream_task_token]):
-            raise Exception("Streaming requires streaming_server_host, streaming_server_port, stream_task_id, and stream_task_token in payload")
+        # Validate required streaming parameters
+        missing_params = []
+        if not stream_server_host:
+            missing_params.append('streaming_server_host')
+        if not stream_server_port:
+            missing_params.append('streaming_server_port')
+        if not stream_task_id:
+            missing_params.append('stream_task_id')
+        if not stream_task_token:
+            missing_params.append('stream_task_token')
+            
+        if missing_params:
+            raise Exception(f"Streaming requires the following parameters: {', '.join(missing_params)}")
         
         # Create clean payload for vLLM (remove streaming-specific parameters)
         vllm_payload = payload.copy()
-        vllm_payload.pop('streaming_server_host', None)
-        vllm_payload.pop('streaming_server_port', None)
-        vllm_payload.pop('streaming_server_protocol', None)
-        vllm_payload.pop('stream_task_id', None)
-        vllm_payload.pop('stream_task_token', None)
+        streaming_params = [
+            'streaming_server_host', 
+            'streaming_server_port', 
+            'streaming_server_protocol',
+            'stream_task_id', 
+            'stream_task_token'
+        ]
+        for param in streaming_params:
+            vllm_payload.pop(param, None)
         
         try:
             # Make streaming request to vLLM with clean payload
@@ -181,18 +206,20 @@ def vllm_inference_function(parameters):
             if response.status_code != 200:
                 error_msg = f"API request failed with status code: {response.status_code}\nResponse text: {response.text}"
                 # Send error to streaming server
-                send_error_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id, error_msg, stream_task_token)
+                send_error_to_streaming_server(
+                    stream_server_host, stream_server_port, stream_server_protocol, 
+                    stream_task_id, error_msg, stream_task_token
+                )
                 raise Exception(error_msg)
             
             # Stream chunks in batched mode to streaming server
             streaming_chunks = []
             total_tokens = 0
             chunks_sent = 0
+            failed_sends = 0
             
-            # Aggressive batching variables
+            # Batching variables
             batch_buffer = []
-            batch_size = 20  # Send every 20 chunks (much more aggressive)
-            batch_timeout = 0.5  # Or every 500ms, whichever comes first
             last_send_time = time.time()
             
             # Process chunks as they arrive and send to streaming server
@@ -200,16 +227,25 @@ def vllm_inference_function(parameters):
                 if chunk:
                     chunk_data = chunk.decode('utf-8')
                     
-                    # Send raw chunk data as-is to streaming server (no processing)
+                    # Handle completion marker
                     if chunk_data.strip() == 'data: [DONE]':
                         # Send any remaining batched chunks
                         if batch_buffer:
                             batch_data = '\n'.join(batch_buffer)
-                            send_data_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id, batch_data, stream_task_token)
-                            chunks_sent += len(batch_buffer)
+                            success = send_data_to_streaming_server(
+                                stream_server_host, stream_server_port, stream_server_protocol, 
+                                stream_task_id, batch_data, stream_task_token
+                            )
+                            if success:
+                                chunks_sent += len(batch_buffer)
+                            else:
+                                failed_sends += len(batch_buffer)
                         
                         # Send completion to streaming server
-                        send_done_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id, stream_task_token)
+                        send_done_to_streaming_server(
+                            stream_server_host, stream_server_port, stream_server_protocol, 
+                            stream_task_id, stream_task_token
+                        )
                         break
                     elif chunk_data.strip():
                         # Store raw chunk for metrics
@@ -218,17 +254,32 @@ def vllm_inference_function(parameters):
                         
                         # Send batch when buffer is full or timeout reached
                         current_time = time.time()
-                        if len(batch_buffer) >= batch_size or (current_time - last_send_time) >= batch_timeout:
+                        should_send = (
+                            len(batch_buffer) >= BATCH_SIZE or 
+                            (current_time - last_send_time) >= BATCH_TIMEOUT
+                        )
+                        
+                        if should_send:
                             batch_data = '\n'.join(batch_buffer)
-                            success = send_data_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id, batch_data, stream_task_token)
+                            success = send_data_to_streaming_server(
+                                stream_server_host, stream_server_port, stream_server_protocol, 
+                                stream_task_id, batch_data, stream_task_token
+                            )
                             if success:
                                 chunks_sent += len(batch_buffer)
+                            else:
+                                failed_sends += len(batch_buffer)
                             batch_buffer = []
                             last_send_time = current_time
                         
                         # Parse for metrics only (not for content extraction)
                         try:
-                            parsed_chunk = json.loads(chunk_data)
+                            # Remove 'data: ' prefix if present
+                            json_str = chunk_data
+                            if json_str.startswith('data: '):
+                                json_str = json_str[6:]
+                            
+                            parsed_chunk = json.loads(json_str)
                             # Extract token usage if available
                             if 'usage' in parsed_chunk:
                                 usage = parsed_chunk['usage']
@@ -245,24 +296,32 @@ def vllm_inference_function(parameters):
             throughput_tokens_per_second = total_tokens / response_time if response_time > 0 else 0
             
             # Return streaming result for Globus Compute
-            return json.dumps({
+            result = {
                 "streaming": True,
                 "task_id": stream_task_id,
                 "response_time": response_time,
                 "throughput_tokens_per_second": throughput_tokens_per_second,
                 "total_tokens": total_tokens,
                 "status": "completed",
-                "chunks": streaming_chunks,
                 "total_chunks": len(streaming_chunks),
-                "chunks_sent_to_server": chunks_sent
-            })
+                "chunks_sent_to_server": chunks_sent,
+            }
+            
+            # Add warning if there were failed sends
+            if failed_sends > 0:
+                result["warning"] = f"{failed_sends} chunks failed to send to streaming server"
+            
+            return json.dumps(result)
             
         except Exception as e:
             # Send error to streaming server
             try:
-                send_error_to_streaming_server(stream_server_host, stream_server_port, stream_server_protocol, stream_task_id, str(e), stream_task_token)
+                send_error_to_streaming_server(
+                    stream_server_host, stream_server_port, stream_server_protocol, 
+                    stream_task_id, str(e), stream_task_token
+                )
             except:
-                pass
+                pass  # Ignore errors when sending error notification
             
             # Calculate error metrics
             end_time = time.time()
@@ -279,7 +338,20 @@ def vllm_inference_function(parameters):
                 "error": str(e)
             })
 
+    # Main function logic
     try:
+        # Validate required parameters
+        if 'model_params' not in parameters:
+            raise Exception("Missing required parameter: 'model_params'")
+        
+        model_params = parameters['model_params']
+        
+        # Validate required model parameters
+        if 'openai_endpoint' not in model_params:
+            raise Exception("Missing required parameter: 'model_params.openai_endpoint'")
+        if 'api_port' not in model_params:
+            raise Exception("Missing required parameter: 'model_params.api_port'")
+        
         # Determine the hostname
         hostname = socket.gethostname()
         os.environ['no_proxy'] = f"localhost,{hostname},127.0.0.1"
@@ -296,13 +368,13 @@ def vllm_inference_function(parameters):
         print("parameters", parameters)
 
         # Determine the endpoint based on the URL parameter
-        openai_endpoint = parameters['model_params'].pop('openai_endpoint')
+        openai_endpoint = model_params.pop('openai_endpoint')
 
         # Determine the port based on the URL parameter
-        api_port = parameters['model_params'].pop('api_port')
+        api_port = model_params.pop('api_port')
 
         # Check if streaming is requested
-        stream = parameters['model_params'].get('stream', False)
+        stream = model_params.get('stream', False)
         
         # Check if this is a health check endpoint
         is_health_check = 'health' in openai_endpoint.lower()
@@ -318,7 +390,7 @@ def vllm_inference_function(parameters):
             url = base_url + openai_endpoint
 
         # Prepare the payload
-        payload = parameters['model_params'].copy()
+        payload = model_params.copy()
 
         start_time = time.time()
 
@@ -334,6 +406,10 @@ def vllm_inference_function(parameters):
         error_msg = f"Network error occurred: {str(e)}"
         if 'start_time' in locals():
             error_msg += f"\nResponse time: {time.time() - start_time}"
+        raise Exception(error_msg)
+    except KeyError as e:
+        # Handle missing parameter errors
+        error_msg = f"Missing required parameter: {str(e)}"
         raise Exception(error_msg)
     except Exception as e:
         # Handle any other unexpected errors
@@ -426,4 +502,4 @@ print("")
 #     }
 # })
 # print("\\nText Completion Output:")
-# print(text_out) 
+# print(text_out)

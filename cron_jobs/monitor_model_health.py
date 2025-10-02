@@ -16,6 +16,8 @@ import json
 import asyncio
 import logging
 import subprocess
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime
 from typing import List, Dict, Tuple
 
@@ -50,10 +52,21 @@ class ModelHealthMonitor:
     def __init__(self):
         # Email configuration from environment
         self.alert_email_to = os.getenv('ALERT_EMAIL_TO', '').split()
+        # Default to first recipient as sender if not specified (ANL blocks noreply addresses)
+        default_from = self.alert_email_to[0] if self.alert_email_to else 'noreply@inference-gateway'
+        self.alert_email_from = os.getenv('ALERT_EMAIL_FROM', default_from)
+        
+        # SMTP configuration (optional - if not set, will use sendmail)
+        self.smtp_host = os.getenv('SMTP_HOST', '')
+        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        self.smtp_user = os.getenv('SMTP_USER', '')
+        self.smtp_password = os.getenv('SMTP_PASSWORD', '')
+        self.smtp_use_tls = os.getenv('SMTP_USE_TLS', 'True').lower() == 'true'
         
         # Clusters to monitor (default to sophia)
         self.clusters_to_monitor = os.getenv('CLUSTERS_TO_MONITOR', 'sophia').split(',')
         
+        log.info(f"Email configuration loaded: FROM={self.alert_email_from}, TO={self.alert_email_to}")
         log.info("Using existing vLLM function for health checks (supports GET /health)")
         
     async def get_running_models(self, cluster: str) -> List[Dict]:
@@ -260,23 +273,105 @@ class ModelHealthMonitor:
         
         return all_results
     
+    def send_email_via_smtp(self, subject: str, body: str) -> bool:
+        """Send email via SMTP"""
+        try:
+            log.info(f"Sending email via SMTP (host: {self.smtp_host}:{self.smtp_port})")
+            log.info(f"From: {self.alert_email_from}")
+            log.info(f"To: {self.alert_email_to}")
+            
+            # Create message - use simple MIMEText to avoid spam filters
+            msg = MIMEText(body, 'plain', 'utf-8')
+            msg['From'] = self.alert_email_from
+            msg['To'] = ', '.join(self.alert_email_to)
+            msg['Subject'] = subject
+            
+            # Connect and send
+            server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+            if self.smtp_use_tls:
+                log.info("Starting TLS...")
+                server.starttls()
+            
+            if self.smtp_user and self.smtp_password:
+                log.info(f"Authenticating as {self.smtp_user}...")
+                server.login(self.smtp_user, self.smtp_password)
+            
+            log.info(f"Sending email...")
+            server.sendmail(self.alert_email_from, self.alert_email_to, msg.as_string())
+            server.quit()
+            
+            log.info(f"✓ Email sent successfully via SMTP to {', '.join(self.alert_email_to)}")
+            return True
+            
+        except Exception as e:
+            log.error(f"Failed to send email via SMTP: {e}", exc_info=True)
+            return False
+    
+    def send_email_via_sendmail(self, email_content: str) -> bool:
+        """Send email via sendmail command"""
+        try:
+            # Write email content to temporary file
+            email_file = '/tmp/model_health_alert_email.txt'
+            log.info(f"Writing email content to {email_file}")
+            with open(email_file, 'w') as f:
+                f.write(email_content)
+            log.info(f"✓ Email content written successfully")
+            
+            # Send email using sendmail
+            recipients = ' '.join(self.alert_email_to)
+            sendmail_cmd = f'sendmail {recipients} < {email_file}'
+            log.info(f"Executing sendmail command: {sendmail_cmd}")
+            
+            result = subprocess.run(
+                sendmail_cmd,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            
+            log.info(f"Sendmail return code: {result.returncode}")
+            if result.stdout:
+                log.info(f"Sendmail stdout: {result.stdout}")
+            if result.stderr:
+                log.info(f"Sendmail stderr: {result.stderr}")
+            
+            if result.returncode == 0:
+                log.info(f"✓ Alert email queued successfully via sendmail to {recipients}")
+                log.info(f"⚠️  NOTE: Check mail queue with 'mailq' to verify delivery")
+                return True
+            else:
+                log.error(f"Failed to send via sendmail (return code {result.returncode})")
+                return False
+                
+        except Exception as e:
+            log.error(f"Failed to send email via sendmail: {e}", exc_info=True)
+            return False
+    
     def send_alert_email(self, results: Dict):
-        """Send email alert if there are unhealthy models using sendmail"""
+        """Send email alert if there are unhealthy models"""
+        log.info("=" * 80)
+        log.info("ENTERING send_alert_email()")
+        log.info(f"Unhealthy models: {len(results['unhealthy_models'])}")
+        log.info(f"Alert email recipients configured: {self.alert_email_to}")
+        log.info(f"SMTP configured: {bool(self.smtp_host)}")
+        log.info("=" * 80)
+        
         if not results['unhealthy_models']:
             log.info("All models are healthy. No alert email needed.")
             return
         
+        log.warning(f"⚠️  {len(results['unhealthy_models'])} UNHEALTHY MODEL(S) - Attempting to send alert email")
+        
         if not self.alert_email_to or not any(self.alert_email_to):
-            log.warning("No alert email recipients configured. Skipping email.")
+            log.error("CANNOT SEND EMAIL: No alert email recipients configured (ALERT_EMAIL_TO is empty)")
+            log.error(f"ALERT_EMAIL_TO value: '{os.getenv('ALERT_EMAIL_TO', 'NOT SET')}'")
             return
         
         try:
-            # Build email content
-            subject = f"⚠️ Model Health Alert - {len(results['unhealthy_models'])} Unhealthy Model(s)"
+            # Build email content (plain ASCII only - no special chars to avoid spam filters)
+            subject = f"Model Health Alert - {len(results['unhealthy_models'])} Unhealthy Model(s)"
             
-            email_content = f"""Subject: {subject}
-
-Model Health Monitoring Alert
+            body = f"""Model Health Monitoring Alert
 ==============================
 
 Timestamp: {results['timestamp']}
@@ -286,7 +381,7 @@ UNHEALTHY MODELS ({len(results['unhealthy_models'])}):
 """
             
             for model in results['unhealthy_models']:
-                email_content += f"""
+                body += f"""
 ---
 Model: {model.get('model', 'Unknown')}
 Cluster: {model.get('cluster', 'Unknown')}
@@ -297,46 +392,34 @@ Response Time: {model.get('response_time', 'N/A')}
 Error: {model.get('error', 'Unknown error')}
 """
             
-            email_content += f"""
+            body += f"""
 
 HEALTHY MODELS ({len(results['healthy_models'])}):
 """
             for model in results['healthy_models']:
-                email_content += f"  ✓ {model.get('model')} (response time: {model.get('response_time', 'N/A')}s)\n"
+                body += f"  [OK] {model.get('model')} (response time: {model.get('response_time', 'N/A')}s)\n"
             
-            email_content += """
+            body += """
 
 ---
 This is an automated alert from the Inference Gateway Model Health Monitor.
 """
             
-            # Write email content to temporary file
-            email_file = '/tmp/model_health_alert_email.txt'
-            with open(email_file, 'w') as f:
-                f.write(email_content)
+            log.info(f"Email content preview:\n{body[:500]}...")
             
-            # Send email using sendmail
-            recipients = ' '.join(self.alert_email_to)
-            result = subprocess.run(
-                f'sendmail {recipients} < {email_file}',
-                shell=True,
-                capture_output=True,
-                text=True
-            )
+            # Try SMTP first if configured, fall back to sendmail
+            if self.smtp_host:
+                success = self.send_email_via_smtp(subject, body)
+                if success:
+                    return
+                log.warning("SMTP failed, falling back to sendmail...")
             
-            if result.returncode == 0:
-                log.info(f"Alert email sent to {recipients}")
-            else:
-                log.error(f"Failed to send alert email: {result.stderr}")
-            
-            # Clean up temp file
-            try:
-                os.remove(email_file)
-            except:
-                pass
+            # Use sendmail (with Subject in content)
+            email_content = f"Subject: {subject}\n\n{body}"
+            self.send_email_via_sendmail(email_content)
             
         except Exception as e:
-            log.error(f"Failed to send alert email: {e}")
+            log.error(f"Exception in send_alert_email: {e}", exc_info=True)
     
     async def run(self):
         """Main monitoring loop"""
