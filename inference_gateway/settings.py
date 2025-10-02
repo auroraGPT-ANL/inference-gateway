@@ -43,9 +43,6 @@ GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
 MAX_BATCHES_PER_USER = int(os.getenv("MAX_BATCHES_PER_USER", 1))
 
-# Rate limit (req/s) per user accross the board
-RATE_LIMIT_PER_SEC_PER_USER = int(os.getenv("RATE_LIMIT_PER_SEC_PER_USER", 10))
-
 # Django debug on/off switch
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
@@ -305,6 +302,11 @@ else:
 # Session engine to use Redis for session storage (optional, improves performance)
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
+
+# Authentication settings for dashboard
+LOGIN_URL = '/dashboard/login/'
+LOGIN_REDIRECT_URL = '/dashboard/analytics'
+LOGOUT_REDIRECT_URL = '/dashboard/login/'
 
 # Streaming server configuration
 STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
