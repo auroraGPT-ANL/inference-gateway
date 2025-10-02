@@ -38,6 +38,9 @@ POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
 POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
+
+
+# Globus Dashboard Application Credentials
 GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")
 GLOBUS_DASHBOARD_APPLICATION_SECRET = os.getenv("GLOBUS_DASHBOARD_APPLICATION_SECRET")
 
@@ -59,6 +62,9 @@ GLOBUS_DASHBOARD_SCOPES = [
 # Users must be members of this group to access the dashboard
 GLOBUS_DASHBOARD_GROUP = os.getenv("GLOBUS_DASHBOARD_GROUP", "")
 DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
+
+
+GLOBUS_DASHBOARD_POLICY_ID = os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
 
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
@@ -323,17 +329,21 @@ else:
         }
     }
 
-# Session engine - use database for OAuth reliability
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+# Session engine - use cached_db for speed + reliability (perfect for OAuth)
+# This gives you Redis speed with DB persistence as fallback
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 
 # Session cookie settings for OAuth flow
-SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cookies on redirects from same site
-SESSION_COOKIE_HTTPONLY = True   # Prevent JavaScript access
-SESSION_COOKIE_SECURE = False    # Allow HTTP for localhost (set to True in production with HTTPS)
-SESSION_COOKIE_NAME = 'sessionid'  # Default session cookie name
-SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cookies on redirects from same site (required for OAuth)
+SESSION_COOKIE_HTTPONLY = True   # Prevent JavaScript access (security)
+SESSION_COOKIE_NAME = 'dashboard_sessionid'  # Unique name to avoid conflicts
+SESSION_COOKIE_AGE = 86400  # 24 hours (matches typical OAuth token lifetime)
 SESSION_SAVE_EVERY_REQUEST = False  # Don't save on every request (performance)
-SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close (better UX)
+
+# CSRF cookie settings for production security
+CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
+CSRF_COOKIE_SAMESITE = 'Lax'  # Match session cookie
 
 # Authentication settings for dashboard
 LOGIN_URL = '/dashboard/login/'
