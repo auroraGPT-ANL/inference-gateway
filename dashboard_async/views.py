@@ -5,8 +5,15 @@ from django.utils.timezone import now
 from django.utils import timezone
 from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
-from django.http import JsonResponse
+from ninja.security import SessionAuth
+from django.http import JsonResponse, HttpRequest
 from django.core.cache import cache
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import views as auth_views
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.urls import reverse_lazy
 import json
 from resource_server.models import Endpoint, Log, Batch
 from resource_server_async.models import (
@@ -20,18 +27,85 @@ import logging
 
 log = logging.getLogger(__name__)
 
-api = NinjaAPI(urls_namespace="dashboard_api")
+
+# Custom authentication for Django Ninja that uses Django's session authentication
+class DjangoSessionAuth(SessionAuth):
+    """Use Django's session authentication for API endpoints."""
+    
+    def authenticate(self, request: HttpRequest, key):
+        if request.user.is_authenticated:
+            return request.user
+        return None
+
+
+# Create Ninja API with session authentication
+api = NinjaAPI(urls_namespace="dashboard_api", auth=DjangoSessionAuth())
 router = Router()
 
 api.add_router("/", router)
 
 
+# ========================= Authentication Views =========================
+
+def dashboard_login_view(request):
+    """Custom login view with styled template."""
+    if request.user.is_authenticated:
+        return redirect('dashboard_analytics')
+    
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            from django.contrib.auth import login
+            user = form.get_user()
+            login(request, user)
+            next_url = request.POST.get('next') or request.GET.get('next') or 'dashboard_analytics'
+            return redirect(next_url)
+    else:
+        form = AuthenticationForm()
+    
+    return render(request, 'login.html', {
+        'form': form,
+        'next': request.GET.get('next', '')
+    })
+
+
+def dashboard_logout_view(request):
+    """Custom logout view."""
+    from django.contrib.auth import logout
+    logout(request)
+    messages.info(request, 'You have been logged out successfully.')
+    return redirect('dashboard_login')
+
+
+@login_required
+def dashboard_password_change_view(request):
+    """Custom password change view with styled template."""
+    if request.method == 'POST':
+        form = PasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            from django.contrib.auth import update_session_auth_hash
+            update_session_auth_hash(request, user)  # Keep user logged in
+            messages.success(request, 'Your password has been changed successfully.')
+            return redirect('dashboard_password_change_done')
+    else:
+        form = PasswordChangeForm(request.user)
+    
+    return render(request, 'password_change.html', {'form': form})
+
+
+@login_required
+def dashboard_password_change_done_view(request):
+    """Password change confirmation page."""
+    return render(request, 'password_change_done.html')
+
+
 # ========================= New Realtime Dashboard (Async tables, no MVs) =========================
 
 
-@router.get("/analytics")
+@login_required
 def analytics_realtime_view(request):
-    from django.shortcuts import render
+    """Main dashboard view - regular Django view (not API endpoint)."""
     return render(request, "realtime.html")
 
 
@@ -39,6 +113,12 @@ def analytics_realtime_view(request):
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
+        # Check cache first (2 minute TTL for overall metrics)
+        cache_key = "dashboard:realtime_metrics"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
 
         # Choose source: union view if present, else base table
@@ -116,7 +196,7 @@ def get_realtime_metrics(request):
                 for row in cursor.fetchall()
             ]
 
-        return {
+        result = {
             "totals": {
                 "total_tokens": int(total_tokens or 0),
                 "total_requests": int(total_requests or 0),
@@ -128,6 +208,10 @@ def get_realtime_metrics(request):
             "per_model": per_model,
             "time_bounds": None,
         }
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching realtime metrics: {e}")
         return JsonResponse({"error": str(e)}, status=500)
@@ -145,6 +229,16 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
         qs = (
             AsyncAccessLog.objects
             .select_related("user", "request_log")
+            .only(  # only pull these fields, defer everything else
+                "id", "timestamp_request", "status_code", "api_route", "error",
+                "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
+                "request_log__id", "request_log__cluster", "request_log__model",
+                "request_log__openai_endpoint", "request_log__timestamp_compute_request",
+                "request_log__timestamp_compute_response", "request_log__task_uuid"
+            )
+            .defer(  # explicitly defer heavy text fields
+                "request_log__prompt", "request_log__result"
+            )
             .order_by("-timestamp_request", "-status_code")
         )
 
@@ -185,8 +279,8 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
                 "error_message": al.error,
                 "error_snippet": _truncate(al.error) if al and al.error else "",
                 "api_route": al.api_route,
-                "prompt_snippet": _truncate(rl.prompt) if rl else "",
-                "result_snippet": _truncate(rl.result) if rl else "",
+                "prompt_snippet": _truncate(getattr(rl, "prompt", "")),
+                "result_snippet": _truncate(getattr(rl, "result", "")),
                 "user_id": str(user.id) if user else None,
                 "user_name": user.name if user else None,
                 "user_username": user.username if user else None,
@@ -226,7 +320,14 @@ def _parse_series_window(window: str):
 
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request):
+    """Get unique users per model with caching to reduce DB load."""
     try:
+        # Check cache first (5 minute TTL)
+        cache_key = "dashboard:users_per_model"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
@@ -240,7 +341,11 @@ def get_users_per_model(request):
                 """
             )
             rows = cursor.fetchall()
-        return [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        
+        # Cache for 30 seconds
+        cache.set(cache_key, result, timeout=30)
+        return result
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
         return JsonResponse({"error": str(e)}, status=500)
@@ -495,7 +600,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
                 "start_info": "",
             } for m in sorted(configured_models)]
             payload = {"items": items, "free_nodes": None}
-            cache.set(cache_key, payload, timeout=60)
+            # Cache for 2 minutes
+            cache.set(cache_key, payload, timeout=120)
             return JsonResponse(payload)
 
         running = q.get("running", []) or []
@@ -702,4 +808,120 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
         return results
     except Exception as e:
         log.error(f"Error fetching batch logs rt: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@router.get("/analytics/query-logs")
+def query_logs_custom(request):
+    """Custom log query builder with flexible filters."""
+    try:
+        from django.db import connection
+        import re as regex_module
+        
+        # Parse query parameters
+        rows = int(request.GET.get('rows', 10))
+        rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
+        
+        status_op = request.GET.get('status_op', '')
+        status_val = request.GET.get('status_val', '')
+        name_filter = request.GET.get('name', '')
+        prompt_filter = request.GET.get('prompt', '')
+        api_filter = request.GET.get('api', '')
+        from_ts = request.GET.get('from_ts', '')
+        to_ts = request.GET.get('to_ts', '')
+        tzname = 'America/Chicago'  # Fixed timezone
+        
+        # Build WHERE clauses
+        conditions = ["1=1"]
+        params = []
+        
+        # Status filter
+        if status_op and status_val:
+            allowed_ops = ['=', '!=', '>', '<', '>=', '<=']
+            if status_op in allowed_ops:
+                conditions.append(f"a.status_code {status_op} %s")
+                params.append(int(status_val))
+        
+        # Name filter (ILIKE)
+        if name_filter:
+            conditions.append("u.name ILIKE %s")
+            params.append(name_filter)
+        
+        # Prompt filter (ILIKE)
+        if prompt_filter:
+            conditions.append("r.prompt ILIKE %s")
+            params.append(prompt_filter)
+        
+        # API route filter (ILIKE)
+        if api_filter:
+            conditions.append("a.api_route ILIKE %s")
+            params.append(api_filter)
+        
+        # Timestamp expression
+        ts_expr = "COALESCE(r.timestamp_compute_request, a.timestamp_request)"
+        
+        # Date filters
+        if from_ts:
+            conditions.append(f"{ts_expr} >= %s::timestamptz")
+            params.append(from_ts)
+        
+        if to_ts:
+            conditions.append(f"{ts_expr} <= %s::timestamptz")
+            params.append(to_ts)
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Build final query
+        query = f"""
+        SELECT json_agg(row_to_json(t))
+        FROM (
+            SELECT
+                r.id AS request_id,
+                r.cluster,
+                r.framework,
+                r.model,
+                r.openai_endpoint,
+                r.timestamp_compute_request,
+                r.timestamp_compute_response,
+                r.prompt,
+                r.result,
+                r.task_uuid,
+                a.id AS accesslog_id,
+                a.timestamp_request,
+                a.timestamp_response,
+                a.api_route,
+                a.origin_ip,
+                a.status_code,
+                a.error,
+                u.id AS user_id,
+                u.name AS user_name,
+                u.username AS user_username,
+                u.idp_id,
+                u.idp_name,
+                u.auth_service
+            FROM resource_server_async_accesslog a
+            LEFT JOIN resource_server_async_requestlog r
+              ON r.access_log_id = a.id
+            LEFT JOIN resource_server_async_user u
+              ON a.user_id = u.id
+            WHERE {where_clause}
+            ORDER BY {ts_expr} DESC
+            LIMIT %s
+        ) t
+        """
+        
+        # Execute query
+        with connection.cursor() as cursor:
+            # Set timezone first
+            cursor.execute("SET TIME ZONE %s", [tzname])
+            # Then execute the main query
+            cursor.execute(query, params + [rows])
+            result = cursor.fetchone()
+            
+        # Return JSON array or empty array if no results
+        data = result[0] if result and result[0] else []
+        return JsonResponse({"results": data, "count": len(data) if data else 0}, safe=False)
+        
+    except Exception as e:
+        log.error(f"Error in custom log query: {e}")
         return JsonResponse({"error": str(e)}, status=500)
