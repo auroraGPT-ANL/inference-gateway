@@ -58,10 +58,10 @@ def get_authorization_url(state=None):
     auth_url = client.oauth2_get_authorize_url()
     
     # Add optional policy parameters to the URL if configured
-    if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
+    if settings.NUMBER_OF_GLOBUS_DASHBOARD_POLICIES > 0:
         # Append policy parameters to the URL
         separator = '&' if '?' in auth_url else '?'
-        auth_url = f"{auth_url}{separator}session_required_policies={settings.GLOBUS_POLICIES}"
+        auth_url = f"{auth_url}{separator}session_required_policies={settings.GLOBUS_DASHBOARD_POLICIES}"
     
     return auth_url
 

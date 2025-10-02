@@ -4,8 +4,6 @@ from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
-    # Django admin (for user management)
-    path("admin/", admin.site.urls),
     # Dashboard with authentication
     path("dashboard/", include("dashboard_async.urls")),
     # API documentation

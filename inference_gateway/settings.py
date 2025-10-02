@@ -65,6 +65,12 @@ DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
 
 
 GLOBUS_DASHBOARD_POLICY_ID = os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
+# Extract Globus policies that will determine which domains get access
+GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_DASHBOARD_POLICY_ID", ""))
+NUMBER_OF_GLOBUS_DASHBOARD_POLICIES = len(GLOBUS_DASHBOARD_POLICIES)
+GLOBUS_DASHBOARD_POLICIES = ",".join(GLOBUS_DASHBOARD_POLICIES)
+
+
 
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
