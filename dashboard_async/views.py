@@ -28,13 +28,39 @@ import logging
 log = logging.getLogger(__name__)
 
 
-# Custom authentication for Django Ninja that uses Django's session authentication
+# Custom authentication for Django Ninja that uses Globus session authentication
 class DjangoSessionAuth(SessionAuth):
-    """Use Django's session authentication for API endpoints."""
+    """Use Globus session authentication for API endpoints."""
     
     def authenticate(self, request: HttpRequest, key):
-        if request.user.is_authenticated:
-            return request.user
+        from dashboard_async.globus_auth import validate_dashboard_token
+        import time
+        
+        # Check for Globus tokens in session
+        if 'globus_tokens' not in request.session:
+            return None
+        
+        try:
+            tokens = request.session['globus_tokens']
+            auth_tokens = tokens.get('auth.globus.org', {})
+            access_token = auth_tokens.get('access_token')
+            expires_at = auth_tokens.get('expires_at_seconds', 0)
+            
+            # Check if token is still valid (not expired)
+            if time.time() >= expires_at:
+                return None
+            
+            # Validate token with groups check
+            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+            
+            if is_valid:
+                # Return user data for use in API views
+                return user_data
+            
+        except Exception as e:
+            log.warning(f"API auth error: {e}")
+        
         return None
 
 
@@ -48,65 +74,240 @@ api.add_router("/", router)
 # ========================= Authentication Views =========================
 
 def dashboard_login_view(request):
-    """Custom login view with styled template."""
-    if request.user.is_authenticated:
-        return redirect('dashboard_analytics')
+    """Initiate Globus OAuth2 login flow."""
+    from dashboard_async.globus_auth import validate_dashboard_token
     
-    if request.method == 'POST':
-        form = AuthenticationForm(request, data=request.POST)
-        if form.is_valid():
-            from django.contrib.auth import login
-            user = form.get_user()
-            login(request, user)
-            next_url = request.POST.get('next') or request.GET.get('next') or 'dashboard_analytics'
-            return redirect(next_url)
-    else:
-        form = AuthenticationForm()
+    # Check if already authenticated via Globus
+    if 'globus_tokens' in request.session:
+        tokens = request.session['globus_tokens']
+        access_token = tokens['auth.globus.org']['access_token']
+        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+        
+        if is_valid:
+            return redirect('dashboard_analytics')
+        else:
+            # Clear invalid session to prevent loops
+            request.session.flush()
     
-    return render(request, 'login.html', {
-        'form': form,
-        'next': request.GET.get('next', '')
-    })
+    # Clear any stale OAuth state from previous failed attempts
+    # This prevents reusing OAuth state after errors
+    request.session.pop('oauth_state', None)
+    request.session.pop('next_url', None)
+    
+    # Generate new state for CSRF protection
+    import secrets
+    state = secrets.token_urlsafe(32)
+    request.session['oauth_state'] = state
+    request.session['next_url'] = request.GET.get('next', 'dashboard_analytics')
+    
+    # Force session save before redirect
+    request.session.modified = True
+    request.session.save()
+    
+    # Get Globus authorization URL
+    from dashboard_async.globus_auth import get_authorization_url
+    auth_url = get_authorization_url(state=state)
+    
+    return redirect(auth_url)
+
+
+def dashboard_callback_view(request):
+    """Handle Globus OAuth2 callback."""
+    from dashboard_async.globus_auth import exchange_code_for_tokens, validate_dashboard_token
+    
+    # Check for errors from Globus
+    error = request.GET.get('error')
+    if error:
+        error_description = request.GET.get('error_description', error)
+        log.error(f"Globus OAuth error: {error} - {error_description}")
+        
+        request.session.pop('oauth_state', None)
+        request.session.pop('next_url', None)
+        
+        if error == 'unauthorized_client':
+            messages.error(request, 
+                f'OAuth Configuration Error: The redirect URI is not registered with Globus. '
+                f'Error: {error_description}')
+        else:
+            messages.error(request, f'Authentication failed: {error_description}')
+        
+        return render(request, 'login.html', {'form': None})
+    
+    # Verify CSRF state
+    state = request.GET.get('state')
+    saved_state = request.session.get('oauth_state')
+    
+    if not state or state != saved_state:
+        log.warning(f"CSRF state mismatch")
+        messages.error(request, 'Invalid authentication state. Please try again.')
+        request.session.pop('oauth_state', None)
+        return render(request, 'login.html', {'form': None})
+    
+    # Exchange authorization code for tokens
+    auth_code = request.GET.get('code')
+    if not auth_code:
+        log.error("No authorization code in callback")
+        messages.error(request, 'No authorization code received from Globus.')
+        return render(request, 'login.html', {'form': None})
+    
+    try:
+        # Get tokens from Globus
+        tokens = exchange_code_for_tokens(auth_code)
+        request.session['globus_tokens'] = tokens
+        
+        # Validate token and get user info
+        access_token = tokens['auth.globus.org']['access_token']
+        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+        
+        if not is_valid:
+            log.error(f"Token validation failed: {error}")
+            
+            # Clear all OAuth-related session data
+            request.session.pop('globus_tokens', None)
+            request.session.pop('oauth_state', None)
+            request.session.pop('next_url', None)
+            
+            # Render error page directly (don't redirect to avoid loop)
+            messages.error(request, error)
+            return render(request, 'login.html', {'form': None})
+        
+        # Store user info in session
+        request.session['globus_user'] = {
+            'id': user_data.id,
+            'name': user_data.name,
+            'username': user_data.username,
+            'idp_id': user_data.idp_id,
+            'idp_name': user_data.idp_name,
+        }
+        
+        request.session.modified = True
+        request.session.save()
+        
+        log.info(f"Dashboard login successful: {user_data.name} ({user_data.username})")
+        
+        # Redirect to original destination
+        next_url = request.session.pop('next_url', 'dashboard_analytics')
+        request.session.pop('oauth_state', None)
+        
+        return redirect(next_url)
+        
+    except Exception as e:
+        log.error(f"OAuth callback error: {e}")
+        messages.error(request, f'Authentication error: {str(e)}')
+        return redirect('dashboard_login')
 
 
 def dashboard_logout_view(request):
-    """Custom logout view."""
-    from django.contrib.auth import logout
-    logout(request)
-    messages.info(request, 'You have been logged out successfully.')
-    return redirect('dashboard_login')
-
-
-@login_required
-def dashboard_password_change_view(request):
-    """Custom password change view with styled template."""
-    if request.method == 'POST':
-        form = PasswordChangeForm(request.user, request.POST)
-        if form.is_valid():
-            user = form.save()
-            from django.contrib.auth import update_session_auth_hash
-            update_session_auth_hash(request, user)  # Keep user logged in
-            messages.success(request, 'Your password has been changed successfully.')
-            return redirect('dashboard_password_change_done')
-    else:
-        form = PasswordChangeForm(request.user)
+    """Logout and clear both local and Globus sessions."""
+    from dashboard_async.globus_auth import revoke_token
+    from django.conf import settings
+    from urllib.parse import urlencode
     
-    return render(request, 'password_change.html', {'form': form})
+    # Revoke Globus tokens if present
+    if 'globus_tokens' in request.session:
+        try:
+            access_token = request.session['globus_tokens']['auth.globus.org']['access_token']
+            revoke_token(access_token)
+        except Exception as e:
+            log.warning(f"Token revocation error during logout: {e}")
+    
+    # Clear local session
+    request.session.flush()
+    
+    # Build Globus logout URL with redirect back to login
+    # This ensures the Globus session is also cleared
+    logout_redirect = request.build_absolute_uri('/dashboard/login')
+    globus_logout_url = f"https://auth.globus.org/v2/web/logout?{urlencode({'redirect_uri': logout_redirect})}"
+    
+    log.info("Logging out and clearing Globus session")
+    
+    # Redirect to Globus logout, which will then redirect back to our login
+    return redirect(globus_logout_url)
 
 
-@login_required
-def dashboard_password_change_done_view(request):
-    """Password change confirmation page."""
-    return render(request, 'password_change_done.html')
+# Password change views removed - Globus manages authentication
+
+
+# ========================= Globus Authentication Decorator =========================
+
+def globus_login_required(view_func):
+    """
+    Decorator to require Globus authentication for dashboard views.
+    Validates Globus token from session and refreshes if needed.
+    """
+    from functools import wraps
+    from dashboard_async.globus_auth import validate_dashboard_token, refresh_access_token
+    import time
+    
+    @wraps(view_func)
+    def wrapped_view(request, *args, **kwargs):
+        # Check if Globus tokens exist in session
+        if 'globus_tokens' not in request.session:
+            messages.warning(request, 'Please log in to access the dashboard.')
+            return redirect(f"/dashboard/login?next={request.path}")
+        
+        try:
+            tokens = request.session['globus_tokens']
+            auth_tokens = tokens.get('auth.globus.org', {})
+            access_token = auth_tokens.get('access_token')
+            expires_at = auth_tokens.get('expires_at_seconds', 0)
+            
+            # Check if token is expired or about to expire (within 5 minutes)
+            if time.time() >= (expires_at - 300):
+                # Try to refresh token
+                refresh_token = auth_tokens.get('refresh_token')
+                if refresh_token:
+                    try:
+                        new_tokens = refresh_access_token(refresh_token)
+                        # Update session with new tokens
+                        request.session['globus_tokens']['auth.globus.org'].update(new_tokens)
+                        access_token = new_tokens['access_token']
+                    except Exception as e:
+                        log.warning(f"Token refresh failed: {e}")
+                        messages.error(request, 'Your session has expired. Please log in again.')
+                        return redirect('dashboard_login')
+                else:
+                    messages.error(request, 'Your session has expired. Please log in again.')
+                    return redirect('dashboard_login')
+            
+            # Validate token
+            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
+            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
+            
+            if not is_valid:
+                log.warning(f"Token validation failed: {error}")
+                messages.error(request, f'Authentication failed: {error}')
+                # Clear invalid session
+                request.session.flush()
+                return redirect('dashboard_login')
+            
+            # Store user info in request for use in view
+            request.globus_user = user_data
+            
+            return view_func(request, *args, **kwargs)
+            
+        except Exception as e:
+            log.error(f"Authentication error: {e}")
+            messages.error(request, 'Authentication error. Please log in again.')
+            request.session.flush()
+            return redirect('dashboard_login')
+    
+    return wrapped_view
 
 
 # ========================= New Realtime Dashboard (Async tables, no MVs) =========================
 
 
-@login_required
+@globus_login_required
 def analytics_realtime_view(request):
     """Main dashboard view - regular Django view (not API endpoint)."""
-    return render(request, "realtime.html")
+    # Access Globus user info via request.globus_user
+    context = {
+        'user': request.globus_user
+    }
+    return render(request, "realtime.html", context)
 
 
 @router.get("/analytics/metrics")

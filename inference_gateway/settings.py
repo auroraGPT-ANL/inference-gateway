@@ -38,6 +38,27 @@ POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
 POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
+GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")
+GLOBUS_DASHBOARD_APPLICATION_SECRET = os.getenv("GLOBUS_DASHBOARD_APPLICATION_SECRET")
+
+# Dashboard Globus OAuth settings
+GLOBUS_DASHBOARD_REDIRECT_URI = os.getenv(
+    "GLOBUS_DASHBOARD_REDIRECT_URI",
+    "http://localhost:8000/dashboard/callback"  # Update for production
+)
+
+# Scopes needed for dashboard access
+GLOBUS_DASHBOARD_SCOPES = [
+    "openid",
+    "profile",
+    "email",
+    "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
+]
+
+# Dashboard-specific Globus Group requirement
+# Users must be members of this group to access the dashboard
+GLOBUS_DASHBOARD_GROUP = os.getenv("GLOBUS_DASHBOARD_GROUP", "")
+DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
 
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
@@ -302,9 +323,17 @@ else:
         }
     }
 
-# Session engine to use Redis for session storage (optional, improves performance)
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# Session engine - use database for OAuth reliability
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# Session cookie settings for OAuth flow
+SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cookies on redirects from same site
+SESSION_COOKIE_HTTPONLY = True   # Prevent JavaScript access
+SESSION_COOKIE_SECURE = False    # Allow HTTP for localhost (set to True in production with HTTPS)
+SESSION_COOKIE_NAME = 'sessionid'  # Default session cookie name
+SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_SAVE_EVERY_REQUEST = False  # Don't save on every request (performance)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close
 
 # Authentication settings for dashboard
 LOGIN_URL = '/dashboard/login/'

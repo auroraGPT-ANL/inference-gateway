@@ -68,8 +68,7 @@
   <div class="header">
     <h1>Inference Dashboard</h1>
     <div class="user-menu">
-      <span class="user-name">{{ user.username }}</span>
-      <a href="{% url 'dashboard_password_change' %}"><button>Change Password</button></a>
+      <span class="user-name" title="{{ user.username }} ({{ user.idp_name }})">{{ user.name }}</span>
       <a href="{% url 'dashboard_logout' %}"><button class="logout-btn">Logout</button></a>
     </div>
   </div>

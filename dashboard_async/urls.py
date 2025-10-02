@@ -3,22 +3,20 @@ from dashboard_async.views import (
     api,
     analytics_realtime_view,
     dashboard_login_view,
+    dashboard_callback_view,
     dashboard_logout_view,
-    dashboard_password_change_view,
-    dashboard_password_change_done_view,
 )
 
 # Use the unique namespace or versioned API instance
 urlpatterns = [
-    # Authentication URLs
-    path('login/', dashboard_login_view, name='dashboard_login'),
-    path('logout/', dashboard_logout_view, name='dashboard_logout'),
-    path('password-change/', dashboard_password_change_view, name='dashboard_password_change'),
-    path('password-change/done/', dashboard_password_change_done_view, name='dashboard_password_change_done'),
+    # Globus OAuth Authentication URLs (no trailing slash, consistent with APPEND_SLASH = False)
+    path('login', dashboard_login_view, name='dashboard_login'),
+    path('callback', dashboard_callback_view, name='dashboard_callback'),
+    path('logout', dashboard_logout_view, name='dashboard_logout'),
     
-    # Main dashboard view (regular Django view with @login_required)
+    # Main dashboard view (protected by @globus_login_required)
     path('analytics', analytics_realtime_view, name='dashboard_analytics'),
     
-    # API URLs (Django Ninja router - protected by @login_required on individual views)
+    # API URLs (Django Ninja router - protected by DjangoSessionAuth with Globus validation)
     path('', api.urls),  # This will serve all API routes under the 'dashboard_async/' URL namespace
 ]

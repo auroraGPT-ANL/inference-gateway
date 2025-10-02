@@ -131,7 +131,7 @@
   <div class="login-container">
     <div class="logo">
       <h1>Inference Dashboard</h1>
-      <p>Sign in to access analytics</p>
+      <p>Sign in with Globus to access analytics</p>
     </div>
 
     {% if messages %}
@@ -142,42 +142,38 @@
       {% endfor %}
     {% endif %}
 
-    {% if form.non_field_errors %}
-      <div class="error-messages">
-        {{ form.non_field_errors }}
-      </div>
-    {% endif %}
-
-    <form method="post" action="{% url 'dashboard_login' %}">
-      {% csrf_token %}
+    <div style="text-align: center; margin: 32px 0;">
+      <svg width="120" height="120" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto 24px;">
+        <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="1.5" fill="none"/>
+        <path d="M12 2 L12 12 L20 12" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="2" fill="#3b82f6"/>
+      </svg>
       
-      <div class="form-group">
-        <label for="{{ form.username.id_for_label }}">Username</label>
-        {{ form.username }}
-        {% if form.username.errors %}
-          <div class="error-messages">
-            {{ form.username.errors }}
-          </div>
-        {% endif %}
-      </div>
-
-      <div class="form-group">
-        <label for="{{ form.password.id_for_label }}">Password</label>
-        {{ form.password }}
-        {% if form.password.errors %}
-          <div class="error-messages">
-            {{ form.password.errors }}
-          </div>
-        {% endif %}
-      </div>
-
-      <input type="hidden" name="next" value="{{ next }}" />
+      <p style="color: #9fb1c3; margin-bottom: 24px; font-size: 14px;">
+        You'll be redirected to Globus to authenticate.<br/>
+        Make sure to use an authorized identity provider.
+      </p>
       
-      <button type="submit">Sign In</button>
-    </form>
+      <form method="get" action="{% url 'dashboard_login' %}">
+        {% if next %}
+          <input type="hidden" name="next" value="{{ next }}" />
+        {% endif %}
+        <button type="submit" style="width: auto; padding: 14px 32px; font-size: 16px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="display: inline-block; vertical-align: middle; margin-right: 8px;">
+            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z" fill="white" opacity="0.9"/>
+          </svg>
+          Sign in with Globus
+        </button>
+      </form>
+    </div>
 
-    <div class="help-text">
-      Need to change your password? <a href="{% url 'dashboard_password_change' %}">Click here</a>
+    <div class="help-text" style="margin-top: 32px;">
+      <p style="color: #9fb1c3; font-size: 13px;">
+        <strong>Note:</strong> Need to switch accounts? 
+        <a href="{% url 'dashboard_logout' %}" style="color: #3b82f6; text-decoration: underline;">Clear Globus session</a>
+      </p>
+      <p style="margin-top: 16px;">Authorized identity providers:</p>
+      <p style="color: #6b7280; font-size: 12px;">{{ authorized_domains|default:"Contact administrator for access" }}</p>
     </div>
   </div>
 </body>
