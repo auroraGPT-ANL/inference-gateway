@@ -70,7 +70,8 @@ GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_DASHBOARD_POL
 NUMBER_OF_GLOBUS_DASHBOARD_POLICIES = len(GLOBUS_DASHBOARD_POLICIES)
 GLOBUS_DASHBOARD_POLICIES = ",".join(GLOBUS_DASHBOARD_POLICIES)
 
-
+# Flag to turn on the Debug logging for the Globus Compute executor
+GLOBUS_COMPUTE_EXECUTOR_DEBUG = os.getenv("GLOBUS_COMPUTE_EXECUTOR_DEBUG", "False").lower() in ("true", "1", "t")
 
 # Batch processing feature flag
 ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
