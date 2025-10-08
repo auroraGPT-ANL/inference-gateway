@@ -897,24 +897,9 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
             no_new_data_timeout = 5  # 5 seconds with no new chunks = completion (allows time for done signal)
             
             while time.time() - start_time < max_wait_time:
-                # P0 OPTIMIZATION: Get status, chunks, and error in a single Redis round-trip
+                # Get status, chunks, and error in a single Redis round-trip
                 chunks, status, error_message = get_streaming_data_and_status_batch(stream_task_id)
-                
-                # Check for error status first (in case error occurs before any chunks)
-                if status == "error":
-                    if error_message:
-                        # Format and send the error in OpenAI streaming format
-                        formatted_error = format_streaming_error_for_openai(error_message)
-                        yield formatted_error
-                    # Send [DONE] after error to properly terminate the stream
-                    yield "data: [DONE]\n\n"
-                    break
-                elif status == "completed":
-                    # Send the final [DONE] message from vLLM
-                    yield "data: [DONE]\n\n"
-                    break
-                
-                # Check if we've received any data (chunks or status)
+                                # Check if we've received any data (chunks or status)
                 if (chunks and len(chunks) > 0) or status:
                     first_data_received = True
                 
@@ -960,6 +945,21 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                     # Set completed status for cleanup
                     set_streaming_status(stream_task_id, "completed")
                     break
+                # Check for error status first (in case error occurs before any chunks)
+                if status == "error":
+                    if error_message:
+                        # Format and send the error in OpenAI streaming format
+                        formatted_error = format_streaming_error_for_openai(error_message)
+                        yield formatted_error
+                    # Send [DONE] after error to properly terminate the stream
+                    yield "data: [DONE]\n\n"
+                    break
+                elif status == "completed":
+                    # Send the final [DONE] message from vLLM
+                    yield "data: [DONE]\n\n"
+                    break
+                
+
                 
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)

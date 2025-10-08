@@ -251,12 +251,15 @@ class ToolFunction(BaseModelExtraForbid):
 
     # Extra validations
     @model_validator(mode='after')
-    def extra_validations(cls, values):
+    def extra_validations(self):
 
         # Check if name includes weird characters
-        test_data = values.name.replace("-","").replace("_","")
+        test_data = self.name.replace("-","").replace("_","")
         if not test_data.isalnum():
             raise ValueError("'Tolls-function-name' must Must be a-z, A-Z, 0-9, or contain underscores and dashes.")
+        
+        # Return self if nothing wrong happened in the validation step
+        return self
 
 # Tool
 class Tool(BaseModelExtraForbid):
@@ -527,28 +530,28 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
 
     # Extra validations
     @model_validator(mode='after')
-    def extra_validations(cls, values):
+    def extra_validations(self):
 
         # Check if logsprobs is set to True when top_logprobs is used
-        if isinstance(values.top_logprobs, int):
-            if values.logprobs == False:
+        if isinstance(self.top_logprobs, int):
+            if self.logprobs == False:
                 raise ValueError("'logprobs' must be set to True when 'top_logprobs' is used.")
             
         # Validate logit_bias bias values
-        if isinstance(values.logit_bias, dict):
-            for bias in values.logit_bias.values():
+        if isinstance(self.logit_bias, dict):
+            for bias in self.logit_bias.values():
                 if bias < -100 or bias > 100:
                     raise ValueError("'logit_bias' bias values must be from -100 to 100.")
                 
         # Validate stop list
-        if isinstance(values.stop, list):
-            if len(values.stop) < 1 or len(values.stop) > 4:
+        if isinstance(self.stop, list):
+            if len(self.stop) < 1 or len(self.stop) > 4:
                 raise ValueError("'stop' list must have between 1 to 4 items.")
             
         # Raise error if stream == True, since we do not have the capability yet
-        # if isinstance(values.stream, bool):
-        #     if values.stream == True:
+        # if isinstance(self.stream, bool):
+        #     if self.stream == True:
         #         raise ValueError("'stream' is currently not available and the value must be set to False.")
 
-        # Return values if nothing wrong happened in the valudation step
-        return values
+        # Return self if nothing wrong happened in the valudation step
+        return self

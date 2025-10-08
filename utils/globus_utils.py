@@ -4,6 +4,7 @@ from django.conf import settings
 import globus_sdk
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
+from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from cachetools import TTLCache, cached
 
 import logging
@@ -58,6 +59,10 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=443):
     -------
         globus_compute_sdk.Executor: Compute Executor to operate Globus Compute
     """
+
+    # Set log level
+    if settings.GLOBUS_COMPUTE_EXECUTOR_DEBUG:
+        EXECUTOR_LOG.setLevel(logging.DEBUG)
 
     # Try to create and return the Compute executor
     try:
