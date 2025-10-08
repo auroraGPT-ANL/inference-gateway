@@ -698,10 +698,9 @@
             "model": "Qwen/Qwen3-Next-80B-A3B-Thinking",
             "api_port": 8000,
             "endpoint_uuid": "f6ea43cd-7c3e-49ba-9ffd-b1103f9e005c",
-            "function_uuid": "052d9c64-1807-4443-9098-0f7ce7827817",
+            "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     }
 ]
