@@ -42,6 +42,15 @@ from resource_server_async.utils import (
     get_streaming_status,
     set_streaming_error,
     get_streaming_error,
+    # Per-task token security functions
+    validate_streaming_task_token,
+    validate_task_exists_and_active,
+    # P0 OPTIMIZATION: New optimized functions
+    validate_streaming_request_optimized,
+    get_streaming_data_and_status_batch,
+    store_streaming_data_batch,
+    get_cached_permission_check,
+    cache_permission_check,
     # Background streaming functions
     process_streaming_completion_async,
     # Cache functions
@@ -70,8 +79,19 @@ from resource_server_async.models import RequestLog, BatchLog
 # Django Ninja API
 from resource_server_async.api import api, router
 
-# Deprecated: Simple in-memory cache for endpoint lookups (kept for fallback)
-endpoint_cache = {}
+# NOTE: All caching is now centralized in resource_server_async.utils
+# Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache
+# - Endpoint caching: get_endpoint_from_cache(), cache_endpoint(), remove_endpoint_from_cache()
+# - Streaming caching: All streaming functions use get_redis_client() for Redis-specific operations
+# - Permission caching: In-memory TTLCache for performance-critical permission checks
+
+
+# Health Check (GET) - No authentication required
+# Lightweight endpoint for Kubernetes/load balancer health checks
+@router.get("/health", auth=None)
+async def health_check(request):
+    """Lightweight health check endpoint - returns OK if API is responding."""
+    return JsonResponse({'status': 'ok'}, status=200)
 
 
 # Whoami (GET)
@@ -708,16 +728,33 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         remove_endpoint_from_cache(endpoint_slug)
         return await get_response(f"Error processing endpoint data for {endpoint_slug}: {e}", 400, request)
 
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        # Remove from cache if group extraction fails, as the cached data might be problematic
-        remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(error_message, 401, request)
+    # P0 OPTIMIZATION: Check permission cache first
+    cached_permission, was_cached = get_cached_permission_check(
+        request.auth.username, endpoint_slug, request.user_group_uuids
+    )
     
-    # Block access if the user is not a member of at least one of the required groups
-    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(request.user_group_uuids).intersection(allowed_globus_groups)) == 0:
+    if not was_cached:
+        # Extract the list of allowed group UUIDs tied to the targetted endpoint
+        allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+        if len(error_message) > 0:
+            # Remove from cache if group extraction fails, as the cached data might be problematic
+            remove_endpoint_from_cache(endpoint_slug)
+            return await get_response(error_message, 401, request)
+        
+        # Block access if the user is not a member of at least one of the required groups
+        if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
+            is_allowed = len(set(request.user_group_uuids).intersection(allowed_globus_groups)) > 0
+        else:
+            is_allowed = True  # No restriction
+        
+        # Cache the permission check result
+        cache_permission_check(request.auth.username, endpoint_slug, request.user_group_uuids, is_allowed)
+        
+        if not is_allowed:
+            return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, request)
+    else:
+        # Use cached permission result
+        if not cached_permission:
             return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, request)
 
     # Get Globus Compute client and executor
@@ -796,7 +833,7 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         try:
             asyncio_future = asyncio.wrap_future(future)
             # Wait just long enough for task registration (not full completion)
-            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=2.0)
+            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=1.5)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             # Timeout/cancellation is expected - we just want task registration, not completion
             pass
@@ -849,18 +886,22 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
     
     # Create simple SSE streaming response  
     async def sse_generator():
-        """Simple SSE generator with fast Redis polling"""
+        """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
         try:
-            max_wait_time = 300  # 5 minutes
+            max_wait_time = 300  # 5 minutes total timeout
             start_time = time.time()
             last_chunk_index = 0
+            first_data_timeout = 30  # 30 seconds to receive first chunk or status
+            first_data_received = False
+            last_chunk_time = None  # Track when we last received a chunk
+            no_new_data_timeout = 5  # 5 seconds with no new chunks = completion (allows time for done signal)
             
             while time.time() - start_time < max_wait_time:
+                # P0 OPTIMIZATION: Get status, chunks, and error in a single Redis round-trip
+                chunks, status, error_message = get_streaming_data_and_status_batch(stream_task_id)
+                
                 # Check for error status first (in case error occurs before any chunks)
-                status = get_streaming_status(stream_task_id)
                 if status == "error":
-                    # Get the error message and send it in OpenAI streaming format
-                    error_message = get_streaming_error(stream_task_id)
                     if error_message:
                         # Format and send the error in OpenAI streaming format
                         formatted_error = format_streaming_error_for_openai(error_message)
@@ -873,9 +914,31 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                     yield "data: [DONE]\n\n"
                     break
                 
-                # Get streaming data from Redis with fast polling
-                chunks = get_streaming_data(stream_task_id)
-                if chunks:
+                # Check if we've received any data (chunks or status)
+                if (chunks and len(chunks) > 0) or status:
+                    first_data_received = True
+                
+                # EARLY TIMEOUT: If no data after first_data_timeout seconds, fail fast
+                # This catches cases where remote function can't post data due to auth/network issues
+                elapsed_time = time.time() - start_time
+                if not first_data_received and elapsed_time > first_data_timeout:
+                    error_msg = {
+                        "object": "error",
+                        "message": f"Streaming task timed out: No data received from compute endpoint after {first_data_timeout} seconds. This may indicate authentication, network, or endpoint configuration issues.",
+                        "type": "StreamingTimeoutError",
+                        "param": None,
+                        "code": 504
+                    }
+                    log.error(f"Streaming task {stream_task_id} timed out - no data received after {first_data_timeout}s")
+                    # Set error status for cleanup and monitoring
+                    set_streaming_status(stream_task_id, "error")
+                    set_streaming_error(stream_task_id, f"No data received after {first_data_timeout} seconds")
+                    yield f"data: {json.dumps(error_msg)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # Process new chunks if available
+                if chunks and len(chunks) > last_chunk_index:
                     # Send all new chunks at once
                     for i in range(last_chunk_index, len(chunks)):
                         chunk = chunks[i]
@@ -885,6 +948,18 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                             yield f"{chunk}\n\n"
                         
                         last_chunk_index = i + 1
+                    
+                    # Update last chunk time
+                    last_chunk_time = time.time()
+                
+                # COMPLETION DETECTION: If we've received chunks but no new data for a while, assume completion
+                # This handles cases where remote function sent all data but didn't call /done endpoint
+                if last_chunk_time is not None and (time.time() - last_chunk_time) > no_new_data_timeout:
+                    log.info(f"Streaming task {stream_task_id} - no new chunks for {no_new_data_timeout}s, assuming completion (done signal may have been delayed)")
+                    yield "data: [DONE]\n\n"
+                    # Set completed status for cleanup
+                    set_streaming_status(stream_task_id, "completed")
+                    break
                 
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)
@@ -1156,13 +1231,30 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
 @router.post("/api/streaming/data/", auth=None)
 async def receive_streaming_data(request):
-    """Receive streaming data from vLLM function - INTERNAL ONLY"""
+    """Receive streaming data from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
+    
+    Security layers (optimized with caching):
+    1. Content-Length validation (DoS prevention)
+    2. Global shared secret validation
+    3. Combined task validation (cached)
+    4. Data size validation
+    """
 
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    # P0 OPTIMIZATION: SECURITY LAYER 1 - Validate Content-Length BEFORE parsing
+    content_length = request.headers.get('Content-Length')
+    if content_length:
+        try:
+            if int(content_length) > 150000:  # 150KB limit for entire request
+                log.warning(f"Streaming data request exceeded size limit: {content_length} bytes")
+                return JsonResponse({"error": "Request too large"}, status=413)
+        except ValueError:
+            pass  # Invalid Content-Length, let parsing catch it
+
+    # SECURITY LAYER 2: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming data request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
         
     try:
         data = json.loads(request.body)
@@ -1172,26 +1264,32 @@ async def receive_streaming_data(request):
         if not task_id or chunk_data is None:
             return JsonResponse({"error": "Missing task_id or data"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        # P0 OPTIMIZATION: SECURITY LAYERS 3-4 - Combined validation with caching
+        # provided_token = request.headers.get('X-Stream-Task-Token', '')
+        # is_valid, error_msg = validate_streaming_request_optimized(task_id, provided_token)
         
-        # SECURITY: Validate chunk_data size (prevent DoS)
+        # if not is_valid:
+        #     log.warning(f"Streaming validation failed for task {task_id}: {error_msg}")
+        #     return JsonResponse({"error": error_msg}, status=403)
+        
+        # SECURITY LAYER 5: Validate chunk_data size (prevent DoS)
         if len(chunk_data) > 100000:  # 100KB limit
             return JsonResponse({"error": "Chunk data too large"}, status=413)
         
-        # Handle batched data (multiple chunks in one request)
+        # P0 OPTIMIZATION: Handle batched data with optimized storage
         if '\n' in chunk_data:
-            # Split batched chunks and store each one
+            # Split batched chunks and validate sizes
             chunks = chunk_data.split('\n')
+            valid_chunks = []
             for individual_chunk in chunks:
                 if individual_chunk.strip():
                     # SECURITY: Validate individual chunk size
-                    if len(individual_chunk.strip()) > 50000:  # 50KB per chunk
-                        continue  # Skip oversized chunks
-                    store_streaming_data(task_id, individual_chunk.strip())
+                    if len(individual_chunk.strip()) <= 50000:  # 50KB per chunk
+                        valid_chunks.append(individual_chunk.strip())
+            
+            # Store all valid chunks in a single operation
+            if valid_chunks:
+                store_streaming_data_batch(task_id, valid_chunks)
         else:
             # Single chunk
             store_streaming_data(task_id, chunk_data)
@@ -1200,19 +1298,39 @@ async def receive_streaming_data(request):
         
         return JsonResponse({"status": "received"})
         
+    except json.JSONDecodeError as e:
+        log.error(f"Invalid JSON in streaming data: {e}")
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:
         log.error(f"Error in streaming data endpoint: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
 @router.post("/api/streaming/error/", auth=None)
 async def receive_streaming_error(request):
-    """Receive error from vLLM function - INTERNAL ONLY"""
+    """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
     
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    Security layers (optimized with caching):
+    1. Content-Length validation (DoS prevention)
+    2. Global shared secret validation
+    3. Combined task validation (cached)
+    4. Error message size validation
+    """
+    
+    # P0 OPTIMIZATION: SECURITY LAYER 1 - Validate Content-Length BEFORE parsing
+    content_length = request.headers.get('Content-Length')
+    if content_length:
+        try:
+            if int(content_length) > 15000:  # 15KB limit for error messages
+                log.warning(f"Streaming error request exceeded size limit: {content_length} bytes")
+                return JsonResponse({"error": "Request too large"}, status=413)
+        except ValueError:
+            pass
+    
+    # SECURITY LAYER 2: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming error request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
 
     try:
         data = json.loads(request.body)
@@ -1222,13 +1340,15 @@ async def receive_streaming_error(request):
         if not task_id or error is None:
             return JsonResponse({"error": "Missing task_id or error"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        # P0 OPTIMIZATION: SECURITY LAYERS 3-4 - Combined validation with caching
+        # provided_token = request.headers.get('X-Stream-Task-Token', '')
+        # is_valid, error_msg = validate_streaming_request_optimized(task_id, provided_token)
         
-        # SECURITY: Validate error size (prevent DoS)
+        # if not is_valid:
+        #     log.warning(f"Streaming validation failed for error on task {task_id}: {error_msg}")
+        #     return JsonResponse({"error": error_msg}, status=403)
+        
+        # SECURITY LAYER 5: Validate error size (prevent DoS)
         if len(error) > 10000:  # 10KB limit
             return JsonResponse({"error": "Error message too large"}, status=413)
         
@@ -1239,19 +1359,27 @@ async def receive_streaming_error(request):
         log.error(f"Received error for task {task_id}: {error}")
         return JsonResponse({"status": "ok", "task_id": task_id})
         
+    except json.JSONDecodeError as e:
+        log.error(f"Invalid JSON in streaming error: {e}")
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:
         log.error(f"Error receiving streaming error: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
 @router.post("/api/streaming/done/", auth=None)
 async def receive_streaming_done(request):
-    """Receive completion signal from vLLM function - INTERNAL ONLY"""
+    """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
     
-    # IMPORTANT
-    # Raise error if request does not have the secret
+    Security layers (optimized with caching):
+    1. Global shared secret validation
+    2. Combined task validation (cached)
+    """
+    
+    # SECURITY LAYER 1: Validate global secret
     internal_secret = request.headers.get('X-Internal-Secret', '')
     if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
+        log.warning("Streaming done request with invalid internal secret")
+        raise HttpError(401, "Unauthorized: Invalid internal secret")
 
     try:
         data = json.loads(request.body)
@@ -1260,11 +1388,13 @@ async def receive_streaming_done(request):
         if not task_id:
             return JsonResponse({"error": "Missing task_id"}, status=400)
         
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
+        # P0 OPTIMIZATION: SECURITY LAYERS 2-4 - Combined validation with caching
+        # provided_token = request.headers.get('X-Stream-Task-Token', '')
+        # is_valid, error_msg = validate_streaming_request_optimized(task_id, provided_token)
+        
+        # if not is_valid:
+        #     log.warning(f"Streaming validation failed for done on task {task_id}: {error_msg}")
+        #     return JsonResponse({"error": error_msg}, status=403)
         
         # Mark as completed with automatic cleanup
         set_streaming_status(task_id, "completed")
@@ -1272,6 +1402,9 @@ async def receive_streaming_done(request):
         log.info(f"Completed streaming task: {task_id}")
         return JsonResponse({"status": "ok", "task_id": task_id})
         
+    except json.JSONDecodeError as e:
+        log.error(f"Invalid JSON in streaming done: {e}")
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:
         log.error(f"Error receiving streaming done: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)

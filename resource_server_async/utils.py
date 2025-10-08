@@ -5,6 +5,8 @@ import redis
 import time
 import asyncio
 import re
+import secrets
+import hmac
 from enum import Enum
 from django.core.cache import cache
 from django.http import HttpResponse
@@ -61,8 +63,7 @@ def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
         Returns True if key exists in the cache, False otherwise.
         If create_empty=True, a non-existing key will be created with a "" value (function will still returns False).
     """
-
-    # If the key does not exist ...
+     # If the key does not exist ...
     if cache.get(key) is None:
 
         # Create an empty entry if needed
@@ -71,11 +72,11 @@ def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
 
         # Return False since the key did not exist at first
         return False
-    
+
     # Return True if the key already exists
     else:
         return True
-                
+
 
 # Validate cluster and framework
 def validate_cluster_framework(cluster: str, framework: str):
@@ -546,40 +547,114 @@ async def update_database(db_Model=None, db_data=None, db_object=None, return_ob
         return db_object
 
 
-# Redis streaming data management functions
-def get_redis_client():
-    """Get Redis client for streaming data storage"""
-    try:
-        # Try to use Django's cache if it's Redis
-        if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {})):
-            return redis.Redis.from_url(settings.CACHES['default']['LOCATION'])
-        else:
-            # Fallback to local Redis
-            return redis.Redis(host='localhost', port=6379, db=1, decode_responses=False)
-    except:
-        # If Redis is not available, fallback to Django cache
-        return None
+# ========================================
+# Centralized Caching Management
+# ========================================
+#
+# CACHING STRATEGY:
+# 
+# Django Cache (Primary - 95% of operations):
+#   When USE_REDIS_CACHE=true, Django cache IS Redis (via django_redis.cache.RedisCache)
+#   Used for: tokens, status, errors, endpoints, Globus status, batch status, etc.
+#   Why: Simple, consistent, handles serialization, automatic fallbacks
+#
+# Redis Client (Specialized - 5% of operations):
+#   ONLY used for operations requiring Redis-specific features not available via Django cache:
+#   1. LIST operations (LPUSH/LRANGE) - for FIFO streaming chunks (more efficient than Python lists)
+#   2. PIPELINE operations - batch multiple commands in single network round-trip
+#   Falls back to Django cache if Redis client unavailable
+#
+# In-Memory TTLCache (Hot Path Optimization):
+#   Used for: permission checks, validation results, Globus SDK objects (can't serialize to Redis)
+#   Why: Sub-millisecond access, but not shared across workers
+#
+# KEY INSIGHT: 
+# When USE_REDIS_CACHE=true, both Django cache AND Redis client point to the SAME Redis instance.
+# We use Django cache by default and only drop down to Redis client for performance-critical
+# operations that need Redis-specific features.
+#
+# CONFIGURATION:
+# - Set USE_REDIS_CACHE=true in .env
+# - Both Django cache and Redis client use settings.CACHES['default']['LOCATION']
+# - All operations gracefully fall back if Redis unavailable
+#
+# CACHE KEYS:
+# - stream:data:{task_id}     - Streaming chunks (Redis LIST for efficient FIFO)
+# - stream:status:{task_id}   - Status (Django cache - simple get/set)
+# - stream:error:{task_id}    - Error message (Django cache - simple get/set)
+# - stream:token:{task_id}    - Auth token (Django cache - simple get/set)
+# - endpoint:{slug}           - Endpoint objects (Django cache)
+# - endpoint_status:{uuid}    - Globus status (Django cache, 60s TTL)
+# - batch_status:{uuids}      - Batch status (Django cache, 30s TTL)
+# - token_introspect:{hash}   - Token results (Django cache, 10min TTL)
+#
+# ========================================
 
-def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 3600):
-    """Store streaming chunk with automatic cleanup"""
+# Redis client singleton - ONLY for LIST operations and PIPELINEs
+# For simple get/set operations, use Django cache directly
+_redis_client = None
+_redis_available = None
+
+def get_redis_client():
+    """
+    Get Redis client for operations requiring Redis-specific features (e.g., pipelines).
+    Uses Django cache configuration. Returns None if Redis is unavailable.
+    
+    This is cached as a singleton to avoid repeated connection attempts.
+    """
+    global _redis_client, _redis_available
+    
+    # Return cached result if already checked
+    if _redis_available is False:
+        return None
+    if _redis_client is not None:
+        return _redis_client
+    
+    try:
+        # Try to use Django's cache backend if it's Redis
+        if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {}).get('BACKEND', '')):
+            cache_location = settings.CACHES['default'].get('LOCATION')
+            if cache_location:
+                _redis_client = redis.Redis.from_url(cache_location)
+                # Test connection
+                _redis_client.ping()
+                _redis_available = True
+                log.info("Redis client initialized successfully from Django cache configuration")
+                return _redis_client
+    except Exception as e:
+        log.warning(f"Redis not available, falling back to Django cache: {e}")
+    
+    # Mark as unavailable
+    _redis_available = False
+    _redis_client = None
+    return None
+
+def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 60*10):
+    """
+    Store streaming chunk with automatic cleanup.
+    Uses Django cache (configured for Redis) with fallback to in-memory cache.
+    """
     try:
         redis_client = get_redis_client()
         if redis_client:
-            # Use Redis with TTL
+            # Use Redis-specific list operations for optimal streaming performance
             key = f"stream:data:{task_id}"
             redis_client.lpush(key, chunk_data)
-            redis_client.expire(key, ttl)  # Auto-cleanup after 1 hour
+            redis_client.expire(key, ttl)
         else:
-            # Fallback to Django cache
+            # Fallback to Django cache (non-Redis backend or Redis unavailable)
             key = f"stream_data_{task_id}"
             existing = cache.get(key, [])
             existing.append(chunk_data)
             cache.set(key, existing, ttl)
     except Exception as e:
-        log.error(f"Error storing streaming data: {e}")
+        log.error(f"Error storing streaming data for task {task_id}: {e}")
 
 def get_streaming_data(task_id: str):
-    """Get streaming chunks for a task"""
+    """
+    Get streaming chunks for a task.
+    Uses Django cache (configured for Redis) with fallback to in-memory cache.
+    """
     try:
         redis_client = get_redis_client()
         if redis_client:
@@ -587,103 +662,383 @@ def get_streaming_data(task_id: str):
             chunks = redis_client.lrange(key, 0, -1)
             return [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk for chunk in reversed(chunks)]
         else:
-            # Fallback to Django cache
             key = f"stream_data_{task_id}"
             return cache.get(key, [])
     except Exception as e:
-        log.error(f"Error getting streaming data: {e}")
+        log.error(f"Error getting streaming data for task {task_id}: {e}")
         return []
 
 def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
-    """Set streaming status with automatic cleanup"""
+    """
+    Set streaming status with automatic cleanup.
+    Uses Django cache (simple get/set - no need for Redis client).
+    """
     try:
-        redis_client = get_redis_client()
-        if redis_client:
-            key = f"stream:status:{task_id}"
-            redis_client.set(key, status, ex=ttl)
-        else:
-            # Fallback to Django cache
-            key = f"stream_status_{task_id}"
-            cache.set(key, status, ttl)
+        key = f"stream:status:{task_id}"
+        cache.set(key, status, ttl)
     except Exception as e:
-        log.error(f"Error setting streaming status: {e}")
+        log.error(f"Error setting streaming status for task {task_id}: {e}")
 
 def get_streaming_status(task_id: str):
-    """Get streaming status for a task"""
+    """
+    Get streaming status for a task.
+    Uses Django cache (simple get/set - no need for Redis client).
+    """
     try:
-        redis_client = get_redis_client()
-        if redis_client:
-            key = f"stream:status:{task_id}"
-            status = redis_client.get(key)
-            return status.decode('utf-8') if isinstance(status, bytes) else status
-        else:
-            # Fallback to Django cache
-            key = f"stream_status_{task_id}"
-            return cache.get(key)
+        key = f"stream:status:{task_id}"
+        return cache.get(key)
     except Exception as e:
-        log.error(f"Error getting streaming status: {e}")
+        log.error(f"Error getting streaming status for task {task_id}: {e}")
         return None
 
 def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
-    """Set streaming error with automatic cleanup"""
+    """
+    Set streaming error with automatic cleanup.
+    Uses Django cache (simple get/set - no need for Redis client).
+    """
     try:
-        redis_client = get_redis_client()
-        if redis_client:
-            key = f"stream:error:{task_id}"
-            redis_client.set(key, error, ex=ttl)
-        else:
-            # Fallback to Django cache
-            key = f"stream_error_{task_id}"
-            cache.set(key, error, ttl)
+        key = f"stream:error:{task_id}"
+        cache.set(key, error, ttl)
     except Exception as e:
-        log.error(f"Error setting streaming error: {e}")
+        log.error(f"Error setting streaming error for task {task_id}: {e}")
 
 def get_streaming_error(task_id: str):
-    """Get streaming error for a task"""
+    """
+    Get streaming error for a task.
+    Uses Django cache (simple get/set - no need for Redis client).
+    """
     try:
-        redis_client = get_redis_client()
-        if redis_client:
-            key = f"stream:error:{task_id}"
-            error = redis_client.get(key)
-            return error.decode('utf-8') if isinstance(error, bytes) else error
-        else:
-            # Fallback to Django cache
-            key = f"stream_error_{task_id}"
-            return cache.get(key)
+        key = f"stream:error:{task_id}"
+        return cache.get(key)
     except Exception as e:
-        log.error(f"Error getting streaming error: {e}")
+        log.error(f"Error getting streaming error for task {task_id}: {e}")
         return None
 
 
-# Endpoint caching utilities
+# Per-Task Token Security Functions
+def generate_streaming_task_token(stream_task_id: str) -> str:
+    """Generate a unique authentication token for a streaming task.
+    
+    Uses secrets module for cryptographically strong random token generation.
+    Returns a URL-safe base64 encoded string with 256 bits of entropy.
+    """
+    token = secrets.token_urlsafe(32)  # 32 bytes = 256 bits of entropy
+    log.info(f"Generated streaming token for task {stream_task_id}")
+    return token
+
+
+def store_streaming_task_token(task_id: str, token: str, ttl: int = 600):
+    """
+    Store the authentication token for a streaming task with automatic cleanup.
+    Uses Django cache (simple get/set - no need for Redis client).
+    
+    Args:
+        task_id: Unique streaming task identifier
+        token: Cryptographic token to store
+        ttl: Time to live in seconds (default 10 minutes)
+    """
+    try:
+        key = f"stream:token:{task_id}"
+        cache.set(key, token, ttl)
+        log.info(f"Stored streaming token for task {task_id}")
+    except Exception as e:
+        log.error(f"Error storing streaming token for task {task_id}: {e}")
+        raise
+
+
+def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
+    """
+    Validate that the provided token matches the stored token for this task.
+    Uses Django cache (simple get/set - no need for Redis client).
+    Uses constant-time comparison to prevent timing attacks.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        provided_token: Token provided in the request
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    try:
+        key = f"stream:token:{task_id}"
+        stored_token = cache.get(key)
+        
+        if stored_token:
+            is_valid = hmac.compare_digest(stored_token, provided_token)
+            if is_valid:
+                log.info(f"Valid token for task {task_id}")
+            else:
+                log.warning(f"Invalid token provided for task {task_id}")
+            return is_valid
+        
+        log.warning(f"No stored token found for task {task_id}")
+        return False
+    except Exception as e:
+        log.error(f"Error validating streaming token for task {task_id}: {e}")
+        return False
+
+
+def validate_task_exists_and_active(task_id: str) -> bool:
+    """
+    Verify that the task_id was actually created by the system and is still active.
+    Uses Django cache (simple check - no need for Redis client).
+    
+    A task is considered active if its token exists in the cache.
+    This prevents attackers from using random/guessed UUIDs.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        
+    Returns:
+        True if task exists and is active, False otherwise
+    """
+    try:
+        key = f"stream:token:{task_id}"
+        exists = cache.get(key) is not None
+        if not exists:
+            log.warning(f"Task {task_id} does not exist or is no longer active")
+        return exists
+    except Exception as e:
+        log.error(f"Error checking task existence for {task_id}: {e}")
+        return False
+
+
+# P0 OPTIMIZATION: Validation result caching
+_validation_cache = TTLCache(maxsize=10000, ttl=300)  # Cache for 5 minutes
+
+def get_cached_validation_result(task_id: str, provided_token: str) -> tuple:
+    """Get cached validation result if available.
+    
+    Returns:
+        (is_valid, cached) tuple where cached indicates if result was from cache
+    """
+    cache_key = f"{task_id}:{provided_token[:16]}"  # Use first 16 chars for key
+    
+    try:
+        if cache_key in _validation_cache:
+            return _validation_cache[cache_key], True
+        return None, False
+    except Exception:
+        return None, False
+
+
+def cache_validation_result(task_id: str, provided_token: str, is_valid: bool):
+    """Cache validation result to avoid repeated Redis calls."""
+    cache_key = f"{task_id}:{provided_token[:16]}"
+    
+    try:
+        _validation_cache[cache_key] = is_valid
+    except Exception as e:
+        log.warning(f"Failed to cache validation result: {e}")
+
+
+def validate_streaming_request_optimized(task_id: str, provided_token: str) -> tuple:
+    """
+    Optimized validation that combines existence check and token validation with caching.
+    Uses in-memory cache for validation results to avoid repeated checks.
+    
+    Returns:
+        (is_valid, error_message) tuple
+    """
+    # P0 OPTIMIZATION: Check in-memory cache first
+    cached_result, was_cached = get_cached_validation_result(task_id, provided_token)
+    if was_cached:
+        if cached_result:
+            return True, None
+        else:
+            return False, "Invalid or expired task authentication"
+    
+    # Validate task_id format (UUID)
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        return False, "Invalid task_id format"
+    
+    # Use standard validation functions (which use Django cache)
+    # These are already fast since Django cache IS Redis
+    try:
+        if not validate_task_exists_and_active(task_id):
+            cache_validation_result(task_id, provided_token, False)
+            return False, "Invalid or expired task_id"
+        
+        if not validate_streaming_task_token(task_id, provided_token):
+            cache_validation_result(task_id, provided_token, False)
+            return False, "Invalid task authentication token"
+        
+        # Cache successful validation
+        cache_validation_result(task_id, provided_token, True)
+        return True, None
+            
+    except Exception as e:
+        log.error(f"Error in optimized validation: {e}")
+        return False, f"Validation error: {str(e)}"
+
+
+# P0 OPTIMIZATION: Redis pipeline for SSE polling
+def get_streaming_data_and_status_batch(task_id: str):
+    """
+    Get both streaming data and status in a single Redis round-trip using pipeline.
+    Uses Django cache (configured for Redis) with fallback to sequential operations.
+    
+    Returns:
+        (chunks, status, error) tuple
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Use Redis pipeline to batch multiple operations for optimal performance
+            pipe = redis_client.pipeline()
+            data_key = f"stream:data:{task_id}"
+            status_key = f"stream:status:{task_id}"
+            error_key = f"stream:error:{task_id}"
+            
+            pipe.lrange(data_key, 0, -1)
+            pipe.get(status_key)
+            pipe.get(error_key)
+            
+            results = pipe.execute()
+            
+            # Process chunks
+            raw_chunks = results[0]
+            chunks = [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk 
+                     for chunk in reversed(raw_chunks)] if raw_chunks else []
+            
+            # Process status
+            status = results[1]
+            status = status.decode('utf-8') if isinstance(status, bytes) else status
+            
+            # Process error
+            error = results[2]
+            error = error.decode('utf-8') if isinstance(error, bytes) else error
+            
+            return chunks, status, error
+        else:
+            # Fallback to Django cache (sequential operations)
+            chunks = get_streaming_data(task_id)
+            status = get_streaming_status(task_id)
+            error = get_streaming_error(task_id)
+            return chunks, status, error
+            
+    except Exception as e:
+        log.error(f"Error in batched streaming data retrieval for task {task_id}: {e}")
+        return [], None, None
+
+
+# P0 OPTIMIZATION: Batched chunk storage for streaming endpoints
+def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
+    """
+    Store multiple streaming chunks in a single Redis pipeline operation.
+    Uses Django cache (configured for Redis) with fallback to sequential operations.
+    
+    Args:
+        task_id: Unique streaming task identifier
+        chunk_list: List of chunk data strings to store
+        ttl: Time to live in seconds
+    """
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Use Redis pipeline for optimal batch operations
+            key = f"stream:data:{task_id}"
+            pipe = redis_client.pipeline()
+            
+            # Add all chunks in a single pipeline
+            for chunk_data in chunk_list:
+                pipe.lpush(key, chunk_data)
+            
+            # Set TTL once at the end
+            pipe.expire(key, ttl)
+            pipe.execute()
+        else:
+            # Fallback to Django cache (sequential operations)
+            for chunk_data in chunk_list:
+                store_streaming_data(task_id, chunk_data, ttl)
+    except Exception as e:
+        log.error(f"Error storing batched streaming data for task {task_id}: {e}")
+
+
+# P0 OPTIMIZATION: Permission check caching
+_permission_cache = TTLCache(maxsize=50000, ttl=300)  # Cache for 5 minutes
+
+def get_cached_permission_check(username: str, endpoint_slug: str, user_group_uuids: list) -> tuple:
+    """Get cached permission check result.
+    
+    Returns:
+        (is_allowed, cached) tuple
+    """
+    # Create a stable cache key from user and endpoint
+    cache_key = f"{username}:{endpoint_slug}:{hash(tuple(sorted(user_group_uuids)))}"
+    
+    try:
+        if cache_key in _permission_cache:
+            return _permission_cache[cache_key], True
+        return None, False
+    except Exception:
+        return None, False
+
+
+def cache_permission_check(username: str, endpoint_slug: str, user_group_uuids: list, is_allowed: bool):
+    """Cache permission check result."""
+    cache_key = f"{username}:{endpoint_slug}:{hash(tuple(sorted(user_group_uuids)))}"
+    
+    try:
+        _permission_cache[cache_key] = is_allowed
+    except Exception as e:
+        log.warning(f"Failed to cache permission check: {e}")
+
+
+# ========================================
+# Endpoint Caching (Non-Streaming)
+# ========================================
+
 def get_endpoint_from_cache(endpoint_slug):
-    """Get endpoint from Redis cache with fallback to in-memory"""
+    """
+    Get endpoint from cache (Django cache configured for Redis).
+    Uses Django ORM serialization for endpoint objects.
+    
+    Args:
+        endpoint_slug: Unique identifier for the endpoint
+        
+    Returns:
+        Cached endpoint object or None if not found
+    """
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cached_endpoint = cache.get(cache_key)
         if cached_endpoint:
-            log.info(f"Retrieved endpoint {endpoint_slug} from Redis cache.")
+            log.info(f"Retrieved endpoint {endpoint_slug} from cache.")
             return cached_endpoint
     except Exception as e:
-        log.warning(f"Redis cache error for endpoint {endpoint_slug}: {e}")
+        log.warning(f"Cache error for endpoint {endpoint_slug}: {e}")
     return None
 
 def cache_endpoint(endpoint_slug, endpoint_data):
-    """Cache endpoint data in Redis with TTL"""
+    """
+    Cache endpoint data using Django cache (configured for Redis).
+    
+    Args:
+        endpoint_slug: Unique identifier for the endpoint
+        endpoint_data: Endpoint object to cache
+    """
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         # Cache endpoint data for 5 minutes
         cache.set(cache_key, endpoint_data, 300)
-        log.info(f"Cached endpoint {endpoint_slug} in Redis.")
+        log.info(f"Cached endpoint {endpoint_slug}.")
     except Exception as e:
         log.warning(f"Failed to cache endpoint {endpoint_slug}: {e}")
 
 def remove_endpoint_from_cache(endpoint_slug):
-    """Remove endpoint from Redis cache"""
+    """
+    Remove endpoint from cache (Django cache configured for Redis).
+    
+    Args:
+        endpoint_slug: Unique identifier for the endpoint
+    """
     cache_key = f"endpoint:{endpoint_slug}"
     try:
         cache.delete(cache_key)
-        log.info(f"Removed endpoint {endpoint_slug} from Redis cache.")
+        log.info(f"Removed endpoint {endpoint_slug} from cache.")
     except Exception as e:
         log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
 
@@ -768,18 +1123,27 @@ async def get_batch_response(db_data, content, code, db_Model):
 
 # Streaming setup utilities
 def prepare_streaming_task_data(data, stream_task_id):
-    """Prepare data payload for streaming task with server configuration"""
+    """Prepare data payload for streaming task with server configuration and security token.
+    
+    Generates a unique cryptographic token for this streaming task and stores it
+    for validation of incoming streaming callbacks.
+    """
     
     # Get the streaming server configuration from settings
     stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
     stream_server_port = getattr(settings, 'STREAMING_SERVER_PORT', 443)
     stream_server_protocol = getattr(settings, 'STREAMING_SERVER_PROTOCOL', 'https')
     
+    # Generate unique authentication token for this task
+    task_token = generate_streaming_task_token(stream_task_id)
+    store_streaming_task_token(stream_task_id, task_token)
+    
     # Add streaming server details to the model_params section for the vLLM function
     data["model_params"]["streaming_server_host"] = stream_server_host
     data["model_params"]["streaming_server_port"] = stream_server_port
     data["model_params"]["streaming_server_protocol"] = stream_server_protocol
     data["model_params"]["stream_task_id"] = stream_task_id
+    data["model_params"]["stream_task_token"] = task_token  # Per-task authentication token
     
     return data
 
@@ -1258,27 +1622,30 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         log.error(f"Error updating streaming log entry {log_id}: {e}")
 
 def cleanup_streaming_data(task_id: str):
-    """Clean up streaming data from Redis/cache after processing"""
+    """
+    Clean up streaming data after processing.
+    Uses Django cache for simple keys, Redis client for list data.
+    
+    Args:
+        task_id: Unique streaming task identifier
+    """
     try:
+        # Clean up simple keys using Django cache
+        simple_keys = [
+            f"stream:status:{task_id}",
+            f"stream:error:{task_id}",
+            f"stream:token:{task_id}"
+        ]
+        for key in simple_keys:
+            cache.delete(key)
+        
+        # Clean up list data (need Redis client for Redis LIST type)
         redis_client = get_redis_client()
         if redis_client:
-            # Clean up all streaming-related keys
-            keys_to_delete = [
-                f"stream:data:{task_id}",
-                f"stream:status:{task_id}",
-                f"stream:error:{task_id}"
-            ]
-            for key in keys_to_delete:
-                redis_client.delete(key)
+            redis_client.delete(f"stream:data:{task_id}")
         else:
-            # Fallback cleanup for Django cache
-            cache_keys = [
-                f"stream_data_{task_id}",
-                f"stream_status_{task_id}",
-                f"stream_error_{task_id}"
-            ]
-            for key in cache_keys:
-                cache.delete(key)
+            # Fallback for non-Redis list storage
+            cache.delete(f"stream_data_{task_id}")
         
         log.info(f"Cleaned up streaming data for task {task_id}")
     except Exception as e:
