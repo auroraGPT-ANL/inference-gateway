@@ -23,19 +23,19 @@ class OpenAIEmbeddingsPydantic(BaseModelExtraForbid):
 
     # Extra validations
     @model_validator(mode='after')
-    def extra_validations(cls, values):
+    def extra_validations(self):
 
         # Check length of input arrays
         min_length = 1
         max_lentgh = 2048
         error_message = "Length of all 'input' arrays must be between 1 and 2048."
-        if isinstance(values.input, list):
-            if len(values.input) > max_lentgh or len(values.input) < min_length:
+        if isinstance(self.input, list):
+            if len(self.input) > max_lentgh or len(self.input) < min_length:
                 raise ValueError(error_message)
-            for item in values.input:
+            for item in self.input:
                 if isinstance(item, list):
                     if len(item) > max_lentgh or len(item) < min_length:
                         raise ValueError(error_message)
 
-        # Return values if nothing wrong happened in the valudation step
-        return values
+        # Return self if nothing wrong happened in the valudation step
+        return self

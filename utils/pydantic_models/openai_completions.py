@@ -34,13 +34,13 @@ class OpenAICompletionsPydantic(BaseModelExtraForbid):
 
     # Extra validations
     @model_validator(mode='after')
-    def extra_validations(cls, values):
+    def extra_validations(self):
             
         # Validate logit_bias bias values
-        if isinstance(values.logit_bias, dict):
-            for bias in values.logit_bias.values():
+        if isinstance(self.logit_bias, dict):
+            for bias in self.logit_bias.values():
                 if bias < -100 or bias > 100:
                     raise ValueError("'logit_bias' bias values must be from -100 to 100.")
 
-        # Return values if nothing wrong happened in the valudation step
-        return values
+        # Return self if nothing wrong happened in the valudation step
+        return self
