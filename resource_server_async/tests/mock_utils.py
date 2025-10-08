@@ -202,8 +202,13 @@ def check_session_info(introspection, user_groups):
 
 # Mock handle_streaming_inference function
 async def handle_streaming_inference(gce, endpoint, data, resources_ready, request):
+    """Mock streaming response that returns JSON-encoded mock response for tests"""
+    import json
+    # For tests, just return the same mock response as non-streaming
+    # wrapped in a StreamingHttpResponse with JSON content
+    mock_response_json = json.dumps(MOCK_RESPONSE).encode('utf-8')
     return StreamingHttpResponse(
-        streaming_content=[b'chunk1', b'chunk2', b'chunk3'],
+        streaming_content=[mock_response_json],
         content_type='text/event-stream'
     )
 

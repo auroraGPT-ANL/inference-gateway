@@ -251,12 +251,15 @@ class ToolFunction(BaseModelExtraForbid):
 
     # Extra validations
     @model_validator(mode='after')
-    def extra_validations(cls, values):
+    def extra_validations(self):
 
         # Check if name includes weird characters
-        test_data = values.name.replace("-","").replace("_","")
+        test_data = self.name.replace("-","").replace("_","")
         if not test_data.isalnum():
             raise ValueError("'Tolls-function-name' must Must be a-z, A-Z, 0-9, or contain underscores and dashes.")
+        
+        # Return self if nothing wrong happened in the validation step
+        return self
 
 # Tool
 class Tool(BaseModelExtraForbid):
