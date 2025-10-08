@@ -856,7 +856,20 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
             last_chunk_index = 0
             
             while time.time() - start_time < max_wait_time:
-                # Check for error status first (in case error occurs before any chunks)
+                # Get streaming data from Redis with fast polling - CHECK CHUNKS FIRST
+                chunks = get_streaming_data(stream_task_id)
+                if chunks:
+                    # Send all new chunks at once
+                    for i in range(last_chunk_index, len(chunks)):
+                        chunk = chunks[i]
+                        # Only send actual vLLM content chunks (skip our custom control messages)
+                        if chunk.startswith('data: '):
+                            # Send the vLLM chunk as-is
+                            yield f"{chunk}\n\n"
+                        
+                        last_chunk_index = i + 1
+                
+                # Check for error status AFTER sending any available chunks
                 status = get_streaming_status(stream_task_id)
                 if status == "error":
                     # Get the error message and send it in OpenAI streaming format
@@ -872,19 +885,6 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                     # Send the final [DONE] message from vLLM
                     yield "data: [DONE]\n\n"
                     break
-                
-                # Get streaming data from Redis with fast polling
-                chunks = get_streaming_data(stream_task_id)
-                if chunks:
-                    # Send all new chunks at once
-                    for i in range(last_chunk_index, len(chunks)):
-                        chunk = chunks[i]
-                        # Only send actual vLLM content chunks (skip our custom control messages)
-                        if chunk.startswith('data: '):
-                            # Send the vLLM chunk as-is
-                            yield f"{chunk}\n\n"
-                        
-                        last_chunk_index = i + 1
                 
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)
