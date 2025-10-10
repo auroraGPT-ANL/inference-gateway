@@ -750,10 +750,16 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         # If a user already triggered the model (model currently loading) ...
         cache_key = f"endpoint_triggered:{endpoint_slug}"
         if is_cached(cache_key, create_empty=False):
+
+            # Get model name
+            try:
+                model = data["model_params"]["model"]
+            except:
+                model = "Unknown"
             
             # Send an error to avoid overloading the Globus Compute endpoint
             # This also reduces memory footprint on the API application
-            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {data["model_params"]["model"]}. "
+            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {model}. "
             error_message += "Please try again later."
             return await get_response(error_message, 503, request)
 
