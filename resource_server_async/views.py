@@ -48,6 +48,7 @@ from resource_server_async.utils import (
     # Cache functions
     get_endpoint_from_cache,
     cache_endpoint,
+    is_cached,
     remove_endpoint_from_cache,
     # Response functions
     get_response,
@@ -769,7 +770,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     
     if stream:
         # Handle streaming request
-        return await handle_streaming_inference(gce, endpoint, data, resources_ready, request)
+        return await handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=endpoint_slug)
     else:
         # Handle non-streaming request (original logic)
         # Submit task and wait for result
@@ -787,7 +788,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(result, 200, request)
     
 
-async def handle_streaming_inference(gce, endpoint, data, resources_ready, request):
+async def handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=None):
     """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
     
     # Generate unique task ID for streaming
@@ -823,6 +824,15 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         
     except Exception as e:
         return await get_response(f"Error: Could not submit streaming task: {e}", 500, request)
+    
+    # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
+    if endpoint_slug:
+        cache_key = f"endpoint_triggered:{endpoint_slug}"
+        ttl = 600 # 10 minutes
+        try:
+            cache.set(cache_key, True, ttl)
+        except Exception as e:
+            log.warning(f"Failed to cache endpoint_triggered:{endpoint_slug}: {e}")
     
     # Create initial log entry and get the ID for later updating
     request.request_log_data.result = "streaming_response_in_progress"
