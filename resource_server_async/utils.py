@@ -289,6 +289,7 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     try:
 
         # For each running endpoint ...
+        result = json.loads(result)
         for i, running in enumerate(result["running"]):
 
             # If the model is in a "running" state (not "starting")
@@ -309,12 +310,15 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
                 if int(endpoint_status["details"].get("managers", 0)) == 0:
                     result["running"][i]["Model Status"] = "disconnected"
 
+        # Turn the result back to a string
+        result = json.dumps(result)
+
     except Exception as e:
-        pass
+        log.warning(f"Failed to refine qstat model status: {e}")
 
     # Cache the result for 60 seconds
     try:
-        cache.set(cache_key, result, 60)
+        cache.set(cache_key, [result, task_uuid, "", 200], 60)
     except Exception as e:
         log.warning(f"Failed to cache endpoint status: {e}")
 
