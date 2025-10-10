@@ -1047,8 +1047,19 @@ def remove_endpoint_from_cache(endpoint_slug):
 async def get_response(content, code, request):
     """Create database entries and prepare the HTTP response for the user."""
 
+    # If this is an error, define the cache key to see whether the error occured recently (during high traffic)
+    skip_database_operation = False
+    if code != 200:
+        try: 
+            cache_key = request.auth.username + str(content) + str(code)
+            skip_database_operation = is_cached(cache_key, create_empty=True)
+        except:
+            skip_database_operation = False
+
     # Try to create database entries
-    try:
+    # Skip if this is a repeating cached error during high traffic
+    if not skip_database_operation:
+      try:
 
         # First, create AccessLog database entry (should always have one)
         if hasattr(request, "access_log_data"):
@@ -1080,8 +1091,8 @@ async def get_response(content, code, request):
             except Exception as e:
                 log.error(f"Error creating BatchMetrics: {e}")
 
-    # Error message if something went wrong while creating database entries
-    except Exception as e:
+      # Error message if something went wrong while creating database entries
+      except Exception as e:
         return HttpResponse(json.dumps(f"Error: Could not create database entries: {e}"), status=400)
 
     # Prepare and return the HTTP response

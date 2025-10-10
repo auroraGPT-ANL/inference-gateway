@@ -2,6 +2,7 @@ from ninja import Query
 from ninja.errors import HttpError
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.core.cache import cache
 import uuid
 import json
 import asyncio
@@ -56,6 +57,7 @@ from resource_server_async.utils import (
     # Cache functions
     get_endpoint_from_cache,
     cache_endpoint,
+    is_cached,
     remove_endpoint_from_cache,
     # Response functions
     get_response,
@@ -778,6 +780,25 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     if not endpoint_status["status"] == "online":
         return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, request)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
+    
+    # If the compute resource is not ready (if node not acquired or if worker_init phase not completed)
+    if not resources_ready:
+
+        # If a user already triggered the model (model currently loading) ...
+        cache_key = f"endpoint_triggered:{endpoint_slug}"
+        if is_cached(cache_key, create_empty=False):
+
+            # Get model name
+            try:
+                model = data["model_params"]["model"]
+            except:
+                model = "Unknown"
+            
+            # Send an error to avoid overloading the Globus Compute endpoint
+            # This also reduces memory footprint on the API application
+            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {model}. "
+            error_message += "Please try again later."
+            return await get_response(error_message, 503, request)
 
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
@@ -792,12 +813,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     
     if stream:
         # Handle streaming request
-        return await handle_streaming_inference(gce, endpoint, data, resources_ready, request)
+        return await handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=endpoint_slug)
     else:
         # Handle non-streaming request (original logic)
         # Submit task and wait for result
         result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
+            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data, endpoint_slug=endpoint_slug
         )
         request.request_log_data.timestamp_compute_response = timezone.now()
         if len(error_message) > 0:
@@ -810,7 +831,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await get_response(result, 200, request)
     
 
-async def handle_streaming_inference(gce, endpoint, data, resources_ready, request):
+async def handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=None):
     """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
     
     # Generate unique task ID for streaming
@@ -846,6 +867,15 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         
     except Exception as e:
         return await get_response(f"Error: Could not submit streaming task: {e}", 500, request)
+    
+    # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
+    if endpoint_slug:
+        cache_key = f"endpoint_triggered:{endpoint_slug}"
+        ttl = 600 # 10 minutes
+        try:
+            cache.set(cache_key, True, ttl)
+        except Exception as e:
+            log.warning(f"Failed to cache endpoint_triggered:{endpoint_slug}: {e}")
     
     # Create initial log entry and get the ID for later updating
     request.request_log_data.result = "streaming_response_in_progress"
