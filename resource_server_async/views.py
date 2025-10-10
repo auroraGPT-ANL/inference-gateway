@@ -2,6 +2,7 @@ from ninja import Query
 from ninja.errors import HttpError
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.core.cache import cache
 import uuid
 import json
 import asyncio
@@ -741,6 +742,20 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     if not endpoint_status["status"] == "online":
         return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, request)
     resources_ready = int(endpoint_status["details"]["managers"]) > 0
+    
+    # If the compute resource is not ready (if node not acquired or if worker_init phase not completed)
+    if not resources_ready:
+
+        # If a user already triggered the model (model currently loading) ...
+        cache_key = f"endpoint_triggered:{endpoint_slug}"
+        cached_result = cache.get(cache_key)
+        if cached_result is not None:
+            
+            # Send an error to avoid overloading the Globus Compute endpoint
+            # This also reduces memory footprint on the API application
+            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {data["model_params"]["model"]}. "
+            error_message += "Please try again later."
+            return await get_response(error_message, 503, request)
 
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
@@ -760,7 +775,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         # Handle non-streaming request (original logic)
         # Submit task and wait for result
         result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data
+            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data, endpoint_slug=endpoint_slug
         )
         request.request_log_data.timestamp_compute_response = timezone.now()
         if len(error_message) > 0:
