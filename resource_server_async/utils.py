@@ -693,6 +693,7 @@ async def get_response(content, code, request):
     """Create database entries and prepare the HTTP response for the user."""
 
     # If this is an error, define the cache key to see whether the error occured recently (during high traffic)
+    skip_database_operation = False
     if code != 200:
         try: 
             cache_key = request.auth.username + str(content) + str(code)
