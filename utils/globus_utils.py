@@ -129,7 +129,7 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
 
 
 # Submit function and wait for result
-async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*28):
+async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*5, endpoint_slug=None):
     """
     Assign endpoint UUID to the executor, submit task to the endpoint,
     wait for the result asynchronously, and return the result or the
@@ -155,6 +155,15 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
             executor_cache.clear()
             time.sleep(2)
         return None, None, f"Error: Could not start the Globus Compute task: {e}", 500
+    
+    # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
+    if endpoint_slug:
+        cache_key = f"endpoint_triggered:{endpoint_slug}"
+        ttl = 600 # 10 minutes
+        try:
+            cache.set(cache_key, True, ttl)
+        except Exception as e:
+            log.warning(f"Failed to cache endpoint_triggered:{endpoint_slug}: {e}")
 
     # Wait for the Globus Compute result using asyncio and coroutine
     try:
