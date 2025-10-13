@@ -11,6 +11,7 @@ from enum import Enum
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.text import slugify
 from django.conf import settings
 from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
@@ -27,9 +28,10 @@ from utils.globus_utils import (
     get_endpoint_status,
     get_batch_status,
     get_compute_client_from_globus_app,
-    get_compute_executor
+    get_compute_executor,
+    get_endpoint_status
 )
-from resource_server.models import ModelStatus
+from resource_server.models import ModelStatus, Endpoint
 from resource_server_async.models import (AccessLog, RequestLog, BatchLog, RequestMetrics, BatchMetrics)
 
 log = logging.getLogger(__name__) # Add logger
@@ -223,7 +225,6 @@ def extract_group_uuids(globus_groups):
 
 
 # Get qstat details
-@asynccached(TTLCache(maxsize=1024, ttl=30))
 async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     """
     Collect details on all jobs running/submitted on a given cluster.
@@ -232,29 +233,16 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     Returns result, task_uuid, error_message, error_code
     """
 
-    # Try to get cached qstat details
-    try:
-        latest_status = await sync_to_async(ModelStatus.objects.get)(cluster=cluster)
-    except ModelStatus.DoesNotExist:
-        latest_status = None
+    # Redis cache key
+    cache_key = f"qstat_details:{cluster}"
     
-    # If there is cached information ...
-    if latest_status:
-
-        # If the last entry was written not too long ago (here 2 min where the cron job is 1 min) ...
-        # This ensures that user get an up-to-date response if the cron job crashed
-        # TODO: Make this 120 sec a global parameters
-        try:
-            delta_seconds = (timezone.now() - latest_status.timestamp).total_seconds()
-            if delta_seconds < 120:
-
-                # Return cached information if there is a valid qstat response
-                if len(latest_status.result) > 0:
-                    return latest_status.result, "", "", 200
-                
-        # Continue as normal if this fails so that user can have an up-to-date response
-        except Exception as e:
-            return None, None, f"Error: Could not recover qstat details from database: {e}", 500
+    # Try to get qstat details from Redis
+    try:
+        cached_result = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+    except Exception as e:
+        log.warning(f"Redis cache error for endpoint status: {e}")
 
     # Get Globus Compute client and executor
     # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
@@ -297,6 +285,43 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     )
     if len(error_message) > 0:
         return None, task_uuid, error_message, error_code
+    
+    # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
+    try:
+
+        # For each running endpoint ...
+        result = json.loads(result)
+        for i, running in enumerate(result["running"]):
+
+            # If the model is in a "running" state (not "starting")
+            if running["Model Status"] == "running":
+
+                # Get compute endpoint ID from database
+                running_framework = running["Framework"]
+                running_model = running["Models"].split(",")[0]
+                running_cluster = running["Cluster"]
+                endpoint_slug = slugify(" ".join([running_cluster, running_framework, running_model]))
+                endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+                endpoint_uuid = endpoint.endpoint_uuid
+
+                # Turn the model to "disconnected" if managers are lost
+                endpoint_status, error_message = get_endpoint_status(
+                    endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
+                )
+                if int(endpoint_status["details"].get("managers", 0)) == 0:
+                    result["running"][i]["Model Status"] = "disconnected"
+
+        # Turn the result back to a string
+        result = json.dumps(result)
+
+    except Exception as e:
+        log.warning(f"Failed to refine qstat model status: {e}")
+
+    # Cache the result for 60 seconds
+    try:
+        cache.set(cache_key, [result, task_uuid, "", 200], 60)
+    except Exception as e:
+        log.warning(f"Failed to cache endpoint status: {e}")
 
     # Return qstat result without error_message
     return result, task_uuid, "", 200
