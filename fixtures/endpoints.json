@@ -703,8 +703,7 @@
             "endpoint_uuid": "f6ea43cd-7c3e-49ba-9ffd-b1103f9e005c",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     },
     {
@@ -719,8 +718,38 @@
             "endpoint_uuid": "f6ea43cd-7c3e-49ba-9ffd-b1103f9e005c",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 49,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-zai-orgglm-45-air",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "zai-org/GLM-4.5-Air",
+            "api_port": 8000,
+            "endpoint_uuid": "348021b5-281b-42f2-924c-099bcb9a0821",
+            "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 50,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-qwenqwen3-embedding-8b",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "Qwen/Qwen3-Embedding-8B",
+            "api_port": 8002,
+            "endpoint_uuid": "348021b5-281b-42f2-924c-099bcb9a0821",
+            "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+            "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
         }
     }
+
 ]

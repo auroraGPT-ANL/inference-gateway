@@ -40,6 +40,8 @@ from resource_server_async.utils import (
     store_streaming_data,
     set_streaming_status,
     set_streaming_error,
+    set_streaming_metadata,
+    get_streaming_metadata,
     validate_streaming_request_security,
     get_streaming_data_and_status_batch,
     process_streaming_completion_async,
@@ -896,35 +898,62 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
             first_data_timeout = 30  # 30 seconds to receive first chunk or status
             first_data_received = False
             last_chunk_time = None  # Track when we last received a chunk
-            no_new_data_timeout = 5  # 5 seconds with no new chunks = completion (allows time for done signal)
+            no_new_data_timeout = 5  # 5 seconds with no new chunks = assume completion (fallback if /done not called)
             
             while time.time() - start_time < max_wait_time:
                 # P0 OPTIMIZATION: Get status, chunks, and error in a single Redis round-trip
                 chunks, status, error_message = get_streaming_data_and_status_batch(stream_task_id)
+                
                 # Check if we've received any data (chunks or status)
                 if (chunks and len(chunks) > 0) or status:
                     first_data_received = True
                 
-                # EARLY TIMEOUT: If no data after first_data_timeout seconds, fail fast
-                # This catches cases where remote function can't post data due to auth/network issues
+                # PRIORITY 1: Fast auth failure check (immediate break)
+                auth_failure = get_streaming_metadata(stream_task_id, "auth_failure")
+                if auth_failure:
+                    error_msg = {
+                        "object": "error",
+                        "message": "Streaming authentication failed: Remote compute endpoint could not authenticate with streaming API. Check INTERNAL_STREAMING_SECRET configuration.",
+                        "type": "AuthenticationError",
+                        "param": None,
+                        "code": 401
+                    }
+                    log.error(f"Streaming task {stream_task_id} - authentication failure detected")
+                    set_streaming_status(stream_task_id, "error")
+                    set_streaming_error(stream_task_id, error_msg.get("message"))
+                    yield f"data: {json.dumps(error_msg)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 2: Early timeout check (no data after 30s)
                 elapsed_time = time.time() - start_time
                 if not first_data_received and elapsed_time > first_data_timeout:
                     error_msg = {
                         "object": "error",
-                        "message": f"Streaming task timed out: No data received from compute endpoint after {first_data_timeout} seconds. This may indicate authentication, network, or endpoint configuration issues.",
+                        "message": f"Streaming task timed out: No data received from compute endpoint after {first_data_timeout} seconds. This may indicate network or endpoint configuration issues.",
                         "type": "StreamingTimeoutError",
                         "param": None,
                         "code": 504
                     }
                     log.error(f"Streaming task {stream_task_id} timed out - no data received after {first_data_timeout}s")
-                    # Set error status for cleanup and monitoring
                     set_streaming_status(stream_task_id, "error")
-                    set_streaming_error(stream_task_id, f"No data received after {first_data_timeout} seconds")
+                    set_streaming_error(stream_task_id, error_msg.get("message"))
                     yield f"data: {json.dumps(error_msg)}\n\n"
                     yield "data: [DONE]\n\n"
                     break
                 
-                # Process new chunks if available
+                # PRIORITY 3: Handle error status (send error then break)
+                if status == "error":
+                    if error_message:
+                        # Format and send the error in OpenAI streaming format
+                        formatted_error = format_streaming_error_for_openai(error_message)
+                        yield formatted_error
+                    # Send [DONE] after error to properly terminate the stream
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 4: Process ALL pending chunks FIRST (drain the queue)
+                # This ensures we don't miss chunks that arrived just before /done
                 if chunks and len(chunks) > last_chunk_index:
                     # Send all new chunks at once
                     for i in range(last_chunk_index, len(chunks)):
@@ -939,27 +968,29 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                     # Update last chunk time
                     last_chunk_time = time.time()
                 
-                # COMPLETION DETECTION: If we've received chunks but no new data for a while, assume completion
+                # PRIORITY 5: Check completion status AFTER processing chunks
+                # This prevents race condition where /done arrives before final chunks
+                if status == "completed":
+                    # One final check for any remaining chunks that arrived during processing
+                    final_chunks, _, _ = get_streaming_data_and_status_batch(stream_task_id)
+                    if final_chunks and len(final_chunks) > last_chunk_index:
+                        for i in range(last_chunk_index, len(final_chunks)):
+                            chunk = final_chunks[i]
+                            if chunk.startswith('data: '):
+                                yield f"{chunk}\n\n"
+                    
+                    log.info(f"Streaming task {stream_task_id} - status is completed, sending [DONE]")
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 6 (FALLBACK): No new data timeout
                 # This handles cases where remote function sent all data but didn't call /done endpoint
+                # Only check this if we haven't seen a "completed" status
                 if last_chunk_time is not None and (time.time() - last_chunk_time) > no_new_data_timeout:
-                    log.info(f"Streaming task {stream_task_id} - no new chunks for {no_new_data_timeout}s, assuming completion (done signal may have been delayed)")
+                    log.warning(f"Streaming task {stream_task_id} - no new chunks for {no_new_data_timeout}s, assuming completion (done signal was not received)")
                     yield "data: [DONE]\n\n"
                     # Set completed status for cleanup
                     set_streaming_status(stream_task_id, "completed")
-                    break
-                
-                # Check for error status first (in case error occurs before any chunks)
-                if status == "error":
-                    if error_message:
-                        # Format and send the error in OpenAI streaming format
-                        formatted_error = format_streaming_error_for_openai(error_message)
-                        yield formatted_error
-                    # Send [DONE] after error to properly terminate the stream
-                    yield "data: [DONE]\n\n"
-                    break
-                elif status == "completed":
-                    # Send the final [DONE] message from vLLM
-                    yield "data: [DONE]\n\n"
                     break
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)
@@ -996,6 +1027,15 @@ async def receive_streaming_data(request):
     # Validate all security requirements
     is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=150000)
     if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(request.body)
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
     
     try:
@@ -1036,6 +1076,15 @@ async def receive_streaming_error(request):
     # Validate all security requirements
     is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
     if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(request.body)
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
     
     try:
@@ -1070,6 +1119,15 @@ async def receive_streaming_done(request):
     # Validate all security requirements
     is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
     if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(request.body)
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
     
     try:

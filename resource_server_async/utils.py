@@ -667,12 +667,32 @@ def get_streaming_data(task_id: str):
 # ========================================
 
 def set_streaming_metadata(task_id: str, metadata_type: str, value: str, ttl: int = 3600):
-    """Set streaming metadata"""
-    _cache_set(task_id, metadata_type, value, ttl)
+    """Set streaming metadata - use direct Redis for consistency with batch operations"""
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = _get_cache_key(metadata_type, task_id)
+            redis_client.setex(key, ttl, value)
+        else:
+            # Fallback to Django cache
+            _cache_set(task_id, metadata_type, value, ttl)
+    except Exception as e:
+        log.error(f"Error setting streaming {metadata_type} for task {task_id}: {e}")
 
 def get_streaming_metadata(task_id: str, metadata_type: str):
-    """Get streaming metadata"""
-    return _cache_get(task_id, metadata_type)
+    """Get streaming metadata - use direct Redis for consistency with batch operations"""
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = _get_cache_key(metadata_type, task_id)
+            value = redis_client.get(key)
+            return value.decode('utf-8') if isinstance(value, bytes) else value
+        else:
+            # Fallback to Django cache
+            return _cache_get(task_id, metadata_type)
+    except Exception as e:
+        log.error(f"Error getting streaming {metadata_type} for task {task_id}: {e}")
+        return None
 def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
     """Set streaming status"""
     set_streaming_metadata(task_id, "status", status, ttl)
@@ -695,16 +715,31 @@ def get_streaming_error(task_id: str):
 # ========================================
 
 def generate_and_store_streaming_token(task_id: str, ttl: int = 600) -> str:
-    """Generate and store authentication token (256 bits entropy)"""
+    """Generate and store authentication token (256 bits entropy) - use direct Redis"""
     token = secrets.token_urlsafe(32)  # 32 bytes = 256 bits
-    _cache_set(task_id, "token", token, ttl)
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            key = _get_cache_key("token", task_id)
+            redis_client.setex(key, ttl, token)
+        else:
+            _cache_set(task_id, "token", token, ttl)
+    except Exception as e:
+        log.error(f"Error storing token for task {task_id}: {e}")
     log.info(f"Generated and stored streaming token for task {task_id}")
     return token
 
 def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
-    """Validate task token (constant-time comparison)"""
+    """Validate task token (constant-time comparison) - use direct Redis"""
     try:
-        stored_token = _cache_get(task_id, "token")
+        redis_client = get_redis_client()
+        if redis_client:
+            key = _get_cache_key("token", task_id)
+            stored_token = redis_client.get(key)
+            stored_token = stored_token.decode('utf-8') if isinstance(stored_token, bytes) else stored_token
+        else:
+            stored_token = _cache_get(task_id, "token")
+            
         if stored_token:
             is_valid = hmac.compare_digest(stored_token, provided_token)
             if not is_valid:
@@ -1541,6 +1576,10 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
         
         # Update the database log entry with final data
         await update_streaming_log_async(log_id, simple_metrics, complete_response, stream_task_id)
+        
+        # Wait a moment before cleanup to ensure SSE generator reads the "completed" status
+        # The SSE generator polls every 25ms, so 500ms gives plenty of time
+        await asyncio.sleep(0.5)
         
         # Clean up streaming data from cache
         cleanup_streaming_data(stream_task_id)
