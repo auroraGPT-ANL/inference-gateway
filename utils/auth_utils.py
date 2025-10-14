@@ -82,7 +82,7 @@ def introspect_token(bearer_token: str):
         try:
             introspection_exp = result[0]["exp"]
             seconds_until_expiration = introspection_exp - int(time.time())
-        except:
+        except Exception as e:
             log.warning(f"Failed to extract introspection result[0]['exp']: {e}")
             seconds_until_expiration = 0
 
