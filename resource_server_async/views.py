@@ -770,7 +770,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
             
             # Send an error to avoid overloading the Globus Compute endpoint
             # This also reduces memory footprint on the API application
-            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {model}. "
+            error_message = f"Error: Endpoint {endpoint_slug} online but not ready to receive tasks. "
             error_message += "Please try again later."
             return await get_response(error_message, 503, request)
 
