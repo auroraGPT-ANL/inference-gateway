@@ -1593,3 +1593,159 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             await update_streaming_log_async(log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id)
         except:
             pass
+
+
+# ============================================================================
+# Metis Cluster Utilities
+# ============================================================================
+
+async def handle_metis_streaming_inference(
+    request, 
+    model_info: dict, 
+    endpoint_id: str, 
+    api_request_data: dict, 
+    requested_model: str,
+    access_log
+):
+    """
+    Handle streaming inference for Metis cluster.
+    
+    Args:
+        request: Django request object with request_log_data
+        model_info: Model information from Metis status
+        endpoint_id: Metis endpoint UUID for token lookup
+        api_request_data: Request payload in OpenAI format
+        requested_model: Name of the requested model
+        access_log: AccessLog database object
+    
+    Returns:
+        StreamingHttpResponse with SSE content
+    """
+    from django.http import StreamingHttpResponse
+    import utils.metis_utils as metis_utils
+    
+    # Create initial log entry
+    try:
+        request.request_log_data.access_log = access_log
+        request.request_log_data.result = "streaming_response_in_progress"
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        request.request_log_data.task_uuid = None  # Metis doesn't use task UUIDs
+        
+        db_log = RequestLog(**request.request_log_data.model_dump())
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+        log_id = db_log.id
+        log.info(f"Created Metis streaming log {log_id} for {requested_model}")
+    except Exception as e:
+        log.error(f"Error creating Metis streaming log: {e}")
+        log_id = None
+    
+    # Shared state for tracking streaming (optimized - minimal memory)
+    streaming_state = {
+        'chunks': [],  # Limited to 100 chunks
+        'total_chunks': 0,
+        'completed': False,
+        'error': None,
+        'start_time': time.time()
+    }
+    
+    # SSE generator
+    async def metis_sse_generator():
+        """Stream SSE chunks from Metis API"""
+        try:
+            async for chunk in metis_utils.stream_metis_api(model_info, endpoint_id, api_request_data):
+                if chunk:
+                    streaming_state['total_chunks'] += 1
+                    yield chunk  # Pass through SSE format
+                    
+                    # Collect limited chunks for logging (optimize memory)
+                    if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
+                        if len(streaming_state['chunks']) < 100:
+                            try:
+                                streaming_state['chunks'].append(chunk[6:].strip())
+                            except:
+                                pass
+            
+            streaming_state['completed'] = True
+                    
+        except Exception as e:
+            error_str = str(e)
+            log.error(f"Metis streaming error: {error_str}")
+            streaming_state['error'] = error_str
+            streaming_state['completed'] = True
+            
+            # Send error as OpenAI streaming chunk format (compatible with OpenAI clients)
+            error_chunk = {
+                "id": f"chatcmpl-metis-error",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": requested_model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "content": f"\n\n[ERROR] {error_str}"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }
+            yield f"data: {json.dumps(error_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+    
+    # Start background task to update log
+    if log_id:
+        asyncio.create_task(update_metis_streaming_log(
+            log_id, streaming_state, requested_model
+        ))
+    
+    # Create streaming response
+    response = StreamingHttpResponse(
+        streaming_content=metis_sse_generator(),
+        content_type='text/event-stream'
+    )
+    
+    # Set SSE headers
+    for key, value in create_streaming_response_headers().items():
+        response[key] = value
+    
+    return response
+
+
+async def update_metis_streaming_log(log_id, streaming_state: dict, requested_model: str):
+    """
+    Background task to update RequestLog after Metis streaming completes.
+    
+    Optimized to:
+    - Wait efficiently for completion
+    - Update database once
+    - Handle errors gracefully
+    """
+    try:
+        # Wait for completion (efficient polling with timeout)
+        max_wait = 600  # 10 minutes
+        waited = 0
+        poll_interval = 0.5  # 500ms
+        
+        while not streaming_state['completed'] and waited < max_wait:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+        
+        # Get metrics
+        duration = time.time() - streaming_state['start_time']
+        total_chunks = streaming_state['total_chunks']
+        
+        # Update database (single query)
+        db_log = await sync_to_async(RequestLog.objects.get)(id=log_id)
+        
+        if streaming_state['error']:
+            db_log.result = f"error: {streaming_state['error']}"
+            log.error(f"Metis streaming failed for {requested_model}: {streaming_state['error']}")
+        else:
+            # Store limited chunks or completion marker
+            db_log.result = "\n".join(streaming_state['chunks']) if streaming_state['chunks'] else "streaming_completed"
+            log.info(f"Metis streaming completed for {requested_model}: {total_chunks} chunks in {duration:.2f}s")
+        
+        db_log.timestamp_compute_response = timezone.now()
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+        
+    except Exception as e:
+        log.error(f"Error in update_metis_streaming_log: {e}")
