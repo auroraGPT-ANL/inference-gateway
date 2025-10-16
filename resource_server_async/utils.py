@@ -169,13 +169,32 @@ def validate_batch_body(request):
     return validate_body(request, BatchPydantic)
 
 
+# Helper function to safely decode request body
+def decode_request_body(request):
+    """
+    Safely decode request.body to string, handling both bytes and str.
+    
+    Django Ninja can return either bytes or str depending on context.
+    
+    Args:
+        request: Django request object
+    
+    Returns:
+        str: Decoded body as string
+    """
+    body = request.body
+    if isinstance(body, bytes):
+        return body.decode("utf-8")
+    return body
+
+
 # Validate body
 def validate_body(request, pydantic_class):
     """Validate body data from incoming user requests against a given pydantic model."""
                 
     # Decode request body into a dictionary
     try:
-        params = json.loads(request.body.decode("utf-8"))
+        params = json.loads(decode_request_body(request))
     except Exception as e:
         return {"error": f"Error: Request body cannot be decoded: {e}"}
 
@@ -836,7 +855,7 @@ def validate_streaming_request_security(request, max_content_length: int = 15000
     
     # Parse request body to get task_id for token validation
     try:
-        data = json.loads(request.body)
+        data = json.loads(decode_request_body(request))
         task_id = data.get('task_id')
         
         if not task_id:

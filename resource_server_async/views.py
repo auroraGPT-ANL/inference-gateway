@@ -37,6 +37,7 @@ from resource_server_async.utils import (
     update_batch_status_result,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
+    decode_request_body,
     # Streaming functions
     store_streaming_data,
     set_streaming_status,
@@ -1181,7 +1182,7 @@ async def receive_streaming_data(request):
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
-            data = json.loads(request.body)
+            data = json.loads(decode_request_body(request))
             task_id = data.get('task_id')
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
@@ -1191,7 +1192,7 @@ async def receive_streaming_data(request):
         return JsonResponse(error_response, status=status_code)
     
     try:
-        data = json.loads(request.body)
+        data = json.loads(decode_request_body(request))
         task_id = data.get('task_id')
         chunk_data = data.get('data')
         
@@ -1230,7 +1231,7 @@ async def receive_streaming_error(request):
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
-            data = json.loads(request.body)
+            data = json.loads(decode_request_body(request))
             task_id = data.get('task_id')
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
@@ -1240,7 +1241,7 @@ async def receive_streaming_error(request):
         return JsonResponse(error_response, status=status_code)
     
     try:
-        data = json.loads(request.body)
+        data = json.loads(decode_request_body(request))
         task_id = data.get('task_id')
         error = data.get('error')
         
@@ -1273,7 +1274,7 @@ async def receive_streaming_done(request):
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
-            data = json.loads(request.body)
+            data = json.loads(decode_request_body(request))
             task_id = data.get('task_id')
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
@@ -1283,7 +1284,7 @@ async def receive_streaming_done(request):
         return JsonResponse(error_response, status=status_code)
     
     try:
-        data = json.loads(request.body)
+        data = json.loads(decode_request_body(request))
         task_id = data.get('task_id')
         
         # Mark as completed with automatic cleanup
