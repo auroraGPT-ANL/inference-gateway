@@ -22,6 +22,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
 import utils.globus_utils as globus_utils
+import utils.metis_utils as metis_utils
 from utils.auth_utils import validate_access_token
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from resource_server_async.utils import (
@@ -56,7 +57,10 @@ from resource_server_async.utils import (
     prepare_streaming_task_data,
     create_streaming_response_headers,
     format_streaming_error_for_openai,
-    create_access_log
+    create_access_log,
+    # Metis utilities
+    handle_metis_streaming_inference,
+    update_metis_streaming_log
 )
 log.info("Utils functions loaded.")
 
@@ -125,6 +129,36 @@ async def get_list_endpoints(request):
     all_endpoints = {"clusters": {}}
     try:
 
+        # ===== ADD METIS CLUSTER MODELS =====
+        # Fetch Metis status and add Metis models to the list
+        metis_status, metis_error = await metis_utils.fetch_metis_status(use_cache=True)
+        if not metis_error and metis_status:
+            # Add Metis cluster entry
+            all_endpoints["clusters"]["metis"] = {
+                "base_url": "/resource_server/metis",
+                "frameworks": {
+                    "api": {
+                        "models": [],
+                        "endpoints": {
+                            "chat": "/api/v1/chat/completions/"
+                        }
+                    }
+                }
+            }
+            
+            # Extract expert models from Metis status
+            for model_key, model_info in metis_status.items():
+                if model_info.get("status") == "Live":
+                    experts = model_info.get("experts", [])
+                    for expert in experts:
+                        if isinstance(expert, str) and len(expert) > 0:
+                            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"].append(expert)
+            
+            # Sort Metis models alphabetically
+            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"] = \
+                sorted(all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"])
+        
+        # ===== ADD GLOBUS COMPUTE CLUSTER MODELS =====
         # For each database endpoint entry ...
         for endpoint in endpoint_list:
 
@@ -385,11 +419,25 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
 
+    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
     # Make sure the URL inputs point to an available endpoint 
-    error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
+    framework = "api" if cluster == "metis" else "vllm"
+    error_message = validate_url_inputs(cluster, framework=framework, openai_endpoint="chat/completions")
     if len(error_message):
         return await get_response(error_message, 400, request)
+
+        # ===== METIS CLUSTER HANDLING =====
+    if cluster == "metis":
+        # Metis uses a status API instead of qstat
+        metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
+        if error_msg:
+            return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
         
+        # Format Metis status to match the jobs endpoint format
+        formatted_result = metis_utils.format_metis_status_for_jobs(metis_status)
+        return await get_response(json.dumps(formatted_result), 200, request)
+
+
     # Collect (qstat) details on the jobs running/queued on the cluster
     result, task_uuid, error_message, error_code = await get_qstat_details(cluster, timeout=60)
     if len(error_message) > 0:
@@ -696,6 +744,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
 
+    # ===== METIS CLUSTER HANDLING =====
+    # Metis uses direct API calls instead of Globus Compute
+    if cluster == "metis":
+        return await handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework)
+    
+    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
     if endpoint is None:
@@ -1011,6 +1065,104 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         response[key] = value
     
     return response
+
+
+async def handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework):
+    """Handle inference requests to Metis cluster using direct API calls.
+    
+    Metis models are already deployed behind an API, so we:
+    1. Fetch model status from Metis status endpoint
+    2. Find matching model in 'experts' list
+    3. Make direct API call (no Globus Compute involved)
+    """
+    
+    # Get requested model name
+    requested_model = data["model_params"]["model"]
+    log.info(f"Metis inference request for model: {requested_model}")
+    
+    # Initialize the request log data for the database entry
+    # Set both timestamps initially to avoid null constraint violations
+    # timestamp_compute_response will be updated when we get actual response
+    current_time = timezone.now()
+    request.request_log_data = RequestLogPydantic(
+        id=str(uuid.uuid4()),
+        cluster=cluster,
+        framework=framework,
+        openai_endpoint=data["model_params"]["openai_endpoint"],
+        prompt=json.dumps(extract_prompt(data["model_params"])),
+        model=requested_model,
+        timestamp_compute_request=current_time,
+        timestamp_compute_response=current_time  # Initialize to avoid null errors
+    )
+    
+    # Fetch Metis status
+    metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
+    if error_msg:
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
+    
+    # Find matching model in Metis status (returns endpoint_id for API token lookup)
+    model_info, endpoint_id, error_msg = metis_utils.find_metis_model(metis_status, requested_model)
+    if error_msg:
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(error_msg, 404, request)
+    
+    # Check if the model is Live
+    if model_info.get("status") != "Live":
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(
+            f"Error: Model '{requested_model}' is not currently live on Metis. Status: {model_info.get('status')}",
+            503,
+            request
+        )
+    
+    # Use validated request data as-is (already in OpenAI format)
+    # Only update the stream parameter to match the request
+    api_request_data = {**data["model_params"]}
+    api_request_data["stream"] = stream
+    # Remove internal field that shouldn't be sent to Metis
+    api_request_data.pop("openai_endpoint", None)
+    api_request_data.pop("api_port", None)
+    
+    log.info(f"Making Metis API call for model {requested_model} (stream={stream}, endpoint={endpoint_id})")
+    
+    # Make the API call to Metis
+    if stream:
+        # Handle streaming request - create AccessLog first
+        request.access_log_data.status_code = 200
+        try:
+            access_log = await create_access_log(request.access_log_data, "", 200)
+        except Exception as e:
+            request.request_log_data.timestamp_compute_response = timezone.now()
+            return await get_response(f"Error: Could not create AccessLog entry: {e}", 500, request)
+        
+        return await handle_metis_streaming_inference(
+            request, model_info, endpoint_id, api_request_data, requested_model, access_log
+        )
+    else:
+        # Non-streaming request
+        result, status_code, error_msg = await metis_utils.call_metis_api(
+            model_info,
+            endpoint_id,
+            api_request_data,
+            stream=False
+        )
+        
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        
+        if error_msg:
+            return await get_response(error_msg, status_code, request)
+        
+        # Metis API returns results directly (no task UUID in this paradigm)
+        request.request_log_data.task_uuid = None
+        
+        # Return Metis API results
+        return await get_response(result, status_code, request)
+
+
 # Streaming server endpoints (integrated into Django)
 
 @router.post("/api/streaming/data/", auth=None)
