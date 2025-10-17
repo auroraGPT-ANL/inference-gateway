@@ -24,6 +24,7 @@ from resource_server_async.models import (
 )
 import re
 import logging
+import utils.metis_utils as metis_utils
 
 log = logging.getLogger(__name__)
 
@@ -313,7 +314,7 @@ def analytics_realtime_view(request):
 def get_realtime_metrics(request):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
-        # Check cache first (2 minute TTL for overall metrics)
+        # Check cache first
         cache_key = "dashboard:realtime_metrics"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -321,47 +322,45 @@ def get_realtime_metrics(request):
         
         from django.db import connection
 
-        # Choose source: union view if present, else base table
-        access_log_table = "resource_server_async_accesslog_all"
-        source_table = "resource_server_async_requestmetrics_all"
-        with connection.cursor() as cursor:
-            try:
-                cursor.execute("SELECT 1 FROM resource_server_async_requestmetrics_all LIMIT 1")
-            except Exception:
-                source_table = "resource_server_async_requestmetrics"
-        with connection.cursor() as cursor:
-            try:
-                cursor.execute("SELECT 1 FROM resource_server_async_accesslog_all LIMIT 1")
-            except Exception:
-                access_log_table = "resource_server_async_accesslog"
-
-        # Overview aggregates
-        # Query the access log table to get the total requests, successful requests are 0 and between 200 and 299, failed requests are >= 300
+        # Breakdown of all requests using AccessLog status:
+        # - Successful: AccessLog with status_code 200-299 or 0 (all successful requests)
+        # - Failed Auth: AccessLog with NO RequestLog (failed before reaching inference)
+        # - Failed Inference: AccessLog with RequestLog but failed status (failed during inference)
         with connection.cursor() as cursor:
             cursor.execute(
-                f"""
-                SELECT COUNT(*)::bigint AS total_requests,
-                       COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 299 OR status_code = 0) AS successful,
-                       COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed
-                FROM {access_log_table}
                 """
-            )
-            row = cursor.fetchone()
-            total_requests, successful, failed = row
-       
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
                 SELECT 
-                  COALESCE(SUM(total_tokens), 0) AS total_tokens
-                FROM {source_table}
+                    (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog) AS total_all_requests,
+                    -- Successful: AccessLog with success status
+                    (SELECT COUNT(*) FROM resource_server_async_accesslog
+                     WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
+                    -- Failed auth: AccessLog with no corresponding RequestLog (blocked at auth layer)
+                    (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                     WHERE NOT EXISTS (
+                       SELECT 1 FROM resource_server_async_requestlog rl 
+                       WHERE rl.access_log_id = al.id
+                     ) AND (status_code >= 300 OR status_code IS NULL)) AS auth_failures,
+                    -- Failed inference: AccessLog with RequestLog but failed status (made it to inference but failed)
+                    (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                     WHERE EXISTS (
+                       SELECT 1 FROM resource_server_async_requestlog rl 
+                       WHERE rl.access_log_id = al.id
+                     ) AND (status_code >= 300 OR status_code IS NULL)) AS failed_inference,
+                    (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
                 """
             )
             row = cursor.fetchone()
-            total_tokens = row[0]
-
-        success_rate = (successful / total_requests) if total_requests and total_requests > 0 else 0.0
-
+            total_all_requests, successful_requests, auth_failures, failed_inference, total_tokens = row
+        
+        # Success rate calculation:
+        # - Numerator: Successful requests (AccessLog with 200-299)
+        # - Denominator: All requests that reached inference (successful + failed_inference)
+        # - Excludes: Auth failures (never reached inference)
+        total_inference_requests = successful_requests + failed_inference
+        
+        # Success rate based on real request/response (not auth failures)
+        success_rate = (successful_requests / total_inference_requests) if total_inference_requests and total_inference_requests > 0 else 0.0
+        
         # Unique users: simply count from async User table (authorized users)
         try:
             unique_users = AsyncUser.objects.count()
@@ -369,19 +368,17 @@ def get_realtime_metrics(request):
             # Fallback to 0 on any ORM error
             unique_users = 0
 
-        # Per-model aggregates using RequestLog joined to AccessLog for status, and left-joining RequestMetrics for tokens
+        # OPTIMIZED: Per-model aggregates directly from RequestMetrics (no JOINs needed!)
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT rl.model,
+                SELECT model,
                        COUNT(*)::bigint AS total_requests,
-                       COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                       COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                       COALESCE(SUM(rm.total_tokens), 0) AS total_tokens
-                FROM resource_server_async_requestlog rl
-                JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                LEFT JOIN resource_server_async_requestmetrics rm ON rm.request_id = rl.id
-                GROUP BY rl.model
+                       COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
+                       COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
+                       COALESCE(SUM(total_tokens), 0) AS total_tokens
+                FROM resource_server_async_requestmetrics
+                GROUP BY model
                 ORDER BY total_requests DESC
                 """
             )
@@ -399,9 +396,11 @@ def get_realtime_metrics(request):
         result = {
             "totals": {
                 "total_tokens": int(total_tokens or 0),
-                "total_requests": int(total_requests or 0),
-                "successful": int(successful or 0),
-                "failed": int(failed or 0),
+                "total_requests": int(total_all_requests or 0),
+                "total_inference_requests": int(total_inference_requests or 0),
+                "successful": int(successful_requests or 0),
+                "failed": int(failed_inference or 0),
+                "auth_failures": int(auth_failures or 0),
                 "success_rate": success_rate,
                 "unique_users": int(unique_users or 0),
             },
@@ -423,17 +422,18 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
         start_index = page * per_page
         end_index = start_index + per_page
 
-        # LEFT JOIN semantics: start from AccessLog, bring in request_log and user when present
+        # OPTIMIZED: LEFT JOIN semantics with metrics for pre-calculated latency
         # Utilize DB indexes: order by indexed timestamp_request desc, then status_code
         qs = (
             AsyncAccessLog.objects
-            .select_related("user", "request_log")
+            .select_related("user", "request_log", "request_log__metrics")  # Add metrics
             .only(  # only pull these fields, defer everything else
                 "id", "timestamp_request", "status_code", "api_route", "error",
                 "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
                 "request_log__id", "request_log__cluster", "request_log__model",
                 "request_log__openai_endpoint", "request_log__timestamp_compute_request",
-                "request_log__timestamp_compute_response", "request_log__task_uuid"
+                "request_log__timestamp_compute_response", "request_log__task_uuid",
+                "request_log__metrics__response_time_sec"  # Pre-calculated latency
             )
             .defer(  # explicitly defer heavy text fields
                 "request_log__prompt", "request_log__result"
@@ -448,10 +448,20 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
             rl = getattr(al, "request_log", None)
             user = getattr(al, "user", None)
 
-            # Compute latency secs from request_log if available
+            # OPTIMIZED: Use pre-calculated latency from RequestMetrics with fallback
             latency_secs = None
-            if rl and rl.timestamp_compute_response and rl.timestamp_compute_request:
-                latency_secs = (rl.timestamp_compute_response - rl.timestamp_compute_request).total_seconds()
+            if rl:
+                # Try to get pre-calculated value first
+                try:
+                    metrics = getattr(rl, "metrics", None)
+                    if metrics and metrics.response_time_sec is not None:
+                        latency_secs = metrics.response_time_sec
+                except Exception:
+                    pass
+                
+                # Fallback: Calculate if metrics not available (e.g., not processed yet)
+                if latency_secs is None and rl.timestamp_compute_response and rl.timestamp_compute_request:
+                    latency_secs = (rl.timestamp_compute_response - rl.timestamp_compute_request).total_seconds()
 
             # Truncated prompt and result from request_log when available
             def _truncate(val: str, limit: int = 500) -> str:
@@ -552,6 +562,12 @@ def get_users_per_model(request):
 def get_users_table(request):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
     try:
+        # Check cache first (1 minute TTL)
+        cache_key = "dashboard:users_table"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
@@ -585,6 +601,9 @@ def get_users_table(request):
                 "success_rate": success_rate,
                 "last_failure": last_failure.isoformat() if last_failure else None,
             })
+        
+        # Cache for 60 seconds
+        cache.set(cache_key, results, timeout=60)
         return results
     except Exception as e:
         log.error(f"Error fetching users table: {e}")
@@ -630,25 +649,7 @@ def get_overall_series(request, window: str = "24h"):
                 [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts]
             )
             rows = cursor.fetchall()
-        total_ok = sum(int(r[1] or 0) for r in rows)
-        total_fail = sum(int(r[2] or 0) for r in rows)
-        # Extra debug: raw counts in time-range
-        try:
-            from django.db import connection as _conn
-            with _conn.cursor() as c:
-                c.execute(
-                    """
-                    SELECT 
-                      COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
-                      COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
-                    FROM resource_server_async_accesslog
-                    WHERE timestamp_request >= %s AND timestamp_request <= %s
-                    """,
-                    [start_ts, end_ts]
-                )
-                ok_range, fail_range = c.fetchone()
-        except Exception:
-            log.info(f"overall_series: points={len(rows)} total_ok={total_ok} total_fail={total_fail}")
+        # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
         return [{"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)} for r in rows]
     except Exception as e:
         log.error(f"Error fetching overall series: {e}")
@@ -738,7 +739,7 @@ def get_model_box(request, model: str, window: str = "24h"):
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """Proxy health info so the browser doesn't need a bearer token.
-    Combines qstat job data with configured endpoints to mark offline models.
+    Combines qstat job data (for Sophia/Polaris) or Metis API status with configured endpoints to mark offline models.
     """
     try:
         from asgiref.sync import async_to_sync
@@ -751,6 +752,59 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             if cached_payload:
                 return JsonResponse(cached_payload)
 
+        # ===== METIS CLUSTER HANDLING =====
+        if cluster == "metis":
+            # Fetch Metis status
+            metis_status, err = async_to_sync(metis_utils.fetch_metis_status)(use_cache=True)
+            
+            if err or not metis_status:
+                # Serve stale cache if available
+                cached_payload = cache.get(cache_key)
+                if cached_payload:
+                    return JsonResponse(cached_payload)
+                # Fallback: empty result
+                payload = {"items": [], "free_nodes": None}
+                cache.set(cache_key, payload, timeout=120)
+                return JsonResponse(payload)
+            
+            # Process Metis status into dashboard format
+            items = []
+            for model_key, model_info in metis_status.items():
+                status_raw = model_info.get("status", "Unknown")
+                experts = model_info.get("experts", [])
+                description = model_info.get("description", "")
+                
+                # Map Metis status to dashboard status
+                if status_raw == "Live":
+                    status = "running"
+                elif status_raw == "Stopped":
+                    status = "offline"
+                else:
+                    status = "queued"
+                
+                # Add each expert model as a separate entry
+                for expert in experts:
+                    if isinstance(expert, str) and len(expert) > 0:
+                        items.append({
+                            "model": expert,
+                            "status": status,
+                            "nodes_reserved": "",
+                            "host_name": "",
+                            "start_info": description,
+                        })
+            
+            payload = {
+                "items": items,
+                "free_nodes": None  # Metis doesn't have node info
+            }
+            # Cache for 2 minutes
+            cache.set(cache_key, payload, timeout=120)
+            return JsonResponse(payload)
+
+        # ===== QSTAT-BASED CLUSTER HANDLING (Sophia, Polaris) =====
+        # Query configured models once (reused in multiple places)
+        configured_models = set(Endpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
+        
         # Fetch qstat details via internal async util
         qres, _, err, code = async_to_sync(get_qstat_details)(cluster)
         # Normalize qres (may arrive as JSON string)
@@ -773,18 +827,13 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
                     return {}
             return {}
         q = to_dict(qres)
-        try:
-            sample_running = (q or {}).get("running", [])[:1]
-        except Exception as e:
-            log.error(f"Health status sample running: {e}")
-            pass
+        
         if err:
             # Serve stale cache if available
             cached_payload = cache.get(cache_key)
             if cached_payload:
                 return JsonResponse(cached_payload)
-            # Fallback: mark configured endpoints as offline
-            configured_models = set(Endpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
+            # Fallback: mark configured endpoints as offline (reuse configured_models)
             items = [{
                 "model": m,
                 "status": "offline",
@@ -820,8 +869,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         items = process(running, "running") + process(queued, "queued")
         present_models = {i["model"] for i in items}
 
-        # Gather configured endpoint models for the cluster
-        configured_models = set(Endpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
+        # Add offline models (reuse configured_models from earlier)
         for m in sorted(configured_models - present_models):
             items.append({
                 "model": m,
@@ -841,14 +889,20 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             cache.set(cache_key, payload, timeout=120)
         return JsonResponse(payload)
     except Exception as e:
-        log.error(f"Error fetching health status: {e}")
+        log.error(f"Error fetching health status for cluster {cluster}: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 # ========= Additional realtime endpoints =========
 @router.get("/analytics/requests-per-user")
 def get_requests_per_user(request):
-    """Overall requests per user (from RequestMetrics joined to AccessLog/User)."""
+    """Overall requests per user (from AccessLog/User)."""
     try:
+        # Check cache first (1 minute TTL)
+        cache_key = "dashboard:requests_per_user"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
@@ -864,10 +918,15 @@ def get_requests_per_user(request):
                 """
             )
             rows = cursor.fetchall()
-        return [
+        
+        result = [
             {"name": r[0], "username": r[1], "total": int(r[2] or 0), "successful": int(r[3] or 0), "failed": int(r[4] or 0)}
             for r in rows
         ]
+        
+        # Cache for 60 seconds
+        cache.set(cache_key, result, timeout=60)
+        return result
     except Exception as e:
         log.error(f"Error fetching requests per user: {e}")
         return JsonResponse({"error": str(e)}, status=500)
@@ -876,6 +935,12 @@ def get_requests_per_user(request):
 def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
     try:
+        # Check cache first (1 minute TTL)
+        cache_key = "dashboard:batch_overview"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         from django.db import connection
         # Try BatchMetrics
         try:
@@ -896,13 +961,16 @@ def get_batch_overview(request):
                     total_jobs = int(row[2] or 0)
                     completed_jobs = int(row[3] or 0)
                     success_rate = (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
-                    return {
+                    result = {
                         "total_tokens": total_tokens,
                         "total_requests": total_requests,
                         "total_jobs": total_jobs,
                         "completed_jobs": completed_jobs,
                         "success_rate": success_rate,
                     }
+                    # Cache for 60 seconds
+                    cache.set(cache_key, result, timeout=60)
+                    return result
         except Exception:
             pass
 
@@ -926,13 +994,16 @@ def get_batch_overview(request):
         total_jobs = int(row[2] or 0)
         completed_jobs = int(row[3] or 0)
         success_rate = (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
-        return {
+        result = {
             "total_tokens": total_tokens,
             "total_requests": total_requests,
             "total_jobs": total_jobs,
             "completed_jobs": completed_jobs,
             "success_rate": success_rate,
         }
+        # Cache for 60 seconds
+        cache.set(cache_key, result, timeout=60)
+        return result
     except Exception as e:
         log.error(f"Error fetching batch overview: {e}")
         return JsonResponse({"error": str(e)}, status=500)

@@ -97,3 +97,36 @@ Make sure you set execution permission:
 ```bash
 chmod u+x /home/webportal/inference-gateway/cron_jobs/query_model_status.sh
 ```
+
+### Direct Health Monitor (Sophia + Metis)
+
+Runs internal health checks against the active Sophia Globus Compute models and Metis API models. The script bypasses the public API, calls the underlying endpoints directly, and posts a summary to Slack.
+
+#### Requirements
+
+- `.env` (or environment variables) must include:
+  - `WEBHOOK_URL`: Slack incoming webhook URL.
+  - `METIS_STATUS_URL` and `METIS_API_TOKENS` (JSON mapping) for Metis access.
+  - Globus Compute credentials already configured for the Django app (same as production service).
+- Python dependencies are already available in the project virtual environment.
+
+#### Cron setup
+
+```bash
+crontab -e
+```
+Add the following entry to run every 5 minutes:
+
+```bash
+*/5 * * * * /home/webportal/inference-gateway/cron_jobs/direct_health_monitor.sh >> /home/webportal/inference-gateway/cron_jobs/direct_health_monitor.log 2>&1
+```
+
+Ensure the wrapper script is executable:
+
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/direct_health_monitor.sh
+```
+
+The wrapper activates the project virtual environment and invokes `direct_health_monitor.py`. Logs contain the latest Slack payload for auditing.
+- Posts a consolidated summary to Slack via `WEBHOOK_URL` (no truncation).
+- Also runs VM health checks: Redis, PostgreSQL, Globus client, and the Django `/resource_server_async/health` endpoint.

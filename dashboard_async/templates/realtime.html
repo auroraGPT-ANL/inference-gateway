@@ -85,14 +85,14 @@
     <div class="grid">
       <div class="card"><div class="title">Total Tokens</div><div id="kpiTokens" class="kpi">—</div><div class="muted">Cumulative</div></div>
       <div class="card"><div class="title">Total Requests</div><div id="kpiRequests" class="kpi">—</div><div class="muted">Processed overall</div></div>
-      <div class="card"><div class="title">Success Rate</div><div id="kpiSuccess" class="kpi">—</div><div class="muted">Percentage of successful requests</div></div>
+      <div class="card"><div class="title">Success Rate</div><div id="kpiSuccess" class="kpi">—</div><div class="muted">Successful inference requests (minus auth checks)</div></div>
       <div class="card"><div class="title">Unique Users</div><div id="kpiUsers" class="kpi">—</div><div class="muted">Authorized users</div></div>
     <!--   <div class="card"><div class="title">Avg RPS (last min)</div><div id="kpiRps" class="kpi">—</div><div class="muted">Requests per second</div></div> -->
     </div>
 
     <div class="row" style="margin-top:16px;">
       <div class="card" style="flex:1; min-width:300px;">
-        <div class="title">Success vs Failed</div>
+        <div class="title">Request Outcomes</div>
         <canvas id="donut" class="chart-fixed"></canvas>
       </div>
       <div class="card" style="flex:1; min-width:300px;">
@@ -326,6 +326,7 @@
         <label for="healthCluster">Cluster:</label>
         <select id="healthCluster">
           <option value="sophia" selected>sophia</option>
+          <option value="metis">metis</option>
         </select>
         <button id="healthRefresh">Refresh</button>
         <span class="muted" id="healthUpdated"></span>
@@ -389,10 +390,17 @@
       const donutCtx = document.getElementById('donut');
       const success = t.successful || 0;
       const fail = t.failed || 0;
+      const authFail = t.auth_failures || 0;
       if (donutChart) donutChart.destroy();
       donutChart = new Chart(donutCtx, {
         type: 'doughnut',
-        data: { labels: ['Successful', 'Failed'], datasets: [{ data: [success, fail], backgroundColor: ['#22c55e', '#ef4444'] }]},
+        data: { 
+          labels: ['Successful', 'Failed Inference', 'Failed Auth'], 
+          datasets: [{ 
+            data: [success, fail, authFail], 
+            backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'] 
+          }]
+        },
         options: { cutout: '60%' }
       });
 
