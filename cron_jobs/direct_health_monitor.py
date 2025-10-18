@@ -636,11 +636,11 @@ async def check_vm_health() -> List[HealthRecord]:
 
     def _run_checks() -> dict:
         checker = ApplicationHealthChecker()
-        checker.application_url = os.getenv("APP_BASE_URL", "localhost:8000")
+        checker.application_url = os.getenv("STREAMING_SERVER_HOST", "http://localhost:8000")
         # Override the checker health endpoint to the main service URL
         def _health_override() -> dict:
             try:
-                url = f"http://{checker.application_url}/resource_server/health"
+                url = f"https://{checker.application_url}/resource_server/health"
                 response = requests.get(url, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
