@@ -287,11 +287,13 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # --- Resource Server Configuration ---
 ALLOWED_FRAMEWORKS = {
     "polaris": ["llama-cpp", "vllm"],
-    "sophia": ["vllm","infinity"]
+    "sophia": ["vllm","infinity"],
+    "metis": ["api"]  # Metis uses direct API calls (not Globus Compute)
 }
 ALLOWED_OPENAI_ENDPOINTS = {
     "polaris": ["chat/completions", "completions", "embeddings", "health", "metrics"],
-    "sophia": ["chat/completions", "completions", "embeddings", "health", "metrics"]
+    "sophia": ["chat/completions", "completions", "embeddings", "health", "metrics"],
+    "metis": ["chat/completions"]  # Metis only supports chat/completions
 }
 ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 
@@ -364,6 +366,15 @@ STREAMING_SERVER_PROTOCOL = os.environ.get('STREAMING_SERVER_PROTOCOL', 'https')
 
 # Internal streaming secret for authentication between remote function and Django
 INTERNAL_STREAMING_SECRET = os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')
+
+# Metis cluster configuration
+# Metis models are already deployed behind an API (different from Globus Compute paradigm)
+METIS_STATUS_URL = os.environ.get('METIS_STATUS_URL', 'https://metis.alcf.anl.gov/status')
+
+# Metis API tokens - JSON mapping of endpoint UUID to API token
+# Format: {"endpoint-uuid-1": "token1", "endpoint-uuid-2": "token2"}
+# Each endpoint UUID in Metis status maps to its own API key
+METIS_API_TOKENS = os.environ.get('METIS_API_TOKENS', '{}')
 
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---

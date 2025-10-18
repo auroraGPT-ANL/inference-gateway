@@ -52,7 +52,8 @@ def introspect_token(bearer_token: str):
     import hashlib
     
     # Create cache key from token hash (don't store raw tokens in cache keys)
-    token_hash = hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
+    # Store the entire hash to avoid collisions where different users would have the same last hash digits
+    token_hash = hashlib.sha256(bearer_token.encode()).hexdigest()
     cache_key = f"token_introspect:{token_hash}"
     
     # Try to get from Redis cache first
@@ -68,8 +69,27 @@ def introspect_token(bearer_token: str):
     # If not in cache, perform introspection
     result = _perform_token_introspection(bearer_token)
     
+    # If the introspection triggered an error ...
+    if result[0] is None:
+
+        # Set cache time (shorter for errors)
+        ttl = 60
+
+    # If the introspection was successful ...
+    else:
+
+        # Calculate time until token expiration (Unix timestamp difference)
+        try:
+            introspection_exp = result[0]["exp"]
+            seconds_until_expiration = introspection_exp - int(time.time())
+        except Exception as e:
+            log.warning(f"Failed to extract introspection result[0]['exp']: {e}")
+            seconds_until_expiration = 0
+
+        # Set cache time and make sure it is not shorter than the time until token expiration
+        ttl = min(600, seconds_until_expiration)
+    
     # Cache the result (successful or error)
-    ttl = 600 if result[2] == "" else 60  # Cache errors for shorter time
     try:
         cache.set(cache_key, result, ttl)
     except Exception as e:

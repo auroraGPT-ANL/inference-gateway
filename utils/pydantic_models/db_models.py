@@ -18,13 +18,13 @@ class AccessLogPydantic(BaseModel):
     timestamp_response: Optional[datetime] = Field(default=None)
     api_route: str
     origin_ip: Optional[str] = Field(default=None)
-    status_code: Optional[str] = Field(default=None)
+    status_code: Optional[int] = Field(default=None)
     error: Optional[str] = Field(default=None)
     authorized_groups: Optional[str] = Field(default=None)
 
 class RequestLogPydantic(BaseModel):
     id: str
-    access_log: Optional[str] = Field(default=None)
+    access_log: Optional[Any] = Field(default=None)  # AccessLog object
     cluster: Optional[str] = Field(default=None)
     framework: Optional[str] = Field(default=None)
     model: Optional[str] = Field(default=None)
@@ -37,7 +37,7 @@ class RequestLogPydantic(BaseModel):
 
 class BatchLogPydantic(BaseModel):
     id: str
-    access_log: Optional[str] = Field(default=None)
+    access_log: Optional[Any] = Field(default=None)  # AccessLog object
     input_file: Optional[str] = Field(default=None)
     output_folder_path: Optional[str] = Field(default=None)
     cluster: Optional[str] = Field(default=None)

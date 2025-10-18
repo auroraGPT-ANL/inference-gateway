@@ -120,6 +120,7 @@ class RequestLog(models.Model):
             models.Index(fields=["cluster", "framework"], name="idx_rlog_clstr_frmwrk"),
             models.Index(fields=["model"], name="idx_requestlog_model"),
             models.Index(fields=["access_log_id", "model"], name="idx_requestlog_access_model"),  # Critical for dashboard joins
+            models.Index(fields=["timestamp_compute_request"], name="idx_rlog_ts_compute_req"),  # For time-range queries
         ]
     # Custom display
     def __str__(self):
@@ -155,8 +156,14 @@ class BatchLog(models.Model):
     # What is the status of the batch?
     status = models.CharField(max_length=250, default="pending")
     in_progress_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True, db_index=True)  # For dashboard ORDER BY
     failed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=["-completed_at", "-in_progress_at"], name="idx_batchlog_completion"),  # Dashboard sorting
+            models.Index(fields=["status"], name="idx_batchlog_status"),  # Status filtering
+        ]
 
 
 # Request metrics model (1:1 with RequestLog)

@@ -25,15 +25,13 @@ class Migration(migrations.Migration):
             new_name='idx_requestlog_model',
             old_name='resource_se_model_f5daea_idx',
         ),
-        migrations.RenameIndex(
-            model_name='requestmetrics',
-            new_name='idx_rmetrics_clstr_frmwrk',
-            old_name='resource_se_cluster_fd6b46_idx',
+        migrations.RunSQL(
+            sql="ALTER INDEX IF EXISTS resource_se_cluster_fd6b46_idx RENAME TO idx_rmetrics_clstr_frmwrk;",
+            reverse_sql="ALTER INDEX IF EXISTS idx_rmetrics_clstr_frmwrk RENAME TO resource_se_cluster_fd6b46_idx;",
         ),
-        migrations.RenameIndex(
-            model_name='requestmetrics',
-            new_name='idx_requestmetrics_model',
-            old_name='resource_se_model_d37167_idx',
+        migrations.RunSQL(
+            sql="ALTER INDEX IF EXISTS resource_se_model_d37167_idx RENAME TO idx_requestmetrics_model;",
+            reverse_sql="ALTER INDEX IF EXISTS idx_requestmetrics_model RENAME TO resource_se_model_d37167_idx;",
         ),
         migrations.AddIndex(
             model_name='accesslog',
