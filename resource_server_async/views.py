@@ -22,6 +22,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
 import utils.globus_utils as globus_utils
+import utils.metis_utils as metis_utils
 from utils.auth_utils import validate_access_token
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from resource_server_async.utils import (
@@ -36,14 +37,15 @@ from resource_server_async.utils import (
     update_batch_status_result,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
-    # Redis streaming functions
+    decode_request_body,
+    # Streaming functions
     store_streaming_data,
-    get_streaming_data,
     set_streaming_status,
-    get_streaming_status,
     set_streaming_error,
-    get_streaming_error,
-    # Background streaming functions
+    set_streaming_metadata,
+    get_streaming_metadata,
+    validate_streaming_request_security,
+    get_streaming_data_and_status_batch,
     process_streaming_completion_async,
     # Cache functions
     get_endpoint_from_cache,
@@ -56,7 +58,10 @@ from resource_server_async.utils import (
     prepare_streaming_task_data,
     create_streaming_response_headers,
     format_streaming_error_for_openai,
-    create_access_log
+    create_access_log,
+    # Metis utilities
+    handle_metis_streaming_inference,
+    update_metis_streaming_log
 )
 log.info("Utils functions loaded.")
 
@@ -72,8 +77,19 @@ from resource_server_async.models import RequestLog, BatchLog
 # Django Ninja API
 from resource_server_async.api import api, router
 
-# Deprecated: Simple in-memory cache for endpoint lookups (kept for fallback)
-endpoint_cache = {}
+# NOTE: All caching is now centralized in resource_server_async.utils
+# Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache
+# - Endpoint caching: get_endpoint_from_cache(), cache_endpoint(), remove_endpoint_from_cache()
+# - Streaming caching: All streaming functions use get_redis_client() for Redis-specific operations
+# - Permission caching: In-memory TTLCache for performance-critical permission checks
+
+
+# Health Check (GET) - No authentication required
+# Lightweight endpoint for Kubernetes/load balancer health checks
+@router.get("/health", auth=None)
+async def health_check(request):
+    """Lightweight health check endpoint - returns OK if API is responding."""
+    return JsonResponse({'status': 'ok'}, status=200)
 
 
 # Whoami (GET)
@@ -114,6 +130,36 @@ async def get_list_endpoints(request):
     all_endpoints = {"clusters": {}}
     try:
 
+        # ===== ADD METIS CLUSTER MODELS =====
+        # Fetch Metis status and add Metis models to the list
+        metis_status, metis_error = await metis_utils.fetch_metis_status(use_cache=True)
+        if not metis_error and metis_status:
+            # Add Metis cluster entry
+            all_endpoints["clusters"]["metis"] = {
+                "base_url": "/resource_server/metis",
+                "frameworks": {
+                    "api": {
+                        "models": [],
+                        "endpoints": {
+                            "chat": "/api/v1/chat/completions/"
+                        }
+                    }
+                }
+            }
+            
+            # Extract expert models from Metis status
+            for model_key, model_info in metis_status.items():
+                if model_info.get("status") == "Live":
+                    experts = model_info.get("experts", [])
+                    for expert in experts:
+                        if isinstance(expert, str) and len(expert) > 0:
+                            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"].append(expert)
+            
+            # Sort Metis models alphabetically
+            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"] = \
+                sorted(all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"])
+        
+        # ===== ADD GLOBUS COMPUTE CLUSTER MODELS =====
         # For each database endpoint entry ...
         for endpoint in endpoint_list:
 
@@ -374,11 +420,25 @@ async def get_endpoint_status(request, cluster: str, framework: str, model: str,
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
 
+    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
     # Make sure the URL inputs point to an available endpoint 
-    error_message = validate_url_inputs(cluster, framework="vllm", openai_endpoint="chat/completions")
+    framework = "api" if cluster == "metis" else "vllm"
+    error_message = validate_url_inputs(cluster, framework=framework, openai_endpoint="chat/completions")
     if len(error_message):
         return await get_response(error_message, 400, request)
+
+        # ===== METIS CLUSTER HANDLING =====
+    if cluster == "metis":
+        # Metis uses a status API instead of qstat
+        metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
+        if error_msg:
+            return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
         
+        # Format Metis status to match the jobs endpoint format
+        formatted_result = metis_utils.format_metis_status_for_jobs(metis_status)
+        return await get_response(json.dumps(formatted_result), 200, request)
+
+
     # Collect (qstat) details on the jobs running/queued on the cluster
     result, task_uuid, error_message, error_code = await get_qstat_details(cluster, timeout=60)
     if len(error_message) > 0:
@@ -685,6 +745,12 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
 
+    # ===== METIS CLUSTER HANDLING =====
+    # Metis uses direct API calls instead of Globus Compute
+    if cluster == "metis":
+        return await handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework)
+    
+    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
     if endpoint is None:
@@ -716,7 +782,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         # Remove from cache if group extraction fails, as the cached data might be problematic
         remove_endpoint_from_cache(endpoint_slug)
         return await get_response(error_message, 401, request)
-    
+
     # Block access if the user is not a member of at least one of the required groups
     if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
         if len(set(request.user_group_uuids).intersection(allowed_globus_groups)) == 0:
@@ -759,7 +825,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
             
             # Send an error to avoid overloading the Globus Compute endpoint
             # This also reduces memory footprint on the API application
-            error_message = f"Error: Endpoint {endpoint_slug} currently loading model {model}. "
+            error_message = f"Error: Endpoint {endpoint_slug} online but not ready to receive tasks. "
             error_message += "Please try again later."
             return await get_response(error_message, 503, request)
 
@@ -817,7 +883,7 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         try:
             asyncio_future = asyncio.wrap_future(future)
             # Wait just long enough for task registration (not full completion)
-            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=2.0)
+            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=1.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             # Timeout/cancellation is expected - we just want task registration, not completion
             pass
@@ -879,16 +945,71 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
     
     # Create simple SSE streaming response  
     async def sse_generator():
-        """Simple SSE generator with fast Redis polling"""
+        """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
         try:
-            max_wait_time = 300  # 5 minutes
+            max_wait_time = 300  # 5 minutes total timeout
             start_time = time.time()
             last_chunk_index = 0
+            first_data_timeout = 30  # 30 seconds to receive first chunk or status
+            first_data_received = False
+            last_chunk_time = None  # Track when we last received a chunk
+            no_new_data_timeout = 5  # 5 seconds with no new chunks = assume completion (fallback if /done not called)
             
             while time.time() - start_time < max_wait_time:
-                # Get streaming data from Redis with fast polling - CHECK CHUNKS FIRST
-                chunks = get_streaming_data(stream_task_id)
-                if chunks:
+                # P0 OPTIMIZATION: Get status, chunks, and error in a single Redis round-trip
+                chunks, status, error_message = get_streaming_data_and_status_batch(stream_task_id)
+                
+                # Check if we've received any data (chunks or status)
+                if (chunks and len(chunks) > 0) or status:
+                    first_data_received = True
+                
+                # PRIORITY 1: Fast auth failure check (immediate break)
+                auth_failure = get_streaming_metadata(stream_task_id, "auth_failure")
+                if auth_failure:
+                    error_msg = {
+                        "object": "error",
+                        "message": "Streaming authentication failed: Remote compute endpoint could not authenticate with streaming API. Check INTERNAL_STREAMING_SECRET configuration.",
+                        "type": "AuthenticationError",
+                        "param": None,
+                        "code": 401
+                    }
+                    log.error(f"Streaming task {stream_task_id} - authentication failure detected")
+                    set_streaming_status(stream_task_id, "error")
+                    set_streaming_error(stream_task_id, error_msg.get("message"))
+                    yield f"data: {json.dumps(error_msg)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 2: Early timeout check (no data after 30s)
+                elapsed_time = time.time() - start_time
+                if not first_data_received and elapsed_time > first_data_timeout:
+                    error_msg = {
+                        "object": "error",
+                        "message": f"Streaming task timed out: No data received from compute endpoint after {first_data_timeout} seconds. This may indicate network or endpoint configuration issues.",
+                        "type": "StreamingTimeoutError",
+                        "param": None,
+                        "code": 504
+                    }
+                    log.error(f"Streaming task {stream_task_id} timed out - no data received after {first_data_timeout}s")
+                    set_streaming_status(stream_task_id, "error")
+                    set_streaming_error(stream_task_id, error_msg.get("message"))
+                    yield f"data: {json.dumps(error_msg)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 3: Handle error status (send error then break)
+                if status == "error":
+                    if error_message:
+                        # Format and send the error in OpenAI streaming format
+                        formatted_error = format_streaming_error_for_openai(error_message)
+                        yield formatted_error
+                    # Send [DONE] after error to properly terminate the stream
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # PRIORITY 4: Process ALL pending chunks FIRST (drain the queue)
+                # This ensures we don't miss chunks that arrived just before /done
+                if chunks and len(chunks) > last_chunk_index:
                     # Send all new chunks at once
                     for i in range(last_chunk_index, len(chunks)):
                         chunk = chunks[i]
@@ -898,24 +1019,34 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
                             yield f"{chunk}\n\n"
                         
                         last_chunk_index = i + 1
+                    
+                    # Update last chunk time
+                    last_chunk_time = time.time()
                 
-                # Check for error status AFTER sending any available chunks
-                status = get_streaming_status(stream_task_id)
-                if status == "error":
-                    # Get the error message and send it in OpenAI streaming format
-                    error_message = get_streaming_error(stream_task_id)
-                    if error_message:
-                        # Format and send the error in OpenAI streaming format
-                        formatted_error = format_streaming_error_for_openai(error_message)
-                        yield formatted_error
-                    # Send [DONE] after error to properly terminate the stream
+                # PRIORITY 5: Check completion status AFTER processing chunks
+                # This prevents race condition where /done arrives before final chunks
+                if status == "completed":
+                    # One final check for any remaining chunks that arrived during processing
+                    final_chunks, _, _ = get_streaming_data_and_status_batch(stream_task_id)
+                    if final_chunks and len(final_chunks) > last_chunk_index:
+                        for i in range(last_chunk_index, len(final_chunks)):
+                            chunk = final_chunks[i]
+                            if chunk.startswith('data: '):
+                                yield f"{chunk}\n\n"
+                    
+                    log.info(f"Streaming task {stream_task_id} - status is completed, sending [DONE]")
                     yield "data: [DONE]\n\n"
                     break
-                elif status == "completed":
-                    # Send the final [DONE] message from vLLM
-                    yield "data: [DONE]\n\n"
-                    break
                 
+                # PRIORITY 6 (FALLBACK): No new data timeout
+                # This handles cases where remote function sent all data but didn't call /done endpoint
+                # Only check this if we haven't seen a "completed" status
+                if last_chunk_time is not None and (time.time() - last_chunk_time) > no_new_data_timeout:
+                    log.warning(f"Streaming task {stream_task_id} - no new chunks for {no_new_data_timeout}s, assuming completion (done signal was not received)")
+                    yield "data: [DONE]\n\n"
+                    # Set completed status for cleanup
+                    set_streaming_status(stream_task_id, "completed")
+                    break
                 # Fast polling - 25ms
                 await asyncio.sleep(0.025)
                 
@@ -935,6 +1066,237 @@ async def handle_streaming_inference(gce, endpoint, data, resources_ready, reque
         response[key] = value
     
     return response
+
+
+async def handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework):
+    """Handle inference requests to Metis cluster using direct API calls.
+    
+    Metis models are already deployed behind an API, so we:
+    1. Fetch model status from Metis status endpoint
+    2. Find matching model in 'experts' list
+    3. Make direct API call (no Globus Compute involved)
+    """
+    
+    # Get requested model name
+    requested_model = data["model_params"]["model"]
+    log.info(f"Metis inference request for model: {requested_model}")
+    
+    # Initialize the request log data for the database entry
+    # Set both timestamps initially to avoid null constraint violations
+    # timestamp_compute_response will be updated when we get actual response
+    current_time = timezone.now()
+    request.request_log_data = RequestLogPydantic(
+        id=str(uuid.uuid4()),
+        cluster=cluster,
+        framework=framework,
+        openai_endpoint=data["model_params"]["openai_endpoint"],
+        prompt=json.dumps(extract_prompt(data["model_params"])),
+        model=requested_model,
+        timestamp_compute_request=current_time,
+        timestamp_compute_response=current_time  # Initialize to avoid null errors
+    )
+    
+    # Fetch Metis status
+    metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
+    if error_msg:
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
+    
+    # Find matching model in Metis status (returns endpoint_id for API token lookup)
+    model_info, endpoint_id, error_msg = metis_utils.find_metis_model(metis_status, requested_model)
+    if error_msg:
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(error_msg, 404, request)
+    
+    # Check if the model is Live
+    if model_info.get("status") != "Live":
+        # Update response timestamp for error case
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        return await get_response(
+            f"Error: Model '{requested_model}' is not currently live on Metis. Status: {model_info.get('status')}",
+            503,
+            request
+        )
+    
+    # Use validated request data as-is (already in OpenAI format)
+    # Only update the stream parameter to match the request
+    api_request_data = {**data["model_params"]}
+    api_request_data["stream"] = stream
+    # Remove internal field that shouldn't be sent to Metis
+    api_request_data.pop("openai_endpoint", None)
+    api_request_data.pop("api_port", None)
+    
+    log.info(f"Making Metis API call for model {requested_model} (stream={stream}, endpoint={endpoint_id})")
+    
+    # Make the API call to Metis
+    if stream:
+        # Handle streaming request - create AccessLog first
+        request.access_log_data.status_code = 200
+        try:
+            access_log = await create_access_log(request.access_log_data, "", 200)
+        except Exception as e:
+            request.request_log_data.timestamp_compute_response = timezone.now()
+            return await get_response(f"Error: Could not create AccessLog entry: {e}", 500, request)
+        
+        return await handle_metis_streaming_inference(
+            request, model_info, endpoint_id, api_request_data, requested_model, access_log
+        )
+    else:
+        # Non-streaming request
+        result, status_code, error_msg = await metis_utils.call_metis_api(
+            model_info,
+            endpoint_id,
+            api_request_data,
+            stream=False
+        )
+        
+        request.request_log_data.timestamp_compute_response = timezone.now()
+        
+        if error_msg:
+            return await get_response(error_msg, status_code, request)
+        
+        # Metis API returns results directly (no task UUID in this paradigm)
+        request.request_log_data.task_uuid = None
+        
+        # Return Metis API results
+        return await get_response(result, status_code, request)
+
+
+# Streaming server endpoints (integrated into Django)
+
+@router.post("/api/streaming/data/", auth=None)
+async def receive_streaming_data(request):
+    """Receive streaming data from vLLM function - INTERNAL ONLY
+    
+    Security layers (optimized with caching):
+    1. Content-Length validation (DoS prevention)
+    2. Global shared secret validation
+    3. Per-task token validation (cached)
+    4. Data size validation
+    """
+    
+    # Validate all security requirements
+    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=150000)
+    if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(decode_request_body(request))
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
+        return JsonResponse(error_response, status=status_code)
+    
+    try:
+        data = json.loads(decode_request_body(request))
+        task_id = data.get('task_id')
+        chunk_data = data.get('data')
+        
+        if chunk_data is None:
+            return JsonResponse({"error": "Missing data"}, status=400)
+        
+        if '\n' in chunk_data:
+            # Split batched chunks and store each one
+            chunks = chunk_data.split('\n')
+            for individual_chunk in chunks:
+                if individual_chunk.strip():
+                    store_streaming_data(task_id, individual_chunk.strip())
+        else:
+            store_streaming_data(task_id, chunk_data)
+        
+        set_streaming_status(task_id, "streaming")
+        
+        return JsonResponse({"status": "received"})
+        
+    except Exception as e:
+        log.error(f"Error in streaming data endpoint: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
+@router.post("/api/streaming/error/", auth=None)
+async def receive_streaming_error(request):
+    """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
+    
+    Security layers (optimized with caching):
+    1. Content-Length validation (DoS prevention)
+    2. Global shared secret validation
+    3. Per-task token validation (cached)
+    """
+    
+    # Validate all security requirements
+    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
+    if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(decode_request_body(request))
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
+        return JsonResponse(error_response, status=status_code)
+    
+    try:
+        data = json.loads(decode_request_body(request))
+        task_id = data.get('task_id')
+        error = data.get('error')
+        
+        if error is None:
+            return JsonResponse({"error": "Missing error"}, status=400)
+        
+        # Store error with automatic cleanup
+        set_streaming_error(task_id, error)
+        set_streaming_status(task_id, "error")
+        
+        log.error(f"Received error for task {task_id}: {error}")
+        return JsonResponse({"status": "ok", "task_id": task_id})
+        
+    except Exception as e:
+        log.error(f"Error receiving streaming error: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
+@router.post("/api/streaming/done/", auth=None)
+async def receive_streaming_done(request):
+    """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
+    
+    Security layers (optimized with caching):
+    1. Content-Length validation (DoS prevention)
+    2. Global shared secret validation
+    3. Per-task token validation (cached)
+    """
+    
+    # Validate all security requirements
+    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
+    if not is_valid:
+        # Try to extract task_id to record auth failure
+        try:
+            data = json.loads(decode_request_body(request))
+            task_id = data.get('task_id')
+            if task_id and status_code in [401, 403]:
+                set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
+                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+        except Exception:
+            pass  # Don't fail the error response if we can't record the failure
+        return JsonResponse(error_response, status=status_code)
+    
+    try:
+        data = json.loads(decode_request_body(request))
+        task_id = data.get('task_id')
+        
+        # Mark as completed with automatic cleanup
+        set_streaming_status(task_id, "completed")
+        
+        log.info(f"Completed streaming task: {task_id}")
+        return JsonResponse({"status": "ok", "task_id": task_id})
+        
+    except Exception as e:
+        log.error(f"Error receiving streaming done: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
 
 # Federated Inference (POST) - Chooses cluster/framework automatically
 @router.post("/v1/{path:openai_endpoint}")
@@ -1179,133 +1541,6 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
     # Return Globus Compute results
     return await get_response(result, 200, request)
-
-
-#TODO: Either remove auth check or add internal secret to api.py
-# Streaming server endpoints (integrated into Django)
-
-@router.post("/api/streaming/data/", auth=None)
-async def receive_streaming_data(request):
-    """Receive streaming data from vLLM function - INTERNAL ONLY"""
-
-    # IMPORTANT
-    # Raise error if request does not have the secret
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
-        
-    try:
-        data = json.loads(request.body)
-        task_id = data.get('task_id')
-        chunk_data = data.get('data')
-        
-        if not task_id or chunk_data is None:
-            return JsonResponse({"error": "Missing task_id or data"}, status=400)
-        
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
-        
-        # SECURITY: Validate chunk_data size (prevent DoS)
-        if len(chunk_data) > 100000:  # 100KB limit
-            return JsonResponse({"error": "Chunk data too large"}, status=413)
-        
-        # Handle batched data (multiple chunks in one request)
-        if '\n' in chunk_data:
-            # Split batched chunks and store each one
-            chunks = chunk_data.split('\n')
-            for individual_chunk in chunks:
-                if individual_chunk.strip():
-                    # SECURITY: Validate individual chunk size
-                    if len(individual_chunk.strip()) > 50000:  # 50KB per chunk
-                        continue  # Skip oversized chunks
-                    store_streaming_data(task_id, individual_chunk.strip())
-        else:
-            # Single chunk
-            store_streaming_data(task_id, chunk_data)
-        
-        set_streaming_status(task_id, "streaming")
-        
-        return JsonResponse({"status": "received"})
-        
-    except Exception as e:
-        log.error(f"Error in streaming data endpoint: {e}")
-        return JsonResponse({"error": "Internal server error"}, status=500)
-
-@router.post("/api/streaming/error/", auth=None)
-async def receive_streaming_error(request):
-    """Receive error from vLLM function - INTERNAL ONLY"""
-    
-    # IMPORTANT
-    # Raise error if request does not have the secret
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
-
-    try:
-        data = json.loads(request.body)
-        task_id = data.get('task_id')
-        error = data.get('error')
-        
-        if not task_id or error is None:
-            return JsonResponse({"error": "Missing task_id or error"}, status=400)
-        
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
-        
-        # SECURITY: Validate error size (prevent DoS)
-        if len(error) > 10000:  # 10KB limit
-            return JsonResponse({"error": "Error message too large"}, status=413)
-        
-        # Store error with automatic cleanup
-        set_streaming_error(task_id, error)
-        set_streaming_status(task_id, "error")
-        
-        log.error(f"Received error for task {task_id}: {error}")
-        return JsonResponse({"status": "ok", "task_id": task_id})
-        
-    except Exception as e:
-        log.error(f"Error receiving streaming error: {e}")
-        return JsonResponse({"error": "Internal server error"}, status=500)
-
-@router.post("/api/streaming/done/", auth=None)
-async def receive_streaming_done(request):
-    """Receive completion signal from vLLM function - INTERNAL ONLY"""
-    
-    # IMPORTANT
-    # Raise error if request does not have the secret
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    if internal_secret != getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me'):
-        raise HttpError(401, "Unauthorized")
-
-    try:
-        data = json.loads(request.body)
-        task_id = data.get('task_id')
-        
-        if not task_id:
-            return JsonResponse({"error": "Missing task_id"}, status=400)
-        
-        # SECURITY: Validate task_id format (UUID)
-        try:
-            uuid.UUID(task_id)
-        except ValueError:
-            return JsonResponse({"error": "Invalid task_id format"}, status=400)
-        
-        # Mark as completed with automatic cleanup
-        set_streaming_status(task_id, "completed")
-        
-        log.info(f"Completed streaming task: {task_id}")
-        return JsonResponse({"status": "ok", "task_id": task_id})
-        
-    except Exception as e:
-        log.error(f"Error receiving streaming done: {e}")
-        return JsonResponse({"error": "Internal server error"}, status=500)
-
 
 # Add URLs to the Ninja API
 api.add_router("/", router)

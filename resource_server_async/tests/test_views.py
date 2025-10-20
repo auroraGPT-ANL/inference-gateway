@@ -122,7 +122,8 @@ class ResourceServerViewTestCase(TestCase):
             response = await method(url)
             self.assertEqual(response.status_code, 405)
 
-        # Extract number of public and premium endpoint objects from the database
+        # Extract number of public and premium Globus Compute endpoint objects from the database
+        # TODO: Re work this to test number of models with clusters that have direct API access
         db_endpoints_public = 0
         async for _ in Endpoint.objects.filter(allowed_globus_groups=""):
             db_endpoints_public += 1
@@ -146,10 +147,11 @@ class ResourceServerViewTestCase(TestCase):
             # Make sure the GET request returns the correct number of endpoints
             nb_endpoints = 0
             for cluster in response_data["clusters"]:
-                for framework in response_data["clusters"][cluster]["frameworks"]:
-                    nb_endpoints += len(response_data["clusters"][cluster]["frameworks"][framework]["models"])
+                # TODO: Generalize this to account for Non-Globus-Compute clusters
+                if cluster in ["sophia", "polaris"]:
+                    for framework in response_data["clusters"][cluster]["frameworks"]:
+                        nb_endpoints += len(response_data["clusters"][cluster]["frameworks"][framework]["models"])
             self.assertEqual(nb_endpoints_expected, nb_endpoints)
-
 
     # Test post_inference view (POST)
     async def test_post_inference_view(self):
@@ -393,7 +395,7 @@ class ResourceServerViewTestCase(TestCase):
         headers = mock_utils.get_mock_headers(access_token=self.expired_token, bearer=True)
         response = await method(url, headers=headers)
         self.assertEqual(response.status_code, 401)
-        
+
 
     # Convert bytes response to dictionary
     # This is because Django Ninja client does not take content-type json for some reason...
