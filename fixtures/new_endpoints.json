@@ -1,0 +1,38 @@
+[
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 1,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-meta-llamameta-llama-31-8b-instruct",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            "endpoint_type": "globus-compute",
+            "config": {
+                "api_port": 8001,
+                "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
+                "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+                "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+                "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+            }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 2,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-openaigpt-oss-20b",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "openai/gpt-oss-20b",
+            "endpoint_type": "globus-compute",
+            "config": {
+                "api_port": 8001,
+                "endpoint_uuid": "f28dafdf-87ea-4aae-9b62-9ca39ca9d2fd",
+                "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+                "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+                "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
+            }
+        }
+    }
+]
