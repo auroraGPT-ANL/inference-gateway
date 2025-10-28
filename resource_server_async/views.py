@@ -32,7 +32,6 @@ from resource_server_async.utils import (
     validate_request_body,
     validate_batch_body,
     #validate_file_body,
-    extract_group_uuids,
     get_qstat_details,
     update_batch_status_result,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -61,21 +60,24 @@ from resource_server_async.utils import (
     create_access_log,
     # Metis utilities
     handle_metis_streaming_inference,
-    update_metis_streaming_log
+    update_metis_streaming_log,
+    get_endpoint_wrapper
 )
 log.info("Utils functions loaded.")
 
 # Django database
 from resource_server.models import (
-    Endpoint, 
-    Log, 
     Batch, 
     FederatedEndpoint
 )
-from resource_server_async.models import RequestLog, BatchLog
+from resource_server_async.models import RequestLog, BatchLog, Endpoint
 
 # Django Ninja API
 from resource_server_async.api import api, router
+
+# Typing
+from resource_server_async.utils import EndpointWrapperResponse
+from resource_server_async.endpoints.endpoint import SubmitTaskResponse, SubmitStreamingTaskResponse
 
 # NOTE: All caching is now centralized in resource_server_async.utils
 # Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache
@@ -743,7 +745,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
     """POST request to reach Globus Compute endpoints."""
     
-    # Strip the last forward slash is needed
+    # Strip the last forward slash if needed
     if openai_endpoint[-1] == "/":
         openai_endpoint = openai_endpoint[:-1]
 
@@ -770,84 +772,18 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         return await handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework)
     
     # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
-    # Try to get endpoint from Redis cache first
-    endpoint = get_endpoint_from_cache(endpoint_slug)
-    if endpoint is None:
-        # If not in cache, fetch from DB asynchronously
-        try:
-            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
-            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
 
-            # Store the fetched endpoint in Redis cache
-            cache_endpoint(endpoint_slug, endpoint)
+    # Get endpoint wrapper from database
+    endpoint_response = await get_endpoint_wrapper(endpoint_slug)
+    if endpoint_response.error_message:
+        return await get_response(endpoint_response.error_message, endpoint_response.error_code, request)
+    endpoint = endpoint_response.endpoint
 
-        except Endpoint.DoesNotExist:
-            return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, request)
-        except Exception as e:
-            return await get_response(f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400, request)
-
-    # Use the endpoint data (either from cache or freshly fetched)
-    try:
-        data["model_params"]["api_port"] = endpoint.api_port
-    except Exception as e:
-         # If there was an error processing the data (e.g., attribute missing),
-         # it might be safer to remove it from the cache to force a refresh on next request.
-        remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(f"Error processing endpoint data for {endpoint_slug}: {e}", 400, request)
-
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        # Remove from cache if group extraction fails, as the cached data might be problematic
-        remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(error_message, 401, request)
-
-    # Block access if the user is not a member of at least one of the required groups
-    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(request.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, request)
-
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc)
-    except Exception as e:
-        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, request)
+    # Block access if the user is not allowed to use the endpoint
+    permission_response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if permission_response.error_message:
+        return await get_response(permission_response.error_message, permission_response.error_code, request)
     
-    # Query the status of the targetted Globus Compute endpoint
-    # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return await get_response(error_message, 500, request)
-        
-    # Check if the endpoint is running and whether the compute resources are ready (worker_init completed)
-    if not endpoint_status["status"] == "online":
-        return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, request)
-    resources_ready = int(endpoint_status["details"]["managers"]) > 0
-    
-    # If the compute resource is not ready (if node not acquired or if worker_init phase not completed)
-    if not resources_ready:
-
-        # If a user already triggered the model (model currently loading) ...
-        cache_key = f"endpoint_triggered:{endpoint_slug}"
-        if is_cached(cache_key, create_empty=False):
-
-            # Get model name
-            try:
-                model = data["model_params"]["model"]
-            except:
-                model = "Unknown"
-            
-            # Send an error to avoid overloading the Globus Compute endpoint
-            # This also reduces memory footprint on the API application
-            error_message = f"Error: Endpoint {endpoint_slug} online but not ready to receive tasks. "
-            error_message += "Please try again later."
-            return await get_response(error_message, 503, request)
-
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
         id=str(uuid.uuid4()),
@@ -859,25 +795,31 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         timestamp_compute_request=timezone.now()
     )
     
+    # Submit task and wait for response (if streaming, it will receive a StreamingHttpResponse object)
     if stream:
-        # Handle streaming request
+        #task_response = await endpoint.submit_streaming_task(data, request.access_log_data, request.request_log_data)
+        try:
+            gcc = globus_utils.get_compute_client_from_globus_app()
+            gce = globus_utils.get_compute_executor(client=gcc)
+        except Exception as e:
+            return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, request)
+        resources_ready = True # TODO DELETE
         return await handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=endpoint_slug)
     else:
-        # Handle non-streaming request (original logic)
-        # Submit task and wait for result
-        result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, endpoint.endpoint_uuid, endpoint.function_uuid, resources_ready, data=data, endpoint_slug=endpoint_slug
-        )
+        task_response = await endpoint.submit_task(data)
+        request.request_log_data.task_uuid = task_response.task_id
         request.request_log_data.timestamp_compute_response = timezone.now()
-        if len(error_message) > 0:
-            return await get_response(error_message, error_code, request)
-        
-        # Assign task UUID if the execution did not fail
-        request.request_log_data.task_uuid = task_uuid
 
-        # Return Globus Compute results
-        return await get_response(result, 200, request)
+    # Display error message if any
+    if task_response.error_message:
+        return await get_response(task_response.error_message, task_response.error_code, request)
     
+    # Return result to user
+    if stream:
+        return task_response.response
+    else:
+        return await get_response(task_response.result, 200, request)
+
 
 async def handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=None):
     """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
