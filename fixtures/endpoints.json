@@ -12,7 +12,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -28,7 +28,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -44,7 +44,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -73,7 +73,7 @@
             "api_port": 8000,
             "endpoint_uuid": "be293b79-501f-484e-898c-a448c4e32c36",
             "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -87,7 +87,7 @@
             "api_port": 8000,
             "endpoint_uuid": "f8bcfd58-54c6-4731-aad1-d7a27850e642",
             "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -101,7 +101,7 @@
             "api_port": 8000,
             "endpoint_uuid": "05257c2d-f136-4ffc-8d8c-66638f696335",
             "function_uuid": "3a060933-2297-403f-a9a0-1037d04a09bb",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -115,7 +115,7 @@
             "api_port": 8000,
             "endpoint_uuid": "cdc0e90b-c998-4e9e-baf8-3eb2825c878c",
             "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
         }
     },
@@ -130,7 +130,7 @@
             "api_port": 8000,
             "endpoint_uuid": "067537cf-a50d-40c5-aad7-806e4ecde6c2",
             "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -144,7 +144,7 @@
             "api_port": 8000,
             "endpoint_uuid": "b1576081-2d5a-4cd5-a37f-b4f3ae961bb1",
             "function_uuid": "f5129f81-ab07-4910-8391-52d1316296a9",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -279,7 +279,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -293,7 +293,7 @@
             "api_port": 8000,
             "endpoint_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "batch_endpoint_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             "batch_function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
@@ -327,7 +327,7 @@
             "function_uuid": "12d8339d-28eb-412b-ae37-d7b612f3f44d",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -358,7 +358,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -404,7 +404,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -420,7 +420,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -434,7 +434,7 @@
             "api_port": 8000,
             "endpoint_uuid": "712bd6f6-7f1c-45cd-9672-81d579faf4db",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -466,7 +466,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -513,7 +513,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -697,7 +697,7 @@
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
-            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
