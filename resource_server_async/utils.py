@@ -5,10 +5,14 @@ import redis
 import time
 import asyncio
 import re
+import ast
 import secrets
 import hmac
 from enum import Enum
+from typing import Optional
+from pydantic import BaseModel, Field, ConfigDict
 from django.core.cache import cache
+from django.forms.models import model_to_dict
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -31,8 +35,16 @@ from utils.globus_utils import (
     get_compute_executor,
     get_endpoint_status
 )
-from resource_server.models import ModelStatus, Endpoint
-from resource_server_async.models import (AccessLog, RequestLog, BatchLog, RequestMetrics, BatchMetrics)
+from resource_server_async.models import (
+    AccessLog, 
+    RequestLog, 
+    BatchLog, 
+    RequestMetrics, 
+    BatchMetrics, 
+    Endpoint, 
+    EndpointType
+)
+from resource_server_async.endpoints.endpoint import BaseEndpoint
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -208,39 +220,6 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
-
-
-# Extract group UUIDs from an allowed_globus_groups model field
-def extract_group_uuids(globus_groups):
-    """Extract group UUIDs from an allowed_globus_groups model field."""
-
-    # Make sure the globus_groups argument is a string
-    if not isinstance(globus_groups, str):
-        return [], "Error: globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' "
-
-    # Return empty list with no error message if no group restriction was provided
-    if len(globus_groups) == 0:
-        return [], ""
-
-    # Declare the list of group UUIDs
-    group_uuids = []
-
-    # Append each UUID to the list
-    try:
-        for group_name_uuid in globus_groups.split(";"):
-            group_uuids.append(group_name_uuid.split(":")[-1])
-    except Exception as e:
-        return [], f"Error: Exception while extracting Globus Group UUIDs. {e}"
-    
-    # Make sure that all UUID strings have the UUID format
-    for uuid_to_test in group_uuids:
-        try:
-            uuid_obj = uuid.UUID(uuid_to_test).version
-        except Exception as e:
-            return [], f"Error: Could not extract UUID format from the database. {e}"
-    
-    # Return the list of group UUIDs
-    return group_uuids, ""
 
 
 # Get qstat details
@@ -1768,3 +1747,104 @@ async def update_metis_streaming_log(log_id, streaming_state: dict, requested_mo
         
     except Exception as e:
         log.error(f"Error in update_metis_streaming_log: {e}")
+
+
+# Data structure for the get_endpoint_wrapper() function response
+class EndpointWrapperResponse(BaseModel):
+    endpoint: Optional[BaseEndpoint] = Field(default=None)
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseEndpoint
+
+# Get endpoint wrapper
+#TODO: CACHE ENDPOINT
+async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
+    """Extract the endpoint from the database and return its underlying wrapper object."""
+
+    # Try to get endpoint from Redis cache first
+    endpoint = get_endpoint_from_cache(endpoint_slug)
+
+    # If the endpoint is not chached ...
+    if endpoint is None:
+
+        # Extract endpoint from database
+        try:
+            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
+            cache_endpoint(endpoint_slug, endpoint)
+
+        # Raise errors if needed
+        except Endpoint.DoesNotExist:
+            return EndpointWrapperResponse(
+                error_message=f"Error: The requested endpoint {endpoint_slug} does not exist.",
+                error_code=400
+            )
+        except Exception as e:
+            return EndpointWrapperResponse(
+                error_message=f"Error: Could not extract endpoint {endpoint_slug}: {e}",
+                error_code=500
+            )
+
+    # Convert the config field into a dictionary
+    try:
+        endpoint_dictionary = model_to_dict(endpoint)
+        endpoint_dictionary["config"] = ast.literal_eval(endpoint.config)
+    except Exception as e:
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not load config field for {endpoint_slug}: {e}",
+            error_code=500
+        )
+
+    # Create the endpoint wrapper
+    try:
+        if endpoint.endpoint_type == EndpointType.globus_compute.value:
+            from resource_server_async.endpoints.globus_compute import GlobusCompute # Avoid circular import
+            endpoint = GlobusCompute(**endpoint_dictionary)
+        else:
+            return EndpointWrapperResponse(
+                error_message=f"Error: Could not find an endpoint wrapper '{endpoint.endpoint_type}' for {endpoint_slug}.",
+                error_code=500
+            )
+    except Exception as e:
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not create endpoint wrapper for {endpoint_slug}: {e}",
+            error_code=500
+        )
+
+    # Return the wrapped endpoint
+    return EndpointWrapperResponse(endpoint=endpoint)
+
+    # TODO: ADD CACHE (example below)
+    """
+    # Try to get endpoint from Redis cache first
+    endpoint = get_endpoint_from_cache(endpoint_slug)
+    if endpoint is None:
+        # If not in cache, fetch from DB asynchronously
+        try:
+            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
+
+            # Store the fetched endpoint in Redis cache
+            cache_endpoint(endpoint_slug, endpoint)
+
+        except Endpoint.DoesNotExist:
+            return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, request)
+        except Exception as e:
+            return await get_response(f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400, request)
+
+    # Use the endpoint data (either from cache or freshly fetched)
+    try:
+        data["model_params"]["api_port"] = endpoint.api_port
+    except Exception as e:
+         # If there was an error processing the data (e.g., attribute missing),
+         # it might be safer to remove it from the cache to force a refresh on next request.
+        remove_endpoint_from_cache(endpoint_slug)
+        return await get_response(f"Error processing endpoint data for {endpoint_slug}: {e}", 400, request)
+
+    # Extract the list of allowed group UUIDs tied to the targetted endpoint
+    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
+    if len(error_message) > 0:
+        # Remove from cache if group extraction fails, as the cached data might be problematic
+        remove_endpoint_from_cache(endpoint_slug)
+        return await get_response(error_message, 401, request)
+    """
