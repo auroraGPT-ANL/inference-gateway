@@ -1,6 +1,5 @@
 from ninja import Query
 from ninja.errors import HttpError
-from ninja.throttling import AnonRateThrottle
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.cache import cache
@@ -1167,7 +1166,7 @@ async def handle_metis_inference(request, data, stream, endpoint_slug, cluster, 
 
 # Streaming server endpoints (integrated into Django)
 
-@router.post("/api/streaming/data/", auth=None, throttle=None)
+@router.post("/api/streaming/data/", auth=None, throttle=[])
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY
     
@@ -1217,7 +1216,7 @@ async def receive_streaming_data(request):
         log.error(f"Error in streaming data endpoint: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
-@router.post("/api/streaming/error/", auth=None, throttle=None)
+@router.post("/api/streaming/error/", auth=None, throttle=[])
 async def receive_streaming_error(request):
     """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
     
@@ -1260,7 +1259,7 @@ async def receive_streaming_error(request):
         log.error(f"Error receiving streaming error: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
-@router.post("/api/streaming/done/", auth=None, throttle=None)
+@router.post("/api/streaming/done/", auth=None, throttle=[])
 async def receive_streaming_done(request):
     """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
     
