@@ -11,6 +11,12 @@ class AuthService(models.TextChoices):
     GLOBUS = "globus", "Globus"
 
 
+# Supported type of endpoints
+class EndpointType(models.TextChoices):
+    globus_compute = "globus-compute"
+    direct_api = "direct-api"
+
+
 # User model
 class User(models.Model):
     """Details about a user who was authorized to access the service"""
@@ -244,3 +250,46 @@ class BatchMetrics(models.Model):
 
     def __str__(self):
         return f"<BatchMetrics - {self.batch_id}>"
+    
+
+# Details of a given inference endpoint
+class Endpoint(models.Model):
+
+    # Slug for the endpoint
+    # <cluster>-<framework>-<model> (all lower case)
+    # Example: sophia-vllm-meta-llamameta-llama-3-70b-instruct
+    endpoint_slug = models.SlugField(max_length=100, unique=True)
+
+    # HPC machine the endpoint is running on (e.g. sophia)
+    cluster = models.CharField(max_length=100)
+
+    # Framework (e.g. vllm)
+    framework = models.CharField(max_length=100)
+
+    # Model name (e.g. cpp_meta-Llama3-8b-instruct)
+    model = models.CharField(max_length=100)
+
+    # Type of endpoint host (e.g. Globus Compute, direct API, etc.)
+    endpoint_type = models.CharField(max_length=50, choices=EndpointType.choices)
+
+    # Additional Globus group restrictions to access the endpoint (no restriction if empty)
+    # Example: "group1-name:group1-uuid; group2-name:group2-uuid; ..."
+    allowed_globus_groups = models.TextField(default="", blank=True)
+
+    # Additional domains restrictions to access the endpoint (no restriction if empty)
+    # Example: "anl.gov, alcf.anl.gov"
+    allowed_domains = models.TextField(default="", blank=True)
+
+    # Extra configuration needed to instantiate the endpoint class (based on endpoint_type)
+    # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
+    config = models.TextField(blank=True)
+
+    # String function
+    def __str__(self):
+        return f"<Endpoint {self.endpoint_slug}>"
+
+    # Automatically generate slug if not provided
+    def save(self, *args, **kwargs):
+        if self.endpoint_slug is None or self.endpoint_slug == "":
+            self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
+        super(Endpoint, self).save(*args, **kwargs)
