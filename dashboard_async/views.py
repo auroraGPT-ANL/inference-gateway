@@ -311,44 +311,107 @@ def analytics_realtime_view(request):
     return render(request, "realtime.html", context)
 
 @router.get("/analytics/metrics")
-def get_realtime_metrics(request):
+def get_realtime_metrics(request, cluster: str = "all"):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
-        # Check cache first
-        cache_key = "dashboard:realtime_metrics"
+        # Check cache first (include cluster in cache key)
+        cache_key = f"dashboard:realtime_metrics:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         from django.db import connection
+        
+        # Build cluster filter condition
+        cluster_filter = ""
+        cluster_params = []
+        if cluster and cluster.lower() != "all":
+            cluster_filter = "AND rl.cluster = %s"
+            cluster_params = [cluster.lower()]
 
-        # Breakdown of all requests using AccessLog status:
-        # - Successful: AccessLog with status_code 200-299 or 0 (all successful requests)
-        # - Failed Auth: AccessLog with NO RequestLog (failed before reaching inference)
-        # - Failed Inference: AccessLog with RequestLog but failed status (failed during inference)
+        # Refined breakdown of requests using HTTP status codes:
+        # - Successful: status_code 200-299 or 0 (all successful requests)
+        # - Failed Auth: status_code = 401 OR 403 OR (status_code >= 300 AND no RequestLog)
+        #   - 401 = Unauthorized (authentication failed)
+        #   - 403 = Forbidden (authorization failed)
+        #   - No RequestLog with error status = failed before reaching inference (likely auth/validation)
+        # - Failed Inference: Has RequestLog AND status_code >= 300 AND status_code NOT IN (401, 403)
+        #   - These reached inference but failed during processing
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT 
-                    (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog) AS total_all_requests,
-                    -- Successful: AccessLog with success status
-                    (SELECT COUNT(*) FROM resource_server_async_accesslog
-                     WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
-                    -- Failed auth: AccessLog with no corresponding RequestLog (blocked at auth layer)
-                    (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                     WHERE NOT EXISTS (
-                       SELECT 1 FROM resource_server_async_requestlog rl 
-                       WHERE rl.access_log_id = al.id
-                     ) AND (status_code >= 300 OR status_code IS NULL)) AS auth_failures,
-                    -- Failed inference: AccessLog with RequestLog but failed status (made it to inference but failed)
-                    (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                     WHERE EXISTS (
-                       SELECT 1 FROM resource_server_async_requestlog rl 
-                       WHERE rl.access_log_id = al.id
-                     ) AND (status_code >= 300 OR status_code IS NULL)) AS failed_inference,
-                    (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
-                """
-            )
+            # Base query for total_all_requests - needs cluster filter if specified
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    f"""
+                    SELECT 
+                        -- Total requests: count all AccessLog entries for this cluster (via RequestLog)
+                        (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog al
+                         WHERE EXISTS (
+                           SELECT 1 FROM resource_server_async_requestlog rl 
+                           WHERE rl.access_log_id = al.id {cluster_filter}
+                         )) AS total_all_requests,
+                        -- Successful: status_code 200-299 or 0 (filtered by cluster)
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                         WHERE (status_code = 0 OR status_code BETWEEN 200 AND 299)
+                         AND EXISTS (
+                           SELECT 1 FROM resource_server_async_requestlog rl 
+                           WHERE rl.access_log_id = al.id {cluster_filter}
+                         )) AS successful_requests,
+                        -- Failed auth: 401/403 OR (no RequestLog AND error status) - filtered by cluster if RequestLog exists
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                         WHERE (
+                           -- Explicit auth failures (401 Unauthorized, 403 Forbidden)
+                           status_code IN (401, 403)
+                           -- OR no RequestLog with error status (failed before reaching inference)
+                           OR (NOT EXISTS (
+                             SELECT 1 FROM resource_server_async_requestlog rl 
+                             WHERE rl.access_log_id = al.id
+                           ) AND status_code >= 300)
+                           -- OR has RequestLog for this cluster but with 401/403 (auth failed at inference layer)
+                           OR EXISTS (
+                             SELECT 1 FROM resource_server_async_requestlog rl 
+                             WHERE rl.access_log_id = al.id {cluster_filter}
+                             AND al.status_code IN (401, 403)
+                           )
+                         )) AS auth_failures,
+                        -- Failed inference: Has RequestLog for this cluster, error status, but NOT 401/403
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                         WHERE EXISTS (
+                           SELECT 1 FROM resource_server_async_requestlog rl 
+                           WHERE rl.access_log_id = al.id {cluster_filter}
+                         ) AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
+                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm
+                         WHERE rm.cluster = %s) AS total_tokens
+                    """,
+                    cluster_params * 5  # 5 placeholders: 4 in EXISTS/WHERE clauses + 1 in total_tokens
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT 
+                        (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog) AS total_all_requests,
+                        -- Successful: status_code 200-299 or 0
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog
+                         WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
+                        -- Failed auth: 401/403 OR (no RequestLog AND error status)
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                         WHERE (
+                           -- Explicit auth failures (401 Unauthorized, 403 Forbidden)
+                           status_code IN (401, 403)
+                           -- OR no RequestLog with error status (failed before reaching inference)
+                           OR (NOT EXISTS (
+                             SELECT 1 FROM resource_server_async_requestlog rl 
+                             WHERE rl.access_log_id = al.id
+                           ) AND status_code >= 300)
+                         )) AS auth_failures,
+                        -- Failed inference: Has RequestLog, error status, but NOT 401/403
+                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
+                         WHERE EXISTS (
+                           SELECT 1 FROM resource_server_async_requestlog rl 
+                           WHERE rl.access_log_id = al.id
+                         ) AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
+                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
+                    """
+                )
             row = cursor.fetchone()
             total_all_requests, successful_requests, auth_failures, failed_inference, total_tokens = row
         
@@ -361,27 +424,48 @@ def get_realtime_metrics(request):
         # Success rate based on real request/response (not auth failures)
         success_rate = (successful_requests / total_inference_requests) if total_inference_requests and total_inference_requests > 0 else 0.0
         
-        # Unique users: simply count from async User table (authorized users)
+        # Unique users: count users who have requests in this cluster
         try:
-            unique_users = AsyncUser.objects.count()
+            if cluster and cluster.lower() != "all":
+                unique_users = AsyncUser.objects.filter(
+                    access_logs__request_log__cluster=cluster.lower()
+                ).distinct().count()
+            else:
+                unique_users = AsyncUser.objects.count()
         except Exception:
             # Fallback to 0 on any ORM error
             unique_users = 0
 
-        # OPTIMIZED: Per-model aggregates directly from RequestMetrics (no JOINs needed!)
+        # OPTIMIZED: Per-model aggregates directly from RequestMetrics (with cluster filter if needed)
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT model,
-                       COUNT(*)::bigint AS total_requests,
-                       COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
-                       COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
-                       COALESCE(SUM(total_tokens), 0) AS total_tokens
-                FROM resource_server_async_requestmetrics
-                GROUP BY model
-                ORDER BY total_requests DESC
-                """
-            )
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    """
+                    SELECT model,
+                           COUNT(*)::bigint AS total_requests,
+                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
+                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
+                           COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    FROM resource_server_async_requestmetrics
+                    WHERE cluster = %s
+                    GROUP BY model
+                    ORDER BY total_requests DESC
+                    """,
+                    [cluster.lower()]
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT model,
+                           COUNT(*)::bigint AS total_requests,
+                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
+                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
+                           COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    FROM resource_server_async_requestmetrics
+                    GROUP BY model
+                    ORDER BY total_requests DESC
+                    """
+                )
             per_model = [
                 {
                     "model": row[0],
@@ -416,7 +500,7 @@ def get_realtime_metrics(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 @router.get("/analytics/logs")
-def get_realtime_logs(request, page: int = 0, per_page: int = 500):
+def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str = "all"):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
     try:
         start_index = page * per_page
@@ -438,8 +522,13 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500):
             .defer(  # explicitly defer heavy text fields
                 "request_log__prompt", "request_log__result"
             )
-            .order_by("-timestamp_request", "-status_code")
         )
+        
+        # Filter by cluster if specified
+        if cluster and cluster.lower() != "all":
+            qs = qs.filter(request_log__cluster=cluster.lower())
+        
+        qs = qs.order_by("-timestamp_request", "-status_code")
 
         sliced = qs[start_index:end_index]
 
@@ -527,27 +616,40 @@ def _parse_series_window(window: str):
     return timedelta(days=1), "hour"
 
 @router.get("/analytics/users-per-model")
-def get_users_per_model(request):
+def get_users_per_model(request, cluster: str = "all"):
     """Get unique users per model with caching to reduce DB load."""
     try:
         # Check cache first (5 minute TTL)
-        cache_key = "dashboard:users_per_model"
+        cache_key = f"dashboard:users_per_model:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         from django.db import connection
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
-                FROM resource_server_async_requestlog rl
-                JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                WHERE al.user_id IS NOT NULL AND al.user_id <> ''
-                GROUP BY rl.model
-                ORDER BY user_count DESC
-                """
-            )
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    """
+                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
+                    FROM resource_server_async_requestlog rl
+                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
+                    WHERE al.user_id IS NOT NULL AND al.user_id <> '' AND rl.cluster = %s
+                    GROUP BY rl.model
+                    ORDER BY user_count DESC
+                    """,
+                    [cluster.lower()]
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
+                    FROM resource_server_async_requestlog rl
+                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
+                    WHERE al.user_id IS NOT NULL AND al.user_id <> ''
+                    GROUP BY rl.model
+                    ORDER BY user_count DESC
+                    """
+                )
             rows = cursor.fetchall()
         result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
         
@@ -559,32 +661,53 @@ def get_users_per_model(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 @router.get("/analytics/users-table")
-def get_users_table(request):
+def get_users_table(request, cluster: str = "all"):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
     try:
         # Check cache first (1 minute TTL)
-        cache_key = "dashboard:users_table"
+        cache_key = f"dashboard:users_table:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         from django.db import connection
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT 
-                  u.name,
-                  u.username,
-                  MAX(al.timestamp_request) AS last_access,
-                  COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                  COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                  MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
-                FROM resource_server_async_user u
-                LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
-                GROUP BY u.name, u.username
-                ORDER BY last_access DESC NULLS LAST, u.username
-                """
-            )
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    """
+                    SELECT 
+                      u.name,
+                      u.username,
+                      MAX(al.timestamp_request) AS last_access,
+                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
+                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
+                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
+                    FROM resource_server_async_user u
+                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
+                    LEFT JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
+                    WHERE (rl.cluster = %s OR rl.cluster IS NULL)
+                    GROUP BY u.name, u.username
+                    HAVING COUNT(rl.id) > 0 OR COUNT(al.id) = 0
+                    ORDER BY last_access DESC NULLS LAST, u.username
+                    """,
+                    [cluster.lower()]
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT 
+                      u.name,
+                      u.username,
+                      MAX(al.timestamp_request) AS last_access,
+                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
+                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
+                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
+                    FROM resource_server_async_user u
+                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
+                    GROUP BY u.name, u.username
+                    ORDER BY last_access DESC NULLS LAST, u.username
+                    """
+                )
             rows = cursor.fetchall()
 
         results = []
@@ -610,44 +733,88 @@ def get_users_table(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 @router.get("/analytics/series")
-def get_overall_series(request, window: str = "24h"):
+def get_overall_series(request, window: str = "24h", cluster: str = "all"):
     try:
         from django.db import connection
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
+        
+        # Build cluster filter condition
+        cluster_join = ""
+        cluster_filter = ""
+        cluster_params = []
+        if cluster and cluster.lower() != "all":
+            cluster_join = "JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id"
+            cluster_filter = "AND rl.cluster = %s"
+            cluster_params = [cluster.lower()]
+        
         with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                WITH series AS (
-                  SELECT generate_series(
-                    date_trunc(%s, %s::timestamptz),
-                    date_trunc(%s, %s::timestamptz),
-                    CASE %s
-                      WHEN 'minute' THEN interval '1 minute'
-                      WHEN 'hour' THEN interval '1 hour'
-                      WHEN 'day' THEN interval '1 day'
-                      WHEN 'week' THEN interval '1 week'
-                      WHEN 'month' THEN interval '1 month'
-                    END
-                  ) AS bucket
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    f"""
+                    WITH series AS (
+                      SELECT generate_series(
+                        date_trunc(%s, %s::timestamptz),
+                        date_trunc(%s, %s::timestamptz),
+                        CASE %s
+                          WHEN 'minute' THEN interval '1 minute'
+                          WHEN 'hour' THEN interval '1 hour'
+                          WHEN 'day' THEN interval '1 day'
+                          WHEN 'week' THEN interval '1 week'
+                          WHEN 'month' THEN interval '1 month'
+                        END
+                      ) AS bucket
+                    )
+                    SELECT s.bucket,
+                           COALESCE(a.ok, 0) AS ok,
+                           COALESCE(a.fail, 0) AS fail
+                    FROM series s
+                    LEFT JOIN (
+                      SELECT date_trunc(%s, al.timestamp_request) AS bucket,
+                             COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
+                             COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
+                      FROM resource_server_async_accesslog al
+                      {cluster_join}
+                      WHERE al.timestamp_request >= %s AND al.timestamp_request <= %s {cluster_filter}
+                      GROUP BY bucket
+                    ) a ON a.bucket = s.bucket
+                    ORDER BY s.bucket
+                    """,
+                    [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts] + cluster_params
                 )
-                SELECT s.bucket,
-                       COALESCE(a.ok, 0) AS ok,
-                       COALESCE(a.fail, 0) AS fail
-                FROM series s
-                LEFT JOIN (
-                  SELECT date_trunc(%s, timestamp_request) AS bucket,
-                         COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
-                         COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
-                  FROM resource_server_async_accesslog
-                  WHERE timestamp_request >= %s AND timestamp_request <= %s
-                  GROUP BY bucket
-                ) a ON a.bucket = s.bucket
-                ORDER BY s.bucket
-                """,
-                [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts]
-            )
+            else:
+                cursor.execute(
+                    f"""
+                    WITH series AS (
+                      SELECT generate_series(
+                        date_trunc(%s, %s::timestamptz),
+                        date_trunc(%s, %s::timestamptz),
+                        CASE %s
+                          WHEN 'minute' THEN interval '1 minute'
+                          WHEN 'hour' THEN interval '1 hour'
+                          WHEN 'day' THEN interval '1 day'
+                          WHEN 'week' THEN interval '1 week'
+                          WHEN 'month' THEN interval '1 month'
+                        END
+                      ) AS bucket
+                    )
+                    SELECT s.bucket,
+                           COALESCE(a.ok, 0) AS ok,
+                           COALESCE(a.fail, 0) AS fail
+                    FROM series s
+                    LEFT JOIN (
+                      SELECT date_trunc(%s, timestamp_request) AS bucket,
+                             COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
+                             COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
+                      FROM resource_server_async_accesslog
+                      WHERE timestamp_request >= %s AND timestamp_request <= %s
+                      GROUP BY bucket
+                    ) a ON a.bucket = s.bucket
+                    ORDER BY s.bucket
+                    """,
+                    [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts]
+                )
             rows = cursor.fetchall()
         # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
         return [{"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)} for r in rows]
@@ -894,29 +1061,46 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
 # ========= Additional realtime endpoints =========
 @router.get("/analytics/requests-per-user")
-def get_requests_per_user(request):
+def get_requests_per_user(request, cluster: str = "all"):
     """Overall requests per user (from AccessLog/User)."""
     try:
         # Check cache first (1 minute TTL)
-        cache_key = "dashboard:requests_per_user"
+        cache_key = f"dashboard:requests_per_user:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         from django.db import connection
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT u.name, u.username,
-                       COUNT(*)::bigint AS total,
-                       COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                       COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
-                FROM resource_server_async_accesslog al
-                JOIN resource_server_async_user u ON u.id = al.user_id
-                GROUP BY u.name, u.username
-                ORDER BY total DESC
-                """
-            )
+            if cluster and cluster.lower() != "all":
+                cursor.execute(
+                    """
+                    SELECT u.name, u.username,
+                           COUNT(*)::bigint AS total,
+                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
+                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
+                    FROM resource_server_async_accesslog al
+                    JOIN resource_server_async_user u ON u.id = al.user_id
+                    JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
+                    WHERE rl.cluster = %s
+                    GROUP BY u.name, u.username
+                    ORDER BY total DESC
+                    """,
+                    [cluster.lower()]
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT u.name, u.username,
+                           COUNT(*)::bigint AS total,
+                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
+                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
+                    FROM resource_server_async_accesslog al
+                    JOIN resource_server_async_user u ON u.id = al.user_id
+                    GROUP BY u.name, u.username
+                    ORDER BY total DESC
+                    """
+                )
             rows = cursor.fetchall()
         
         result = [
@@ -1086,6 +1270,7 @@ def query_logs_custom(request):
         name_filter = request.GET.get('name', '')
         prompt_filter = request.GET.get('prompt', '')
         api_filter = request.GET.get('api', '')
+        cluster_filter = request.GET.get('cluster', '')
         from_ts = request.GET.get('from_ts', '')
         to_ts = request.GET.get('to_ts', '')
         tzname = 'America/Chicago'  # Fixed timezone
@@ -1115,6 +1300,11 @@ def query_logs_custom(request):
         if api_filter:
             conditions.append("a.api_route ILIKE %s")
             params.append(api_filter)
+        
+        # Cluster filter
+        if cluster_filter:
+            conditions.append("r.cluster = %s")
+            params.append(cluster_filter.lower())
         
         # Timestamp expression
         ts_expr = "COALESCE(r.timestamp_compute_request, a.timestamp_request)"
