@@ -2,20 +2,15 @@ import json
 import uuid
 import time
 import asyncio
-from asgiref.sync import sync_to_async
-from django.utils import timezone
 from utils import globus_utils
 from django.http import StreamingHttpResponse
 from django.core.cache import cache
 from pydantic import BaseModel, Field
-from typing import List, Optional
-from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic
-from resource_server_async.models import RequestLog
+from typing import Optional
 from resource_server_async.utils import (
     remove_endpoint_from_cache,
     prepare_streaming_task_data,
     process_streaming_completion_async,
-    create_access_log,
     extract_prompt,
     set_streaming_status,
     set_streaming_error,
@@ -27,11 +22,13 @@ from resource_server_async.utils import (
 )
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
+    GetEndpointStatusResponse,
     SubmitTaskResponse,
     SubmitStreamingTaskResponse,
     SubmitBatchResponse,
     GetBatchResultResponse,
-    GetBatchStatusResponse
+    GetBatchStatusResponse,
+    GetBatchListResponse
 )
 
 # Tool to log access requests
@@ -49,7 +46,7 @@ class EndpointConfig(BaseModel):
 
 
 # Globus Compute implementation of a BaseEndpoint
-class GlobusCompute(BaseEndpoint):
+class GlobusComputeEndpoint(BaseEndpoint):
     """Globus Compute implementation of BaseEndpoint."""
     
     # Class initialization
@@ -59,7 +56,7 @@ class GlobusCompute(BaseEndpoint):
         cluster: str = None,
         framework: str = None,
         model: str = None,
-        endpoint_type: str = None,
+        endpoint_adapter: str = None,
         allowed_globus_groups: str = None,
         allowed_domains: str = None,
         config: dict = None
@@ -68,11 +65,61 @@ class GlobusCompute(BaseEndpoint):
         self._config = EndpointConfig(**config)
 
         # Initialize the rest of the common attributes
-        super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_type, allowed_globus_groups, allowed_domains)
+        super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains)
+
+
+    # Get endpoint status
+    async def get_endpoint_status(self, gcc=None, check_managers=False) -> GetEndpointStatusResponse:
+        """Return endpoint status or an error is the endpoint cannot receive requests."""
+        
+        # Get Globus Compute client
+        if gcc is None:
+            try:
+                gcc = globus_utils.get_compute_client_from_globus_app()
+            except Exception as e:
+                return GetEndpointStatusResponse(error_code=500, error_message=str(e))
+        
+        # Query the status of the targetted Globus Compute endpoint
+        # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
+        endpoint_status, error_message = globus_utils.get_endpoint_status(
+            endpoint_uuid=self.config.endpoint_uuid, client=gcc, endpoint_slug=self.endpoint_slug
+        )
+        if len(error_message) > 0:
+            return GetEndpointStatusResponse(error_code=500, error_message=error_message)
+
+        # Check if the endpoint is online
+        if not endpoint_status["status"] == "online":
+            return GetEndpointStatusResponse(error_code=503, error_message=f"Error: Endpoint {self.endpoint_slug} is offline.")
+        
+        # If managers should be checked ...
+        # This is to prevent submitting requests to an endpoint that is not ready yet
+        if check_managers:
+
+            # Extract whether managers are deployed on the online endpoint
+            try:
+                resources_ready = int(endpoint_status["details"]["managers"]) > 0
+            except Exception as e:
+                return GetEndpointStatusResponse(error_code=500, error_message=f"Error: Cannot parse endpoint status: {e}")
+
+            # If the compute resource is not ready (if node not acquired, worker_init not completed, or lost managers) ...
+            if not resources_ready:
+
+                # If a user already triggered the model (model currently loading) ...
+                cache_key = f"endpoint_triggered:{self.endpoint_slug}"
+                if is_cached(cache_key, create_empty=False):
+                    
+                    # Send an error to avoid overloading the Globus Compute endpoint
+                    # This also reduces memory footprint on the API application
+                    error_message = f"Error: Endpoint {self.endpoint_slug} online but not ready to receive tasks. "
+                    error_message += "Please try again later."
+                    return GetEndpointStatusResponse(error_code=503, error_message=error_message)
+
+        # Return endpoint status
+        return GetEndpointStatusResponse(status=endpoint_status)
 
 
     # Submit task
-    async def submit_task(self, data) -> SubmitTaskResponse:
+    async def submit_task(self, data: dict) -> SubmitTaskResponse:
         """Submits a single interactive task to the compute resource."""
 
         # Get Globus Compute client and executor
@@ -80,45 +127,12 @@ class GlobusCompute(BaseEndpoint):
             gcc = globus_utils.get_compute_client_from_globus_app()
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
-            return SubmitTaskResponse(
-                error_code=500,
-                error_message=str(e)
-            )
+            return SubmitTaskResponse(error_code=500, error_message=str(e))
 
-        # Query the status of the targetted Globus Compute endpoint
-        # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
-        endpoint_status, error_message = globus_utils.get_endpoint_status(
-            endpoint_uuid=self.config.endpoint_uuid, client=gcc, endpoint_slug=self.endpoint_slug
-        )
-        if len(error_message) > 0:
-            return SubmitTaskResponse(
-                error_code=500,
-                error_message=error_message
-            )
-
-        # Check if the endpoint is running and whether the compute resources are ready (managers deployed)
-        if not endpoint_status["status"] == "online":
-            return SubmitTaskResponse(
-                error_code=503,
-                error_message=f"Error: Endpoint {self.endpoint_slug} is offline."
-            )
-        resources_ready = int(endpoint_status["details"]["managers"]) > 0
-
-        # If the compute resource is not ready (if node not acquired or worker_init phase not completed)
-        if not resources_ready:
-
-            # If a user already triggered the model (model currently loading) ...
-            cache_key = f"endpoint_triggered:{self.endpoint_slug}"
-            if is_cached(cache_key, create_empty=False):
-                
-                # Send an error to avoid overloading the Globus Compute endpoint
-                # This also reduces memory footprint on the API application
-                error_message = f"Error: Endpoint {self.endpoint_slug} online but not ready to receive tasks. "
-                error_message += "Please try again later."
-                return SubmitTaskResponse(
-                    error_code=503,
-                    error_message=error_message
-                )
+        # Check endpoint status
+        response = await self.get_endpoint_status(gcc=gcc, check_managers=True)
+        if response.error_message:
+            return SubmitTaskResponse(error_code=response.error_code, error_message=response.error_message)
 
         # Add API port to the input data
         try:
@@ -132,27 +146,17 @@ class GlobusCompute(BaseEndpoint):
 
         # Submit Globus Compute task and wait for the result
         result, task_id, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, self.config.endpoint_uuid, self.config.function_uuid, resources_ready, data=data, endpoint_slug=self.endpoint_slug
+            gce, self.config.endpoint_uuid, self.config.function_uuid, data=data, endpoint_slug=self.endpoint_slug
         )
         if len(error_message) > 0:
-            return SubmitTaskResponse(
-                error_code=error_code,
-                error_message=error_message
-            )
+            return SubmitTaskResponse(error_code=error_code, error_message=error_message)
 
         # Return the successful result
-        return SubmitTaskResponse(
-            result=result,
-            task_id=task_id
-        )
+        return SubmitTaskResponse(result=result, task_id=task_id)
     
 
     # Submit streaming task
-    async def submit_streaming_task(self,
-        data, 
-        access_log_data: AccessLogPydantic = None,
-        request_log_data: RequestLogPydantic = None,
-        ) -> SubmitStreamingTaskResponse:
+    async def submit_streaming_task(self, data: dict, request_log_id: str) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
         
         # Generate unique task ID for streaming
@@ -185,6 +189,11 @@ class GlobusCompute(BaseEndpoint):
                     error_message=str(e)
                 )
             gce.endpoint_id = self.config.endpoint_uuid
+
+            # Check endpoint status
+            response = await self.get_endpoint_status(gcc=gcc)
+            if response.error_message:
+                return SubmitStreamingTaskResponse(error_code=response.error_code, error_message=response.error_message)
             
             # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
             future = gce.submit_to_registered_function(self.config.function_uuid, args=[data])
@@ -206,60 +215,21 @@ class GlobusCompute(BaseEndpoint):
             task_uuid = globus_utils.get_task_uuid(future)
             
         except Exception as e:
-            return SubmitStreamingTaskResponse(
-                error_code=500,
-                error_message=f"Error: Could not submit streaming task: {e}"
-            )
+            return SubmitStreamingTaskResponse(error_code=500, error_message=f"Error: Could not submit streaming task: {e}")
         
         # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
-        if self.endpoint_slug:
-            cache_key = f"endpoint_triggered:{self.endpoint_slug}"
-            ttl = 600 # 10 minutes
-            try:
-                cache.set(cache_key, True, ttl)
-            except Exception as e:
-                log.warning(f"Failed to cache endpoint_triggered:{self.endpoint_slug}: {e}")
-        
-        # Create initial log entry and get the ID for later updating
-        request_log_data.result = "streaming_response_in_progress"
-        request_log_data.timestamp_compute_response = timezone.now()
-        
-        # Set task_uuid in database data
-        if task_uuid:
-            request_log_data.task_uuid = str(task_uuid)
-            log.info(f"Streaming request task UUID: {task_uuid}")
-        else:
-            log.warning("No task UUID captured for streaming request")
-            request_log_data.task_uuid = None
-
-        # Create AccessLog database entry
-        access_log_data.status_code = 200
+        cache_key = f"endpoint_triggered:{self.endpoint_slug}"
+        ttl = 600 # 10 minutes
         try:
-            access_log = await create_access_log(access_log_data, "", 200)
+            cache.set(cache_key, True, ttl)
         except Exception as e:
-            return SubmitStreamingTaskResponse(
-                task_id=task_uuid,
-                error_code=500,
-                error_message=f"Error: Could not create AccessLog entry: {e}"
-            )
-        
-        # Create initial log entry
-        try:
-            request_log_data.access_log = access_log
-            db_log = RequestLog(**request_log_data.model_dump())
-            await sync_to_async(db_log.save, thread_sensitive=True)()
-            log_id = db_log.id
-            log.info(f"Created initial streaming log entry {log_id} for task {task_uuid}")
-        except Exception as e:
-            log.error(f"Error creating initial streaming log entry: {e}")
-            log_id = None
+            log.warning(f"Failed to cache endpoint_triggered:{self.endpoint_slug}: {e}")
         
         # Start background processing for metrics collection (fire and forget)
-        if log_id:
-            asyncio.create_task(process_streaming_completion_async(
-                task_uuid, stream_task_id, log_id, future, streaming_start_time,
-                extract_prompt(data["model_params"]) if data.get("model_params") else None
-            ))
+        asyncio.create_task(process_streaming_completion_async(
+            task_uuid, stream_task_id, request_log_id, future, streaming_start_time,
+            extract_prompt(data["model_params"]) if data.get("model_params") else None
+        ))
         
         # Create simple SSE streaming response  
         async def sse_generator():
@@ -373,10 +343,7 @@ class GlobusCompute(BaseEndpoint):
                 log.error(f"Exception in SSE generator for task {stream_task_id}: {e}")
         
         # Create streaming response
-        response = StreamingHttpResponse(
-            streaming_content=sse_generator(),
-            content_type='text/event-stream'
-        )
+        response = StreamingHttpResponse(streaming_content=sse_generator(), content_type='text/event-stream')
         
         # Set headers for SSE using utility function
         headers = create_streaming_response_headers()
@@ -384,22 +351,24 @@ class GlobusCompute(BaseEndpoint):
             response[key] = value
 
         # Return response with StreamingHttpResponse object
-        return SubmitStreamingTaskResponse(
-            response=response,
-            task_id=task_uuid
-        ) 
+        return SubmitStreamingTaskResponse(response=response, task_id=task_uuid)
       
+    # Enable batch support
+    def has_batch_enabled(self) -> bool:
+        """Return True if batch can be used for this endpoint, False otherwise."""
+        return (self.config.batch_endpoint_uuid is not None) and (self.config.batch_function_uuid is not None)
 
     async def submit_batch(self) -> SubmitBatchResponse: # <-- Needs arguments here ...
         """Submits a batch job to the compute resource."""
         pass
-
-    async def get_batch_list(self) -> List[SubmitBatchResponse]: # <-- Needs arguments here ...
-        """Get the list of a all batch jobs and their statuses."""
-        pass
+        # If not has_batch_enabled ... error
 
     async def get_batch_status(self) -> GetBatchStatusResponse: # <-- Needs arguments here ...
         """Get the status of a batch job."""
+        pass
+
+    async def get_batch_list(self) -> GetBatchListResponse: # <-- Needs arguments here ...
+        """Get the list of a all batch jobs and their statuses."""
         pass
 
     async def get_batch_result(self) -> GetBatchResultResponse: # <-- Needs arguments here ...
