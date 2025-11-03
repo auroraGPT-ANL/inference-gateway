@@ -8,6 +8,7 @@ import re
 import ast
 import secrets
 import hmac
+import importlib
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
@@ -25,7 +26,6 @@ from utils.pydantic_models.batch import BatchPydantic
 from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
 from cachetools import TTLCache
 from utils.globus_utils import (
     submit_and_get_result,
@@ -42,9 +42,10 @@ from resource_server_async.models import (
     RequestMetrics, 
     BatchMetrics, 
     Endpoint, 
-    EndpointType
+    Cluster,
 )
 from resource_server_async.endpoints.endpoint import BaseEndpoint
+from resource_server_async.clusters.cluster import BaseCluster
 
 log = logging.getLogger(__name__) # Add logger
 
@@ -279,7 +280,7 @@ async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
     
     # Submit task and wait for result
     result, task_uuid, error_message, error_code = await submit_and_get_result(
-        gce, endpoint_uuid, function_uuid, True, timeout=timeout
+        gce, endpoint_uuid, function_uuid, timeout=timeout
     )
     if len(error_message) > 0:
         return None, task_uuid, error_message, error_code
@@ -943,6 +944,41 @@ def remove_endpoint_from_cache(endpoint_slug):
         log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
 
 
+# ========================================
+# Cluster Caching
+# ========================================
+
+def get_cluster_from_cache(cluster_name):
+    """Get cluster from cache or None if not found"""
+    cache_key = f"cluster:{cluster_name}"
+    try:
+        cached_cluster = cache.get(cache_key)
+        if cached_cluster:
+            log.info(f"Retrieved cluster {cluster_name} from cache.")
+            return cached_cluster
+    except Exception as e:
+        log.warning(f"Cache error for cluster {cluster_name}: {e}")
+    return None
+
+def cache_cluster(cluster_name, cluster_data):
+    """Cache cluster data (5 minute TTL)"""
+    cache_key = f"cluster:{cluster_name}"
+    try:
+        cache.set(cache_key, cluster_data, 300)
+        log.info(f"Cached cluster {cluster_name}.")
+    except Exception as e:
+        log.warning(f"Failed to cache cluster {cluster_name}: {e}")
+
+def remove_cluster_from_cache(cluster_name):
+    """Remove cluster from cache"""
+    cache_key = f"cluster:{cluster_name}"
+    try:
+        cache.delete(cache_key)
+        log.info(f"Removed cluster {cluster_name} from cache.")
+    except Exception as e:
+        log.warning(f"Failed to remove cluster {cluster_name} from cache: {e}")
+
+
 # Get HTTP response
 async def get_response(content, code, request):
     """Create database entries and prepare the HTTP response for the user."""
@@ -1593,162 +1629,6 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             pass
 
 
-# ============================================================================
-# Metis Cluster Utilities
-# ============================================================================
-
-async def handle_metis_streaming_inference(
-    request, 
-    model_info: dict, 
-    endpoint_id: str, 
-    api_request_data: dict, 
-    requested_model: str,
-    access_log
-):
-    """
-    Handle streaming inference for Metis cluster.
-    
-    Args:
-        request: Django request object with request_log_data
-        model_info: Model information from Metis status
-        endpoint_id: Metis endpoint UUID for token lookup
-        api_request_data: Request payload in OpenAI format
-        requested_model: Name of the requested model
-        access_log: AccessLog database object
-    
-    Returns:
-        StreamingHttpResponse with SSE content
-    """
-    from django.http import StreamingHttpResponse
-    import utils.metis_utils as metis_utils
-    
-    # Create initial log entry
-    try:
-        request.request_log_data.access_log = access_log
-        request.request_log_data.result = "streaming_response_in_progress"
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        request.request_log_data.task_uuid = None  # Metis doesn't use task UUIDs
-        
-        db_log = RequestLog(**request.request_log_data.model_dump())
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-        log_id = db_log.id
-        log.info(f"Created Metis streaming log {log_id} for {requested_model}")
-    except Exception as e:
-        log.error(f"Error creating Metis streaming log: {e}")
-        log_id = None
-    
-    # Shared state for tracking streaming (optimized - minimal memory)
-    streaming_state = {
-        'chunks': [],  # Limited to 100 chunks
-        'total_chunks': 0,
-        'completed': False,
-        'error': None,
-        'start_time': time.time()
-    }
-    
-    # SSE generator
-    async def metis_sse_generator():
-        """Stream SSE chunks from Metis API"""
-        try:
-            async for chunk in metis_utils.stream_metis_api(model_info, endpoint_id, api_request_data):
-                if chunk:
-                    streaming_state['total_chunks'] += 1
-                    yield chunk  # Pass through SSE format
-                    
-                    # Collect limited chunks for logging (optimize memory)
-                    if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
-                        if len(streaming_state['chunks']) < 100:
-                            try:
-                                streaming_state['chunks'].append(chunk[6:].strip())
-                            except:
-                                pass
-            
-            streaming_state['completed'] = True
-                    
-        except Exception as e:
-            error_str = str(e)
-            log.error(f"Metis streaming error: {error_str}")
-            streaming_state['error'] = error_str
-            streaming_state['completed'] = True
-            
-            # Send error as OpenAI streaming chunk format (compatible with OpenAI clients)
-            error_chunk = {
-                "id": f"chatcmpl-metis-error",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": requested_model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": f"\n\n[ERROR] {error_str}"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }
-            yield f"data: {json.dumps(error_chunk)}\n\n"
-            yield "data: [DONE]\n\n"
-    
-    # Start background task to update log
-    if log_id:
-        asyncio.create_task(update_metis_streaming_log(
-            log_id, streaming_state, requested_model
-        ))
-    
-    # Create streaming response
-    response = StreamingHttpResponse(
-        streaming_content=metis_sse_generator(),
-        content_type='text/event-stream'
-    )
-    
-    # Set SSE headers
-    for key, value in create_streaming_response_headers().items():
-        response[key] = value
-    
-    return response
-
-
-async def update_metis_streaming_log(log_id, streaming_state: dict, requested_model: str):
-    """
-    Background task to update RequestLog after Metis streaming completes.
-    
-    Optimized to:
-    - Wait efficiently for completion
-    - Update database once
-    - Handle errors gracefully
-    """
-    try:
-        # Wait for completion (efficient polling with timeout)
-        max_wait = 600  # 10 minutes
-        waited = 0
-        poll_interval = 0.5  # 500ms
-        
-        while not streaming_state['completed'] and waited < max_wait:
-            await asyncio.sleep(poll_interval)
-            waited += poll_interval
-        
-        # Get metrics
-        duration = time.time() - streaming_state['start_time']
-        total_chunks = streaming_state['total_chunks']
-        
-        # Update database (single query)
-        db_log = await sync_to_async(RequestLog.objects.get)(id=log_id)
-        
-        if streaming_state['error']:
-            db_log.result = f"error: {streaming_state['error']}"
-            log.error(f"Metis streaming failed for {requested_model}: {streaming_state['error']}")
-        else:
-            # Store limited chunks or completion marker
-            db_log.result = "\n".join(streaming_state['chunks']) if streaming_state['chunks'] else "streaming_completed"
-            log.info(f"Metis streaming completed for {requested_model}: {total_chunks} chunks in {duration:.2f}s")
-        
-        db_log.timestamp_compute_response = timezone.now()
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-        
-    except Exception as e:
-        log.error(f"Error in update_metis_streaming_log: {e}")
-
-
 # Data structure for the get_endpoint_wrapper() function response
 class EndpointWrapperResponse(BaseModel):
     endpoint: Optional[BaseEndpoint] = Field(default=None)
@@ -1791,28 +1671,36 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
         endpoint_dictionary["config"] = ast.literal_eval(endpoint.config)
     except Exception as e:
         return EndpointWrapperResponse(
-            error_message=f"Error: Could not load config field for {endpoint_slug}: {e}",
+            error_message=f"Error: Could not load config field for {endpoint_slug}: {e} {endpoint_dictionary}",
             error_code=500
         )
-
-    # Create the endpoint wrapper
+    
+    # Extract the adapter class from the endpoint's database configuration
     try:
-        if endpoint.endpoint_type == EndpointType.globus_compute.value:
-            from resource_server_async.endpoints.globus_compute import GlobusCompute # Avoid circular import
-            endpoint = GlobusCompute(**endpoint_dictionary)
-        else:
-            return EndpointWrapperResponse(
-                error_message=f"Error: Could not find an endpoint wrapper '{endpoint.endpoint_type}' for {endpoint_slug}.",
-                error_code=500
-            )
+        parts = endpoint.endpoint_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])    
+        AdapterClass = getattr(module, parts[1])
     except Exception as e:
         return EndpointWrapperResponse(
-            error_message=f"Error: Could not create endpoint wrapper for {endpoint_slug}: {e}",
+            error_message=f"Error: Could not load endpoint adapter class {endpoint.endpoint_adapter}: {e}",
+            error_code=500
+        )        
+
+    # Make sure the adaptor inherits from the BaseEndpoint generic class
+    if not issubclass(AdapterClass, BaseEndpoint):
+        return EndpointWrapperResponse(
+            error_message=f"Error: Endpoint adapter {endpoint.endpoint_adapter} should inherit from BaseEndpoint.",
             error_code=500
         )
-
-    # Return the wrapped endpoint
-    return EndpointWrapperResponse(endpoint=endpoint)
+    
+    # Instantiate and return the adaptor class
+    try:
+        return EndpointWrapperResponse(endpoint=AdapterClass(**endpoint_dictionary))
+    except Exception as e:
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not instantiate endpoint adapter {endpoint.endpoint_adapter}: {e}",
+            error_code=500
+        )
 
     # TODO: ADD CACHE (example below)
     """
@@ -1848,3 +1736,77 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
         remove_endpoint_from_cache(endpoint_slug)
         return await get_response(error_message, 401, request)
     """
+
+
+# Data structure for the get_cluster_wrapper() function response
+class ClusterWrapperResponse(BaseModel):
+    cluster: Optional[BaseCluster] = Field(default=None)
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseCluster
+
+# Get cluster wrapper
+#TODO: CACHE CLUSTER
+async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
+    """Extract the cluster from the database and return its underlying wrapper object."""
+
+    # Try to get cluster from Redis cache first
+    cluster = get_cluster_from_cache(cluster_name)
+
+    # If the cluster is not chached ...
+    if cluster is None:
+
+        # Extract cluster from database
+        try:
+            get_cluster_async = sync_to_async(Cluster.objects.get, thread_sensitive=True)
+            cluster = await get_cluster_async(cluster_name=cluster_name)
+            cache_cluster(cluster_name, cluster)
+
+        # Raise errors if needed
+        except Cluster.DoesNotExist:
+            return ClusterWrapperResponse(
+                error_message=f"Error: The requested cluster {cluster_name} does not exist.",
+                error_code=400
+            )
+        except Exception as e:
+            return ClusterWrapperResponse(
+                error_message=f"Error: Could not extract cluster {cluster_name}: {e}",
+                error_code=500
+            )
+
+    # Convert the OpenAI endpoints field into a dictionary
+    try:
+        cluster_dictionary = model_to_dict(cluster)
+        cluster_dictionary["openai_endpoints"] = ast.literal_eval(cluster.openai_endpoints)
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not load openai_endpoints field for {cluster_name}: {e} {cluster_dictionary}",
+            error_code=500
+        )
+
+    # Extract the adapter class from the cluster's database configuration
+    try:
+        parts = cluster.cluster_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])    
+        AdapterClass = getattr(module, parts[1])
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not load cluster adapter class {cluster.cluster_adapter}: {e}",
+            error_code=500
+        )        
+
+    # Make sure the adaptor inherits from the BaseCluster generic class
+    if not issubclass(AdapterClass, BaseCluster):
+        return ClusterWrapperResponse(
+            error_message=f"Error: Cluster adapter {cluster.cluster_adapter} should inherit from BaseCluster.",
+            error_code=500
+        )
+    
+    # Instantiate and return the adaptor class
+    try:
+        return ClusterWrapperResponse(cluster=AdapterClass(**cluster_dictionary))
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not instantiate cluster adapter {cluster.cluster_adapter}: {e}",
+            error_code=500
+        )
