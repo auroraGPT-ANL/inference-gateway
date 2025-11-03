@@ -470,27 +470,66 @@
       }
     }
     
+    // Track if we've shown an auth error to avoid duplicates
+    let authErrorShown = false;
+    
     // Enhanced fetch wrapper to catch and display errors
     async function safeFetch(url, options = {}) {
       try {
         const response = await fetch(url, options);
         
-        // Handle authentication errors
+        // Handle authentication errors - only show if it's actually an auth issue
         if (response.status === 401 || response.status === 403) {
-          const errorText = await response.text();
-          let errorMsg = 'Your session has expired. Please log in again.';
-          try {
-            const errorJson = JSON.parse(errorText);
-            if (errorJson.error) errorMsg = errorJson.error;
-          } catch (e) {
-            // Use default message
+          // Only show auth error once and only if we haven't already shown one
+          if (!authErrorShown) {
+            const contentType = response.headers.get('content-type') || '';
+            
+            // For JSON responses, check if it's actually an auth error
+            if (contentType.includes('application/json')) {
+              try {
+                const errorText = await response.text();
+                const errorJson = JSON.parse(errorText);
+                const errorMsg = errorJson.detail || errorJson.message || errorJson.error || '';
+                
+                // Only treat as auth error if message indicates authentication/authorization issue
+                const lowerMsg = errorMsg.toLowerCase();
+                if (lowerMsg.includes('authentication') || lowerMsg.includes('authorization') || 
+                    lowerMsg.includes('unauthorized') || lowerMsg.includes('forbidden') ||
+                    lowerMsg.includes('session') || lowerMsg.includes('token') ||
+                    lowerMsg.includes('expired') || lowerMsg.includes('invalid')) {
+                  authErrorShown = true;
+                  showError(errorMsg || 'Your session has expired. Please log in again.', 'error');
+                  // Redirect to login after a short delay
+                  setTimeout(() => {
+                    window.location.href = '/dashboard/login?next=' + encodeURIComponent(window.location.pathname);
+                  }, 2000);
+                  throw new Error(errorMsg || 'Authentication failed');
+                }
+                // If 401/403 but message doesn't indicate auth, don't show auth error
+                // (might be a data issue, just throw generic error)
+                throw new Error(errorMsg || `Request failed with status ${response.status}`);
+              } catch (e) {
+                // If parse fails or not JSON, only show auth error if message suggests it
+                if (!e.message || e.message.toLowerCase().includes('authentication') || 
+                    e.message.toLowerCase().includes('expired') || e.message.toLowerCase().includes('session')) {
+                  authErrorShown = true;
+                  showError('Your session has expired. Please log in again.', 'error');
+                  setTimeout(() => {
+                    window.location.href = '/dashboard/login?next=' + encodeURIComponent(window.location.pathname);
+                  }, 2000);
+                }
+                throw e;
+              }
+            } else {
+              // Non-JSON 401/403 - treat as auth error but only show once
+              authErrorShown = true;
+              showError('Your session has expired. Please log in again.', 'error');
+              setTimeout(() => {
+                window.location.href = '/dashboard/login?next=' + encodeURIComponent(window.location.pathname);
+              }, 2000);
+              throw new Error('Authentication failed');
+            }
           }
-          showError(errorMsg, 'error');
-          // Redirect to login after a short delay
-          setTimeout(() => {
-            window.location.href = '/dashboard/login?next=' + encodeURIComponent(window.location.pathname);
-          }, 2000);
-          throw new Error(errorMsg);
         }
         
         // Handle other errors
@@ -500,10 +539,14 @@
           try {
             const errorJson = JSON.parse(errorText);
             if (errorJson.error) errorMsg = errorJson.error;
+            else if (errorJson.detail) errorMsg = errorJson.detail;
           } catch (e) {
             if (errorText) errorMsg = errorText.substring(0, 200);
           }
-          showError(errorMsg, 'error');
+          // Only show non-auth errors if status is not 401/403 (already handled above)
+          if (response.status !== 401 && response.status !== 403) {
+            showError(errorMsg, 'error');
+          }
           throw new Error(errorMsg);
         }
         
@@ -512,7 +555,7 @@
         // Network errors or other fetch failures
         if (error.name === 'TypeError' && error.message.includes('fetch')) {
           showError('Network error: Unable to connect to the server. Please check your connection.', 'error');
-        } else if (!error.message.includes('expired') && !error.message.includes('session')) {
+        } else if (!error.message.includes('expired') && !error.message.includes('session') && !error.message.includes('Authentication failed')) {
           showError(`Error: ${error.message}`, 'error');
         }
         throw error;
@@ -1013,9 +1056,20 @@
     document.getElementById('qbDownload').addEventListener('click', downloadQueryResults);
 
     // Check for Django messages on page load
+    // Filter out auth-related messages to avoid false warnings when user is authenticated
     {% if messages %}
       {% for message in messages %}
-        showError('{{ message|escapejs }}', '{% if message.tags == "error" %}error{% elif message.tags == "warning" %}warning{% else %}info{% endif %}');
+        {
+          const msgText = '{{ message|escapejs }}';
+          const msgLower = msgText.toLowerCase();
+          // Only show message if it's not auth-related (to avoid false positives)
+          if (msgLower.indexOf('authentication') === -1 && 
+              msgLower.indexOf('session') === -1 && 
+              msgLower.indexOf('expired') === -1 &&
+              msgLower.indexOf('unauthorized') === -1) {
+            showError(msgText, '{% if message.tags == "error" %}error{% elif message.tags == "warning" %}warning{% else %}info{% endif %}');
+          }
+        }
       {% endfor %}
     {% endif %}
     
