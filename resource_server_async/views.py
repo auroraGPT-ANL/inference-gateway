@@ -457,7 +457,10 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Reject request if the allowed quota per user would be exceeded
     try:
         number_of_active_batches = 0
-        async for batch in Batch.objects.filter(username=request.auth.username, status__in=["pending", "running"]):
+        async for batch in BatchLog.objects.filter(
+            access_log__user__username=request.auth.username,
+            status__in=["pending", "running"]
+        ).select_related("access_log", "access_log__user").aiterator():
             number_of_active_batches += 1
         if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
             error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
@@ -504,11 +507,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # TODO: More checks here to make sure we don't duplicate batches?
     #       Do we allow multiple batches on the same file on different clusters?
     try:
-        async for batch in Batch.objects.filter(input_file=batch_data["input_file"]):
+        async for batch in BatchLog.objects.filter(input_file=batch_data["input_file"]):
             if not batch.status in ["failed", "completed"]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_response(error_message, 400, request)
-    except Batch.DoesNotExist:
+    except BatchLog.DoesNotExist:
         pass # Batch can be submitted if the input_file is not used by any other batches
     except Exception as e:
         return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, request)
@@ -613,7 +616,9 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
     try:
 
         # For each batch object owned by the user ...
-        async for batch in BatchLog.objects.filter(username=request.auth.username):
+        async for batch in BatchLog.objects.filter(
+            access_log__user__username=request.auth.username
+        ).select_related("access_log", "access_log__user").aiterator():
 
             # Get a status update for the batch (this will update the database if needed)
             batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
@@ -628,11 +633,13 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
                 # Add the batch details to the list
                 batch_list.append(
                 {
-                    "batch_id": str(batch.batch_id),
+                    "batch_id": str(batch.id),
                     "cluster": batch.cluster,
                     "framework": batch.framework,
                     "input_file": batch.input_file,
-                    "created_at": str(batch.created_at),
+                    "in_progress_at": str(batch.in_progress_at),
+                    "completed_at": str(batch.completed_at),
+                    "failed_at": str(batch.failed_at),
                     "status": batch_status
                 }
             )
@@ -657,7 +664,13 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
     # Recover batch object in the database
     try:
-        batch = await sync_to_async(BatchLog.objects.get)(batch_id=batch_id)
+        batch = await sync_to_async(
+            lambda: BatchLog.objects.select_related(
+                "access_log",
+                "access_log__user"
+            ).get(id=batch_id),
+            thread_sensitive=True,
+        )()
     except BatchLog.DoesNotExist:
         return await get_response(f"Error: Batch {batch_id} does not exist.", 400, request)
     except Exception as e:
@@ -665,7 +678,7 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
     # Make sure user has permission to access this batch_id
     try:
-        if not request.auth.username == batch.username:
+        if not request.auth.username == batch.access_log.user.username:
             error_message = f"Error: Permission denied to Batch {batch_id}."
             return await get_response(error_message, 403, request)
     except Exception as e:
@@ -688,7 +701,13 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Recover batch object in the database
     try:
-        batch = await sync_to_async(BatchLog.objects.get)(batch_id=batch_id)
+        batch = await sync_to_async(
+            lambda: BatchLog.objects.select_related(
+                "access_log",
+                "access_log__user"
+            ).get(id=batch_id),
+            thread_sensitive=True,
+        )()
     except BatchLog.DoesNotExist:
         return await get_response(f"Error: Batch {batch_id} does not exist.", 400, request)
     except Exception as e:
@@ -696,7 +715,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Make sure user has permission to access this batch_id
     try:
-        if not request.auth.username == batch.username:
+        if not request.auth.username == batch.access_log.user.username:
             error_message = f"Error: Permission denied to Batch {batch_id}.."
             return await get_response(error_message, 403, request)
     except Exception as e:
