@@ -355,64 +355,6 @@ async def stream_metis_api(
         raise ValueError(f"Unexpected error: {str(e)}")
 
 
-def format_metis_status_for_jobs(status_data: Dict) -> Dict:
-    """
-    Format Metis status data to match the jobs endpoint output format.
-    
-    Args:
-        status_data: Raw Metis status dictionary
-    
-    Returns:
-        Formatted dictionary matching the jobs endpoint format
-    """
-    formatted = {
-        "running": [],
-        "queued": [],
-        "stopped": [],
-        "cluster_status": {
-            "cluster": "metis",
-            "total_models": len(status_data),
-            "live_models": 0,
-            "stopped_models": 0
-        }
-    }
-    
-    for model_key, model_info in status_data.items():
-        status = model_info.get("status", "Unknown")
-        experts = model_info.get("experts", [])
-        
-        # Format models list consistently with other clusters
-        models_str = ",".join(experts) if isinstance(experts, list) else str(experts)
-        
-        # Build description from model name and description
-        model_name = model_info.get("model", "")
-        description = model_info.get("description", "")
-        full_description = f"{model_name} - {description}" if model_name and description else (model_name or description)
-        
-        # Do not expose sensitive fields like model_key, endpoint_id, or url to users
-        # Format consistently with Sophia/Polaris jobs output
-        job_entry = {
-            "Models": models_str,
-            "Framework": "api",
-            "Cluster": "metis",
-            "Model Status": "running" if status == "Live" else status.lower(),
-            "Description": full_description,
-            "Model Version": model_info.get("model_version", "")
-        }
-        
-        if status == "Live":
-            formatted["running"].append(job_entry)
-            formatted["cluster_status"]["live_models"] += 1
-        elif status == "Stopped":
-            formatted["stopped"].append(job_entry)
-            formatted["cluster_status"]["stopped_models"] += 1
-        else:
-            # Any other status goes to queued
-            formatted["queued"].append(job_entry)
-    
-    return formatted
-
-
 def format_metis_status_for_list_endpoints(status_data: Dict) -> List[Dict]:
     """
     Format Metis status data for list-endpoints response.
