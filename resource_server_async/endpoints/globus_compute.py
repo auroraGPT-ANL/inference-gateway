@@ -31,7 +31,7 @@ from resource_server_async.endpoints.endpoint import (
     GetBatchListResponse
 )
 
-# Tool to log access requests
+# Logging tool
 import logging
 log = logging.getLogger(__name__)
 
