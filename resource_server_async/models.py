@@ -272,7 +272,7 @@ class Endpoint(models.Model):
     # Example: "anl.gov, alcf.anl.gov"
     allowed_domains = models.TextField(default="", blank=True)
 
-    # Extra configuration needed to instantiate the endpoint class (based on endpoint_type)
+    # Extra configuration needed to instantiate the endpoint class
     # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
     config = models.TextField(blank=True)
 
@@ -307,6 +307,10 @@ class Cluster(models.Model):
     # Additional domains restrictions to access the cluster (no restriction if empty)
     # Example: "anl.gov, alcf.anl.gov"
     allowed_domains = models.TextField(default="", blank=True)
+
+    # Extra configuration needed to instantiate the cluster class
+    # Should be json.dumps string. Will be converted into a python dictionaty within the cluster object
+    config = models.TextField(blank=True)
 
     # String function
     def __str__(self):
