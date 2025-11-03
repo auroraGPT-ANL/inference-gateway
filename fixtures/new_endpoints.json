@@ -7,7 +7,7 @@
             "cluster": "sophia",
             "framework": "vllm",
             "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-            "endpoint_type": "globus-compute",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
             "config": {
                 "api_port": 8001,
                 "endpoint_uuid": "f69909d6-62de-4e45-8c2a-4c37e0b6b11e",
@@ -25,7 +25,7 @@
             "cluster": "sophia",
             "framework": "vllm",
             "model": "openai/gpt-oss-20b",
-            "endpoint_type": "globus-compute",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
             "config": {
                 "api_port": 8001,
                 "endpoint_uuid": "f28dafdf-87ea-4aae-9b62-9ca39ca9d2fd",
@@ -33,6 +33,18 @@
                 "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
                 "batch_function_uuid": "bafe3b16-bbe2-458a-ad88-9b3545e92797"
             }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 3,
+        "fields": {
+            "endpoint_slug": "metis-api-meta-llama-31-8b-instruct",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "Meta-Llama-3.1-8B-Instruct",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {}
         }
     }
 ]
