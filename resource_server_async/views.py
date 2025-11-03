@@ -18,7 +18,6 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
 import utils.globus_utils as globus_utils
-import utils.metis_utils as metis_utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from resource_server_async.utils import (
     validate_url_inputs, 
@@ -26,7 +25,6 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
-    get_qstat_details,
     update_batch_status_result,
     ALLOWED_QSTAT_ENDPOINTS,
     BatchListFilter,
@@ -133,244 +131,29 @@ async def get_list_endpoints(request):
     return await get_response(json.dumps(all_endpoints), 200, request)
 
 
-# List Endpoints Detailed (GET)
-@router.get("/list-endpoints-detailed")
-async def get_list_endpoints_detailed(request):
-    """GET request to list the available frameworks and models with live status."""
-
-    # Collect endpoints objects from the database
-    try:
-        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
-    except Exception as e:
-        return await get_response(f"Error: Could not access Endpoint database entries: {e}", 400, request)
-    
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc)
-    except Exception as e:
-        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, request)
-
-    # Prepare the list of available frameworks and models
-    all_endpoints = {"clusters": {}}
-    qstat_model_status = {}
-    qstat_cluster_available = []
-    try:
-
-        # For each database endpoint entry ...
-        for endpoint in endpoint_list:
-
-            # Extract the list of allowed group UUIDs tied to the endpoint
-            allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-            if len(error_message) > 0:
-                return await get_response(json.dumps(error_message), 400, request)
-    
-            # If the user is allowed to see the endpoint ...
-            # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
-            if len(allowed_globus_groups) == 0 or len(set(request.user_group_uuids).intersection(allowed_globus_groups)) > 0:
-
-                # If this is a new cluster for the dictionary ...
-                if not endpoint.cluster in all_endpoints["clusters"]:
-
-                    # Add new entry to the dictionary
-                    all_endpoints["clusters"][endpoint.cluster] = {
-                        "base_url": f"/resource_server/{endpoint.cluster}",
-                        "frameworks": {}
-                    }
-
-                    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
-                    if endpoint.cluster in ALLOWED_QSTAT_ENDPOINTS:
-
-                        # Collect qstat details on the jobs running/queued on the cluster
-                        qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
-                            endpoint.cluster, gcc=gcc, gce=gce, timeout=60
-                        )
-                        qstat_result = json.loads(qstat_result)
-
-                        # Re-organize the qstat result into a dictionary with endpoint_slugs (as keys) and status (as values)
-                        # NOTE: If the qstat job fails, keep going, the response will simply contain less detailed info
-                        try:
-
-                            # For all running and queued jobs ...
-                            for state in ["running", "queued"]:
-                                for entry in qstat_result[state]:
-
-                                    # Extract the job status
-                                    if state == "queued":
-                                        model_status = "queued"
-                                    else:
-                                        model_status = entry["Model Status"]
-                                
-                                    # For each model served ...
-                                    for model in entry["Models Served"].split(","):
-                                        if len(model) > 0:
-
-                                            # Build endpoint slug and add status to the qstat dictionary
-                                            endpoint_slug = slugify(" ".join(
-                                                [entry["Cluster"], entry["Framework"], model]
-                                            ))
-                                            qstat_model_status[endpoint_slug] = model_status
-
-                            # Add cluster to the list of clusters that have successful qstat query
-                            qstat_cluster_available.append(endpoint.cluster)
-
-                        except:
-                            pass
-
-                # Add a new framework dictionary entry if needed
-                # TODO: Make sure this dynamically get populated based on the cluster using ALLOWED_OPENAI_ENDPOINTS
-                if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
-                    all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
-                        "models": [],
-                        "endpoints": {
-                            "chat": f"/{endpoint.framework}/v1/chat/completions/",
-                            "completion": f"/{endpoint.framework}/v1/completions/",
-                            "embedding": f"/{endpoint.framework}/v1/embeddings/"
-                        }
-                    }
-
-                # Check status of the current Globus Compute endpoint
-                endpoint_status, error_message = globus_utils.get_endpoint_status(
-                    endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
-                )
-                if len(error_message) > 0:
-                    return await get_response(error_message, 500, request)
-                
-                # Assign the status of the HPC job assigned to the model
-                # NOTE: "offline" status should always take priority over the qstat result
-                if endpoint_status["status"] == "online":
-                    if endpoint.endpoint_slug in qstat_model_status:
-                        model_status = qstat_model_status[endpoint.endpoint_slug]
-                    elif endpoint.cluster in qstat_cluster_available:
-                        model_status = "stopped"
-                    else:
-                        model_status = "status not available"
-                else:
-                    model_status = "status not available"
-
-                # Add model to the dictionary
-                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(
-                    {
-                        "name": endpoint.model,
-                        "endpoint_status": endpoint_status["status"],
-                        "model_status": model_status
-                    }    
-                )
-
-        # Sort models alphabetically (case insensitive)
-        for cluster in all_endpoints["clusters"]:
-            for framework in all_endpoints["clusters"][cluster]["frameworks"]:
-                all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
-                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"], key=lambda x: x["name"].lower())
-
-    # Error message if something went wrong while building the endpoint list
-    except Exception as e:
-        return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400, request)
-
-    # Return list of frameworks and models
-    return await get_response(json.dumps(all_endpoints), 200, request)
-
-
-# Endpoint Status (GET)
-@router.get("/{cluster}/{framework}/{path:model}/status")
-async def get_endpoint_status(request, cluster: str, framework: str, model: str, *args, **kwargs):
-    """GET request to get a detailed status of a specific Globus Compute endpoint."""
-
-    # Get the requested endpoint from the database
-    endpoint_slug = slugify(" ".join([cluster, framework, model]))
-    try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-    except Endpoint.DoesNotExist:
-        return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, request)
-    except Exception as e:
-        return await get_response(f"Error: Could not extract endpoint and function UUIDs: {e}", 400, request)
-    
-    # Error message if user is not allowed to see the endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        return await get_response(json.dumps(error_message), 400, request)
-    if len(allowed_globus_groups) > 0 and len(set(request.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-        return await get_response(f"Error: User not authorized to access endpoint {endpoint_slug}", 401, request)
-
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-        gce = globus_utils.get_compute_executor(client=gcc)
-    except Exception as e:
-        return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, request)
-    
-    # Extract the status of the current Globus Compute endpoint
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint.endpoint_uuid, client=gcc, endpoint_slug=endpoint.endpoint_slug
-    )
-    if len(error_message) > 0:
-        return await get_response(error_message, 500, request)
-
-    # If it is possible to collect qstat details on the jobs running/queued on the cluster ...
-    model_status = {}
-    if endpoint_status["status"] == "online":
-        if cluster in ALLOWED_QSTAT_ENDPOINTS:
-
-            # Collect qstat details on the jobs running/queued on the cluster
-            qstat_result, task_uuid, error_message, error_code = await get_qstat_details(
-                cluster, gcc=gcc, gce=gce, timeout=60
-            )
-            qstat_result = json.loads(qstat_result)
-
-            # Extract the targetted model if within the qstat result ...
-            try:
-                for state in qstat_result:
-                    for entry in qstat_result[state]:
-                        if entry["Framework"] == framework and model in entry["Models Served"]:
-                            model_status = entry
-                            break
-            except:
-                pass
-
-    # Build and return detailed status
-    status = {
-        "cluster": cluster,
-        "model": model_status,
-        "endpoint": endpoint_status
-    }
-    return await get_response(status, 200, request)
-
-
 # List running and queue models (GET)
 @router.get("/{cluster}/jobs")
 async def get_jobs(request, cluster:str):
     """GET request to list the available frameworks and models."""
 
-    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
-    # Make sure the URL inputs point to an available endpoint 
-    framework = "api" if cluster == "metis" else "vllm"
-    error_message = validate_url_inputs(cluster, framework=framework, openai_endpoint="chat/completions")
-    if len(error_message):
-        return await get_response(error_message, 400, request)
+    # Get cluster wrapper from database
+    response = await get_cluster_wrapper(cluster)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    cluster = response.cluster
 
-        # ===== METIS CLUSTER HANDLING =====
-    if cluster == "metis":
-        # Metis uses a status API instead of qstat
-        metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
-        if error_msg:
-            return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
-        
-        # Format Metis status to match the jobs endpoint format
-        formatted_result = metis_utils.format_metis_status_for_jobs(metis_status)
-        return await get_response(json.dumps(formatted_result), 200, request)
+    # Make sure the user is authorized to see this cluster
+    response = cluster.check_permission(request.auth, request.user_group_uuids)
+    if (response.is_authorized == False) or response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
 
+    # Get jobs from the targetted cluster
+    response = await cluster.get_jobs()
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
 
-    # Collect (qstat) details on the jobs running/queued on the cluster
-    result, task_uuid, error_message, error_code = await get_qstat_details(cluster, timeout=60)
-    if len(error_message) > 0:
-        return await get_response(error_message, error_code, request)
-    
-    # Return Globus Compute results
-    return await get_response(result, 200, request)
+    # Return the cluster's jobs status
+    return await get_response(response.status.model_dump(), 200, request)
 
 
 # Inference batch (POST)
