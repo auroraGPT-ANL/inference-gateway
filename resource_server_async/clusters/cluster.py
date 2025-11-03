@@ -8,6 +8,22 @@ from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.auth_utils import CheckPermissionResponse
 
 
+class ClusterStatus(BaseModel):
+    running: List[Dict] = Field(default_factory=list)
+    queued: List[Dict] = Field(default_factory=list)
+    others: List[Dict] = Field(default_factory=list)
+    private_batch_running: List[Dict] = Field(default_factory=list)
+    private_batch_queued: List[Dict] = Field(default_factory=list)
+    cluster_status: Dict = Field(default_factory=dict)
+
+class BaseModelWithError(BaseModel):
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+
+class GetJobsResponse(BaseModelWithError):
+    status: Optional[ClusterStatus] = None
+
+
 class BaseCluster(ABC):
     """Generic abstract base class that enforces a common set of methods for compute clusters."""
 
@@ -18,7 +34,7 @@ class BaseCluster(ABC):
         cluster_adapter: str,
         openai_endpoints: Dict[str,str],
         allowed_globus_groups: str = None,
-        allowed_domains: str = None
+        allowed_domains: str = None,
     ):
         # Assign common self variables
         self._id = id
@@ -55,7 +71,12 @@ class BaseCluster(ABC):
         async for endpoint in Endpoint.objects.filter(cluster=self.cluster_name):
 
             # If the user is allowed to see this endpoint ...
-            response = check_permission(auth, user_group_uuids, endpoint.allowed_globus_groups, endpoint.allowed_domains)
+            response = auth_utils_check_permission(
+                auth, 
+                user_group_uuids, 
+                endpoint.allowed_globus_groups, 
+                endpoint.allowed_domains
+            )
             if response.is_authorized:
 
                 # Collect framework and model for this endpoint
@@ -84,7 +105,10 @@ class BaseCluster(ABC):
     # Mandatory definitions
     # ---------------------
 
-    #...
+    @abstractmethod
+    async def get_jobs(self) -> GetJobsResponse:
+        """Provides a status of the cluster as a whole, including which models are running."""
+        pass
 
     # Read-only properties
     # --------------------
