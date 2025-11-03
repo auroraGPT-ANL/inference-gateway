@@ -16,7 +16,6 @@ from django.core.cache import cache
 from django.forms.models import model_to_dict
 from django.http import HttpResponse
 from django.utils import timezone
-from django.utils.text import slugify
 from django.conf import settings
 from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
@@ -221,109 +220,6 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
-
-
-# Get qstat details
-async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
-    """
-    Collect details on all jobs running/submitted on a given cluster.
-    Here return the error message instead of raising exceptions to 
-    make sure the outcome gets cached.
-    Returns result, task_uuid, error_message, error_code
-    """
-
-    # Redis cache key
-    cache_key = f"qstat_details:{cluster}"
-    
-    # Try to get qstat details from Redis
-    try:
-        cached_result = cache.get(cache_key)
-        if cached_result is not None:
-            return cached_result
-    except Exception as e:
-        log.warning(f"Redis cache error for endpoint status: {e}")
-
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    if gcc is None:
-        try:
-            gcc = get_compute_client_from_globus_app()
-        except Exception as e:
-            return None, None, f"Error: Could not get the Globus Compute client: {e}", 500
-    if gce is None:
-        try:
-            # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-            gce = get_compute_executor(client=gcc)
-        except Exception as e:
-            return None, None, f"Error: Could not get the Globus Compute executor: {e}", 500
-    
-    # Gather the qstat endpoint info using the loaded config
-    qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
-    if not qstat_config:
-        return None, None, f"Error: no qstat endpoint configuration exists for cluster {cluster}.", 500
-
-    endpoint_slug = f"{cluster}/jobs"
-    endpoint_uuid = qstat_config["endpoint_uuid"]
-    function_uuid = qstat_config["function_uuid"]
-
-    # Get the status of the qstat endpoint
-    # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
-    endpoint_status, error_message = get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return None, None, error_message, 500
-        
-    # Return error message if endpoint is not online
-    if not endpoint_status["status"] == "online":
-        return None, None, f"Error: Endpoint {endpoint_slug} is offline.", 500
-    
-    # Submit task and wait for result
-    result, task_uuid, error_message, error_code = await submit_and_get_result(
-        gce, endpoint_uuid, function_uuid, timeout=timeout
-    )
-    if len(error_message) > 0:
-        return None, task_uuid, error_message, error_code
-    
-    # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
-    try:
-
-        # For each running endpoint ...
-        result = json.loads(result)
-        for i, running in enumerate(result["running"]):
-
-            # If the model is in a "running" state (not "starting")
-            if running["Model Status"] == "running":
-
-                # Get compute endpoint ID from database
-                running_framework = running["Framework"]
-                running_model = running["Models"].split(",")[0]
-                running_cluster = running["Cluster"]
-                endpoint_slug = slugify(" ".join([running_cluster, running_framework, running_model]))
-                endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-                endpoint_uuid = endpoint.endpoint_uuid
-
-                # Turn the model to "disconnected" if managers are lost
-                endpoint_status, error_message = get_endpoint_status(
-                    endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-                )
-                if int(endpoint_status["details"].get("managers", 0)) == 0:
-                    result["running"][i]["Model Status"] = "disconnected"
-
-        # Turn the result back to a string
-        result = json.dumps(result)
-
-    except Exception as e:
-        log.warning(f"Failed to refine qstat model status: {e}")
-
-    # Cache the result for 60 seconds
-    try:
-        cache.set(cache_key, [result, task_uuid, "", 200], 60)
-    except Exception as e:
-        log.warning(f"Failed to cache endpoint status: {e}")
-
-    # Return qstat result without error_message
-    return result, task_uuid, "", 200
 
 
 # Update batch status result
@@ -1774,10 +1670,11 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
                 error_code=500
             )
 
-    # Convert the OpenAI endpoints field into a dictionary
+    # Convert the OpenAI endpoints and config fields into a dictionary
     try:
         cluster_dictionary = model_to_dict(cluster)
         cluster_dictionary["openai_endpoints"] = ast.literal_eval(cluster.openai_endpoints)
+        cluster_dictionary["config"] = ast.literal_eval(cluster.config)
     except Exception as e:
         return ClusterWrapperResponse(
             error_message=f"Error: Could not load openai_endpoints field for {cluster_name}: {e} {cluster_dictionary}",
