@@ -8,9 +8,10 @@ from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.auth_utils import CheckPermissionResponse
 
 
-class ClusterStatus(BaseModel):
+class Jobs(BaseModel):
     running: List[Dict] = Field(default_factory=list)
     queued: List[Dict] = Field(default_factory=list)
+    stopped: List[Dict] = Field(default_factory=list)
     others: List[Dict] = Field(default_factory=list)
     private_batch_running: List[Dict] = Field(default_factory=list)
     private_batch_queued: List[Dict] = Field(default_factory=list)
@@ -21,7 +22,7 @@ class BaseModelWithError(BaseModel):
     error_code: Optional[int] = Field(default=None)
 
 class GetJobsResponse(BaseModelWithError):
-    status: Optional[ClusterStatus] = None
+    status: Optional[Jobs] = None
 
 
 class BaseCluster(ABC):
