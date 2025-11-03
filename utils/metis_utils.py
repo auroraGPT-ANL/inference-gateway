@@ -12,9 +12,13 @@ import json
 import logging
 import time
 import httpx
+import asyncio
+from django.utils import timezone
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from typing import Dict, Tuple, Optional, List
 from django.core.cache import cache
+from resource_server_async.models import RequestLog
 
 log = logging.getLogger(__name__)
 
@@ -437,3 +441,43 @@ def format_metis_status_for_list_endpoints(status_data: Dict) -> List[Dict]:
     
     return models
 
+
+async def update_metis_streaming_log(log_id, streaming_state: dict, requested_model: str):
+    """
+    Background task to update RequestLog after Metis streaming completes.
+    
+    Optimized to:
+    - Wait efficiently for completion
+    - Update database once
+    - Handle errors gracefully
+    """
+    try:
+        # Wait for completion (efficient polling with timeout)
+        max_wait = 600  # 10 minutes
+        waited = 0
+        poll_interval = 0.5  # 500ms
+        
+        while not streaming_state['completed'] and waited < max_wait:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+        
+        # Get metrics
+        duration = time.time() - streaming_state['start_time']
+        total_chunks = streaming_state['total_chunks']
+        
+        # Update database (single query)
+        db_log = await sync_to_async(RequestLog.objects.get)(id=log_id)
+        
+        if streaming_state['error']:
+            db_log.result = f"error: {streaming_state['error']}"
+            log.error(f"Metis streaming failed for {requested_model}: {streaming_state['error']}")
+        else:
+            # Store limited chunks or completion marker
+            db_log.result = "\n".join(streaming_state['chunks']) if streaming_state['chunks'] else "streaming_completed"
+            log.info(f"Metis streaming completed for {requested_model}: {total_chunks} chunks in {duration:.2f}s")
+        
+        db_log.timestamp_compute_response = timezone.now()
+        await sync_to_async(db_log.save, thread_sensitive=True)()
+        
+    except Exception as e:
+        log.error(f"Error in update_metis_streaming_log: {e}")
