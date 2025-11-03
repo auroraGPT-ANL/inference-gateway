@@ -1,12 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from dataclasses import dataclass, field
-from resource_server_async.models import AuthService
+from resource_server_async.models import AuthService, User
 from utils.pydantic_models.db_models import UserPydantic
 from django.conf import settings
-from django.utils import timezone
-from rest_framework.response import Response
-import functools
 import globus_sdk
 import time
 
@@ -369,4 +366,51 @@ def validate_access_token(request):
         user=user,
         user_group_uuids=user_groups,
         idp_group_overlap_str=idp_group_overlap_str,
+    )
+
+
+class CheckPermissionResponse(BaseModel):
+    is_authorized: bool = False
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+
+# Check permission
+def check_permission(
+    auth: User,
+    user_group_uuids: List[str],
+    allowed_globus_groups: List[str],
+    allowed_domains: List[str]) -> CheckPermissionResponse:
+    """Verify is the user is permitted to access or view a resource based on group and policy restrictions."""
+        
+    # Look at Globus Group permissions
+    if allowed_globus_groups:
+        if len(set(user_group_uuids) & set(allowed_globus_groups)) == 0:
+            return CheckPermissionResponse(
+                is_authorized=False,
+                error_message=f"Error: Permission denied due to Globus Group restrictions.",
+                error_code=401
+            )
+        
+    # Extract user's domain from the IdP used during authentication
+    try:
+        user_domain = auth.username.split("@")[1]
+    except Exception:
+        return CheckPermissionResponse(
+            is_authorized=False,
+            error_message=f"Error: Could not extract domain from user {auth.username}.",
+            error_code=500
+        )
+        
+    # Look at domain (policy) permissions
+    if allowed_domains:
+        if user_domain not in allowed_domains:
+            return CheckPermissionResponse(
+                is_authorized=False,
+                error_message=f"Error: Permission denied due to IdP domain restrictions.",
+                error_code=401
+            )
+
+    # Grant access if nothing wrong was detected
+    return CheckPermissionResponse(
+        is_authorized=True
     )
