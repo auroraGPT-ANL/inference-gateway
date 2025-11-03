@@ -129,7 +129,7 @@ def get_endpoint_status(endpoint_uuid=None, client=None, endpoint_slug=None):
 
 
 # Submit function and wait for result
-async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_ready, data=None, timeout=60*5, endpoint_slug=None):
+async def submit_and_get_result(gce, endpoint_uuid, function_uuid, data=None, timeout=60*5, endpoint_slug=None):
     """
     Assign endpoint UUID to the executor, submit task to the endpoint,
     wait for the result asynchronously, and return the result or the
@@ -170,10 +170,7 @@ async def submit_and_get_result(gce, endpoint_uuid, function_uuid, resources_rea
         asyncio_future = asyncio.wrap_future(future)
         result = await asyncio.wait_for(asyncio_future, timeout=timeout)
     except TimeoutError as e:
-        if resources_ready:
-            error_message = "Error: TimeoutError with compute resources not responding. Please try again or contact adminstrators."
-        else:
-            error_message = "Error: TimeoutError while attempting to acquire compute resources. Please try again in 10 minutes."
+        error_message = "Error: TimeoutError while attempting to access compute resources. Please try again later."
         return None, get_task_uuid(future), error_message, 408
     except Exception as e:
         return None, get_task_uuid(future), f"Error: Could not recover future result: {repr(e)}", 500
