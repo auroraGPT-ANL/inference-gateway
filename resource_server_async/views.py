@@ -1,15 +1,11 @@
 from ninja import Query
-from ninja.errors import HttpError
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.core.cache import cache
 import uuid
 import json
-import asyncio
-import time
 from django.utils import timezone
 from django.utils.text import slugify
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse, HttpResponse
 
 # Tool to log access requests
 import logging
@@ -23,7 +19,6 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 import utils.globus_utils as globus_utils
 import utils.metis_utils as metis_utils
-from utils.auth_utils import validate_access_token
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from resource_server_async.utils import (
     validate_url_inputs, 
@@ -31,7 +26,6 @@ from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
-    #validate_file_body,
     get_qstat_details,
     update_batch_status_result,
     ALLOWED_QSTAT_ENDPOINTS,
@@ -42,26 +36,14 @@ from resource_server_async.utils import (
     set_streaming_status,
     set_streaming_error,
     set_streaming_metadata,
-    get_streaming_metadata,
     validate_streaming_request_security,
-    get_streaming_data_and_status_batch,
-    process_streaming_completion_async,
-    # Cache functions
-    get_endpoint_from_cache,
-    cache_endpoint,
-    is_cached,
-    remove_endpoint_from_cache,
     # Response functions
     get_response,
-    # Streaming utilities
-    prepare_streaming_task_data,
-    create_streaming_response_headers,
-    format_streaming_error_for_openai,
     create_access_log,
+    create_request_log,
     # Metis utilities
-    handle_metis_streaming_inference,
-    update_metis_streaming_log,
-    get_endpoint_wrapper
+    get_endpoint_wrapper,
+    get_cluster_wrapper
 )
 log.info("Utils functions loaded.")
 
@@ -70,14 +52,11 @@ from resource_server.models import (
     Batch, 
     FederatedEndpoint
 )
-from resource_server_async.models import RequestLog, BatchLog, Endpoint
+from resource_server.models import Endpoint as EndpointOld
+from resource_server_async.models import RequestLog, BatchLog, Endpoint, Cluster
 
 # Django Ninja API
 from resource_server_async.api import api, router
-
-# Typing
-from resource_server_async.utils import EndpointWrapperResponse
-from resource_server_async.endpoints.endpoint import SubmitTaskResponse, SubmitStreamingTaskResponse
 
 # NOTE: All caching is now centralized in resource_server_async.utils
 # Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache
@@ -122,89 +101,33 @@ async def whoami(request):
 async def get_list_endpoints(request):
     """GET request to list the available frameworks and models."""
 
-    # Collect endpoints objects from the database
+    # Get list of all clusters
     try:
-        endpoint_list = await sync_to_async(list)(Endpoint.objects.all())
+        db_clusters = await sync_to_async(list)(Cluster.objects.all())
     except Exception as e:
-        return await get_response(f"Error: Could not access Endpoint database entries: {e}", 400, request)
-
-    # Prepare the list of available frameworks and models
-    all_endpoints = {"clusters": {}}
-    try:
-
-        # ===== ADD METIS CLUSTER MODELS =====
-        # Fetch Metis status and add Metis models to the list
-        metis_status, metis_error = await metis_utils.fetch_metis_status(use_cache=True)
-        if not metis_error and metis_status:
-            # Add Metis cluster entry
-            all_endpoints["clusters"]["metis"] = {
-                "base_url": "/resource_server/metis",
-                "frameworks": {
-                    "api": {
-                        "models": [],
-                        "endpoints": {
-                            "chat": "/api/v1/chat/completions/"
-                        }
-                    }
-                }
-            }
-            
-            # Extract expert models from Metis status
-            for model_key, model_info in metis_status.items():
-                if model_info.get("status") == "Live":
-                    experts = model_info.get("experts", [])
-                    for expert in experts:
-                        if isinstance(expert, str) and len(expert) > 0:
-                            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"].append(expert)
-            
-            # Sort Metis models alphabetically
-            all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"] = \
-                sorted(all_endpoints["clusters"]["metis"]["frameworks"]["api"]["models"])
-        
-        # ===== ADD GLOBUS COMPUTE CLUSTER MODELS =====
-        # For each database endpoint entry ...
-        for endpoint in endpoint_list:
-
-            # Extract the list of allowed group UUIDs tied to the endpoint
-            allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-            if len(error_message) > 0:
-                log.error(error_message)
-                return await get_response(error_message, 400, request)
+        return await get_response(f"Error: Could not access Cluster database entries: {e}", 500, request)
     
-            # If the user is allowed to see the endpoint ...
-            # i.e. if (there is no restriction) or (if the user is at least part of one allowed groups) ...
-            if len(allowed_globus_groups) == 0 or len(set(request.user_group_uuids).intersection(allowed_globus_groups)) > 0:
+    # For each cluster ...
+    all_endpoints = {"clusters": {}}
+    for db_cluster in db_clusters:
+        try:
 
-                # Add a new cluster dictionary entry if needed
-                if not endpoint.cluster in all_endpoints["clusters"]:
-                    all_endpoints["clusters"][endpoint.cluster] = {
-                        "base_url": f"/resource_server/{endpoint.cluster}",
-                        "frameworks": {}
-                    }
-                
-                # Add a new framework dictionary entry if needed
-                if not endpoint.framework in all_endpoints["clusters"][endpoint.cluster]["frameworks"]:
-                    all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework] = {
-                        "models": [],
-                        "endpoints": {
-                            "chat": f"/{endpoint.framework}/v1/chat/completions/",
-                            "completion": f"/{endpoint.framework}/v1/completions/",
-                            "embedding": f"/{endpoint.framework}/v1/embeddings/"
-                        }
-                    }
+            # Get cluster wrapper from database
+            response = await get_cluster_wrapper(db_cluster.cluster_name)
+            if response.error_message:
+                return await get_response(response.error_message, response.error_code, request)
+            cluster = response.cluster
 
-                # Add model
-                all_endpoints["clusters"][endpoint.cluster]["frameworks"][endpoint.framework]["models"].append(endpoint.model)
+            # If the user is allowed to see the cluster ...
+            response = cluster.check_permission(request.auth, request.user_group_uuids)
+            if response.is_authorized:
 
-        # Sort models alphabetically
-        for cluster in all_endpoints["clusters"]:
-            for framework in all_endpoints["clusters"][cluster]["frameworks"]:
-                all_endpoints["clusters"][cluster]["frameworks"][framework]["models"] = \
-                    sorted(all_endpoints["clusters"][cluster]["frameworks"][framework]["models"])
+                # Collect the list of endpoints that the user is authorized to see
+                all_endpoints["clusters"][cluster.cluster_name] = await cluster.get_endpoint_list(request.auth, request.user_group_uuids)
 
-    # Error message if something went wrong while building the endpoint list
-    except Exception as e:
-        return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 400, request)
+        # Error message if something went wrong while building the endpoint list
+        except Exception as e:
+            return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 500, request)
 
     # Return list of frameworks and models
     return await get_response(json.dumps(all_endpoints), 200, request)
@@ -480,26 +403,16 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if len(error_message):
         return await get_response(error_message, 400, request)
 
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
-    
-    # Pull the targetted endpoint from database to check if user is permitted to run this model
-    try:
-        endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-    except Endpoint.DoesNotExist:
-        return await get_response(f"Error: Endpoint {endpoint_slug} does not exist.", 400, request)
-    except Exception as e:
-        return await get_response(f"Error: Could not extract endpoint: {e}", 400, request)
-    
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        return await get_response(error_message, 401, request)
-    
-    # Block access if the user is not a member of at least one of the required groups
-    if len(allowed_globus_groups) > 0: # This is important to check if there is a restriction
-        if len(set(request.user_group_uuids).intersection(allowed_globus_groups)) == 0:
-            return await get_response(f"Permission denied to endpoint {endpoint_slug}.", 401, request)
+    # Get endpoint wrapper from database
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    endpoint = response.endpoint
+
+    # Block access if the user is not allowed to use the endpoint
+    response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
         
     # Make sure the endpoint has batch UUIDs
     if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
@@ -766,23 +679,16 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
 
-    # ===== METIS CLUSTER HANDLING =====
-    # Metis uses direct API calls instead of Globus Compute
-    if cluster == "metis":
-        return await handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework)
-    
-    # ===== GLOBUS COMPUTE CLUSTER HANDLING =====
-
     # Get endpoint wrapper from database
-    endpoint_response = await get_endpoint_wrapper(endpoint_slug)
-    if endpoint_response.error_message:
-        return await get_response(endpoint_response.error_message, endpoint_response.error_code, request)
-    endpoint = endpoint_response.endpoint
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    endpoint = response.endpoint
 
     # Block access if the user is not allowed to use the endpoint
-    permission_response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if permission_response.error_message:
-        return await get_response(permission_response.error_message, permission_response.error_code, request)
+    response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
     
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
@@ -795,335 +701,37 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         timestamp_compute_request=timezone.now()
     )
     
-    # Submit task and wait for response (if streaming, it will receive a StreamingHttpResponse object)
+    # Submit task
     if stream:
-        #task_response = await endpoint.submit_streaming_task(data, request.access_log_data, request.request_log_data)
-        try:
-            gcc = globus_utils.get_compute_client_from_globus_app()
-            gce = globus_utils.get_compute_executor(client=gcc)
-        except Exception as e:
-            return await get_response(f"Error: Could not get the Globus Compute client or executor: {e}", 500, request)
-        resources_ready = True # TODO DELETE
-        return await handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=endpoint_slug)
+        task_response = await endpoint.submit_streaming_task(data, request.request_log_data.id)
     else:
         task_response = await endpoint.submit_task(data)
-        request.request_log_data.task_uuid = task_response.task_id
-        request.request_log_data.timestamp_compute_response = timezone.now()
+
+    # Update request log data
+    request.request_log_data.task_uuid = task_response.task_id
+    request.request_log_data.timestamp_compute_response = timezone.now()
 
     # Display error message if any
     if task_response.error_message:
         return await get_response(task_response.error_message, task_response.error_code, request)
     
-    # Return result to user
+    # If streaming, meaning that the StreamingHttpResponse object will be returned directly ...
     if stream:
+
+        # Manually create access and request logs to database
+        try:
+            access_log = await create_access_log(request.access_log_data, None, 200)
+            request.request_log_data.access_log = access_log
+            _ = await create_request_log(request.request_log_data, "streaming_response_in_progress", 200)
+        except Exception as e:
+            return HttpResponse(json.dumps(f"Error: Could not save access and request logs: {e}"), status=500)
+
+        # Return StreamingHttpResponse object directly
         return task_response.response
+
+    # If not streaming, return the complete response and automate database operations
     else:
         return await get_response(task_response.result, 200, request)
-
-
-async def handle_streaming_inference(gce, endpoint, data, resources_ready, request, endpoint_slug=None):
-    """Handle streaming inference using integrated Django streaming endpoints with comprehensive metrics"""
-    
-    # Generate unique task ID for streaming
-    stream_task_id = str(uuid.uuid4())
-    streaming_start_time = time.time()
-    
-    # Prepare streaming data payload using utility function
-    data = prepare_streaming_task_data(data, stream_task_id)
-    
-    # Submit task to Globus Compute (same logic as non-streaming)
-    try:
-        # Assign endpoint UUID to the executor (same as submit_and_get_result)
-        gce.endpoint_id = endpoint.endpoint_uuid
-        
-        # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
-        future = gce.submit_to_registered_function(endpoint.function_uuid, args=[data])
-        
-        # Wait briefly for task to be registered with Globus (like submit_and_get_result does)
-        # This allows the task_uuid to be populated without waiting for full completion
-        try:
-            asyncio_future = asyncio.wrap_future(future)
-            # Wait just long enough for task registration (not full completion)
-            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=1.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            # Timeout/cancellation is expected - we just want task registration, not completion
-            pass
-        except Exception:
-            # Other exceptions don't prevent us from getting task_uuid
-            pass
-        
-        # Get task_id from the future (should be available after brief wait)
-        task_uuid = globus_utils.get_task_uuid(future)
-        
-    except Exception as e:
-        return await get_response(f"Error: Could not submit streaming task: {e}", 500, request)
-    
-    # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
-    if endpoint_slug:
-        cache_key = f"endpoint_triggered:{endpoint_slug}"
-        ttl = 600 # 10 minutes
-        try:
-            cache.set(cache_key, True, ttl)
-        except Exception as e:
-            log.warning(f"Failed to cache endpoint_triggered:{endpoint_slug}: {e}")
-    
-    # Create initial log entry and get the ID for later updating
-    request.request_log_data.result = "streaming_response_in_progress"
-    request.request_log_data.timestamp_compute_response = timezone.now()
-    
-    # Set task_uuid in database data
-    if task_uuid:
-        request.request_log_data.task_uuid = str(task_uuid)
-        log.info(f"Streaming request task UUID: {task_uuid}")
-    else:
-        log.warning("No task UUID captured for streaming request")
-        request.request_log_data.task_uuid = None
-
-    # Create AccessLog database entry
-    request.access_log_data.status_code = 200
-    try:
-        access_log = await create_access_log(request.access_log_data, "", 200)
-    except Exception as e:
-        return await get_response(f"Error: Could not create AccessLog entry: {e}", 500, request)
-    
-    # Create initial log entry
-    try:
-        request.request_log_data.access_log = access_log
-        db_log = RequestLog(**request.request_log_data.model_dump())
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-        log_id = db_log.id
-        log.info(f"Created initial streaming log entry {log_id} for task {task_uuid}")
-    except Exception as e:
-        log.error(f"Error creating initial streaming log entry: {e}")
-        log_id = None
-    
-    # Start background processing for metrics collection (fire and forget)
-    if log_id:
-        asyncio.create_task(process_streaming_completion_async(
-            task_uuid, stream_task_id, log_id, future, streaming_start_time,
-            extract_prompt(data["model_params"]) if data.get("model_params") else None
-        ))
-    
-    # Create simple SSE streaming response  
-    async def sse_generator():
-        """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
-        try:
-            max_wait_time = 300  # 5 minutes total timeout
-            start_time = time.time()
-            last_chunk_index = 0
-            first_data_timeout = 30  # 30 seconds to receive first chunk or status
-            first_data_received = False
-            last_chunk_time = None  # Track when we last received a chunk
-            no_new_data_timeout = 5  # 5 seconds with no new chunks = assume completion (fallback if /done not called)
-            
-            while time.time() - start_time < max_wait_time:
-                # P0 OPTIMIZATION: Get status, chunks, and error in a single Redis round-trip
-                chunks, status, error_message = get_streaming_data_and_status_batch(stream_task_id)
-                
-                # Check if we've received any data (chunks or status)
-                if (chunks and len(chunks) > 0) or status:
-                    first_data_received = True
-                
-                # PRIORITY 1: Fast auth failure check (immediate break)
-                auth_failure = get_streaming_metadata(stream_task_id, "auth_failure")
-                if auth_failure:
-                    error_msg = {
-                        "object": "error",
-                        "message": "Streaming authentication failed: Remote compute endpoint could not authenticate with streaming API. Check INTERNAL_STREAMING_SECRET configuration.",
-                        "type": "AuthenticationError",
-                        "param": None,
-                        "code": 401
-                    }
-                    log.error(f"Streaming task {stream_task_id} - authentication failure detected")
-                    set_streaming_status(stream_task_id, "error")
-                    set_streaming_error(stream_task_id, error_msg.get("message"))
-                    yield f"data: {json.dumps(error_msg)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    break
-                
-                # PRIORITY 2: Early timeout check (no data after 30s)
-                elapsed_time = time.time() - start_time
-                if not first_data_received and elapsed_time > first_data_timeout:
-                    error_msg = {
-                        "object": "error",
-                        "message": f"Streaming task timed out: No data received from compute endpoint after {first_data_timeout} seconds. This may indicate network or endpoint configuration issues.",
-                        "type": "StreamingTimeoutError",
-                        "param": None,
-                        "code": 504
-                    }
-                    log.error(f"Streaming task {stream_task_id} timed out - no data received after {first_data_timeout}s")
-                    set_streaming_status(stream_task_id, "error")
-                    set_streaming_error(stream_task_id, error_msg.get("message"))
-                    yield f"data: {json.dumps(error_msg)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    break
-                
-                # PRIORITY 3: Handle error status (send error then break)
-                if status == "error":
-                    if error_message:
-                        # Format and send the error in OpenAI streaming format
-                        formatted_error = format_streaming_error_for_openai(error_message)
-                        yield formatted_error
-                    # Send [DONE] after error to properly terminate the stream
-                    yield "data: [DONE]\n\n"
-                    break
-                
-                # PRIORITY 4: Process ALL pending chunks FIRST (drain the queue)
-                # This ensures we don't miss chunks that arrived just before /done
-                if chunks and len(chunks) > last_chunk_index:
-                    # Send all new chunks at once
-                    for i in range(last_chunk_index, len(chunks)):
-                        chunk = chunks[i]
-                        # Only send actual vLLM content chunks (skip our custom control messages)
-                        if chunk.startswith('data: '):
-                            # Send the vLLM chunk as-is
-                            yield f"{chunk}\n\n"
-                        
-                        last_chunk_index = i + 1
-                    
-                    # Update last chunk time
-                    last_chunk_time = time.time()
-                
-                # PRIORITY 5: Check completion status AFTER processing chunks
-                # This prevents race condition where /done arrives before final chunks
-                if status == "completed":
-                    # One final check for any remaining chunks that arrived during processing
-                    final_chunks, _, _ = get_streaming_data_and_status_batch(stream_task_id)
-                    if final_chunks and len(final_chunks) > last_chunk_index:
-                        for i in range(last_chunk_index, len(final_chunks)):
-                            chunk = final_chunks[i]
-                            if chunk.startswith('data: '):
-                                yield f"{chunk}\n\n"
-                    
-                    log.info(f"Streaming task {stream_task_id} - status is completed, sending [DONE]")
-                    yield "data: [DONE]\n\n"
-                    break
-                
-                # PRIORITY 6 (FALLBACK): No new data timeout
-                # This handles cases where remote function sent all data but didn't call /done endpoint
-                # Only check this if we haven't seen a "completed" status
-                if last_chunk_time is not None and (time.time() - last_chunk_time) > no_new_data_timeout:
-                    log.warning(f"Streaming task {stream_task_id} - no new chunks for {no_new_data_timeout}s, assuming completion (done signal was not received)")
-                    yield "data: [DONE]\n\n"
-                    # Set completed status for cleanup
-                    set_streaming_status(stream_task_id, "completed")
-                    break
-                # Fast polling - 25ms
-                await asyncio.sleep(0.025)
-                
-        except Exception as e:
-            # For exceptions, just end without error message to maintain OpenAI compatibility
-            log.error(f"Exception in SSE generator for task {stream_task_id}: {e}")
-    
-    # Create streaming response
-    response = StreamingHttpResponse(
-        streaming_content=sse_generator(),
-        content_type='text/event-stream'
-    )
-    
-    # Set headers for SSE using utility function
-    headers = create_streaming_response_headers()
-    for key, value in headers.items():
-        response[key] = value
-    
-    return response
-
-
-async def handle_metis_inference(request, data, stream, endpoint_slug, cluster, framework):
-    """Handle inference requests to Metis cluster using direct API calls.
-    
-    Metis models are already deployed behind an API, so we:
-    1. Fetch model status from Metis status endpoint
-    2. Find matching model in 'experts' list
-    3. Make direct API call (no Globus Compute involved)
-    """
-    
-    # Get requested model name
-    requested_model = data["model_params"]["model"]
-    log.info(f"Metis inference request for model: {requested_model}")
-    
-    # Initialize the request log data for the database entry
-    # Set both timestamps initially to avoid null constraint violations
-    # timestamp_compute_response will be updated when we get actual response
-    current_time = timezone.now()
-    request.request_log_data = RequestLogPydantic(
-        id=str(uuid.uuid4()),
-        cluster=cluster,
-        framework=framework,
-        openai_endpoint=data["model_params"]["openai_endpoint"],
-        prompt=json.dumps(extract_prompt(data["model_params"])),
-        model=requested_model,
-        timestamp_compute_request=current_time,
-        timestamp_compute_response=current_time  # Initialize to avoid null errors
-    )
-    
-    # Fetch Metis status
-    metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
-    if error_msg:
-        # Update response timestamp for error case
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        return await get_response(f"Error fetching Metis status: {error_msg}", 503, request)
-    
-    # Find matching model in Metis status (returns endpoint_id for API token lookup)
-    model_info, endpoint_id, error_msg = metis_utils.find_metis_model(metis_status, requested_model)
-    if error_msg:
-        # Update response timestamp for error case
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        return await get_response(error_msg, 404, request)
-    
-    # Check if the model is Live
-    if model_info.get("status") != "Live":
-        # Update response timestamp for error case
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        return await get_response(
-            f"Error: Model '{requested_model}' is not currently live on Metis. Status: {model_info.get('status')}",
-            503,
-            request
-        )
-    
-    # Use validated request data as-is (already in OpenAI format)
-    # Only update the stream parameter to match the request
-    api_request_data = {**data["model_params"]}
-    api_request_data["stream"] = stream
-    # Remove internal field that shouldn't be sent to Metis
-    api_request_data.pop("openai_endpoint", None)
-    api_request_data.pop("api_port", None)
-    
-    log.info(f"Making Metis API call for model {requested_model} (stream={stream}, endpoint={endpoint_id})")
-    
-    # Make the API call to Metis
-    if stream:
-        # Handle streaming request - create AccessLog first
-        request.access_log_data.status_code = 200
-        try:
-            access_log = await create_access_log(request.access_log_data, "", 200)
-        except Exception as e:
-            request.request_log_data.timestamp_compute_response = timezone.now()
-            return await get_response(f"Error: Could not create AccessLog entry: {e}", 500, request)
-        
-        return await handle_metis_streaming_inference(
-            request, model_info, endpoint_id, api_request_data, requested_model, access_log
-        )
-    else:
-        # Non-streaming request
-        result, status_code, error_msg = await metis_utils.call_metis_api(
-            model_info,
-            endpoint_id,
-            api_request_data,
-            stream=False
-        )
-        
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        
-        if error_msg:
-            return await get_response(error_msg, status_code, request)
-        
-        # Metis API returns results directly (no task UUID in this paradigm)
-        request.request_log_data.task_uuid = None
-        
-        # Return Metis API results
-        return await get_response(result, status_code, request)
-
 
 # Streaming server endpoints (integrated into Django)
 
@@ -1137,7 +745,7 @@ async def receive_streaming_data(request):
     3. Per-task token validation (cached)
     4. Data size validation
     """
-    
+
     # Validate all security requirements
     is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=150000)
     if not is_valid:
@@ -1492,7 +1100,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
     # Submit task to the chosen endpoint and wait for result
     result, task_uuid, submit_error_message, submit_error_code = await globus_utils.submit_and_get_result(
-        gce, selected_endpoint["endpoint_uuid"], selected_endpoint["function_uuid"], resources_ready, data=data
+        gce, selected_endpoint["endpoint_uuid"], selected_endpoint["function_uuid"], data=data
     )
     request.request_log_data.timestamp_compute_response = timezone.now()
     if len(submit_error_message) > 0:
