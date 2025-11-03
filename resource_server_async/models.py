@@ -1,20 +1,12 @@
-from pydantic import BaseModel
-from django.core.exceptions import ValidationError
-from django.conf import settings
+import uuid
 from django.db import models
 from django.utils.timezone import now
-import uuid
+from django.utils.text import slugify
 
 
 # Supported authentication origins
 class AuthService(models.TextChoices):
     GLOBUS = "globus", "Globus"
-
-
-# Supported type of endpoints
-class EndpointType(models.TextChoices):
-    globus_compute = "globus-compute"
-    direct_api = "direct-api"
 
 
 # User model
@@ -269,11 +261,11 @@ class Endpoint(models.Model):
     # Model name (e.g. cpp_meta-Llama3-8b-instruct)
     model = models.CharField(max_length=100)
 
-    # Type of endpoint host (e.g. Globus Compute, direct API, etc.)
-    endpoint_type = models.CharField(max_length=50, choices=EndpointType.choices)
+    # Endpoint adapter (e.g. resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint)
+    endpoint_adapter = models.CharField(max_length=250)
 
     # Additional Globus group restrictions to access the endpoint (no restriction if empty)
-    # Example: "group1-name:group1-uuid; group2-name:group2-uuid; ..."
+    # Example: "group1-uuid, group2-uuid, ..."
     allowed_globus_groups = models.TextField(default="", blank=True)
 
     # Additional domains restrictions to access the endpoint (no restriction if empty)
@@ -293,3 +285,29 @@ class Endpoint(models.Model):
         if self.endpoint_slug is None or self.endpoint_slug == "":
             self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
         super(Endpoint, self).save(*args, **kwargs)
+
+
+# Details of a given inference cluster
+class Cluster(models.Model):
+
+    # Cluster name
+    cluster_name = models.CharField(max_length=100, unique=True)
+
+    # OpenAI endpoints
+    # e.g. {"completion": "/vllm/v1/completions/"}
+    openai_endpoints = models.TextField()
+
+    # Cluster adapter (e.g. resource_server_async.clusters.globus_compute.GlobusComputeCluster)
+    cluster_adapter = models.CharField(max_length=250)
+
+    # Additional Globus group restrictions to access the cluster (no restriction if empty)
+    # Example: "group1-uuid, group2-uuid, ..."
+    allowed_globus_groups = models.TextField(default="", blank=True)
+
+    # Additional domains restrictions to access the cluster (no restriction if empty)
+    # Example: "anl.gov, alcf.anl.gov"
+    allowed_domains = models.TextField(default="", blank=True)
+
+    # String function
+    def __str__(self):
+        return f"<Cluster {self.cluster_name}>"
