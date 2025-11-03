@@ -337,79 +337,48 @@ def get_realtime_metrics(request, cluster: str = "all"):
         #   - No RequestLog with error status = failed before reaching inference (likely auth/validation)
         # - Failed Inference: Has RequestLog AND status_code >= 300 AND status_code NOT IN (401, 403)
         #   - These reached inference but failed during processing
+        #
+        # OPTIMIZED: Use single JOIN-based query instead of correlated subqueries for better performance
         with connection.cursor() as cursor:
-            # Base query for total_all_requests - needs cluster filter if specified
             if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    f"""
-                    SELECT 
-                        -- Total requests: count all AccessLog entries for this cluster (via RequestLog)
-                        (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog al
-                         WHERE EXISTS (
-                           SELECT 1 FROM resource_server_async_requestlog rl 
-                           WHERE rl.access_log_id = al.id {cluster_filter}
-                         )) AS total_all_requests,
-                        -- Successful: status_code 200-299 or 0 (filtered by cluster)
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                         WHERE (status_code = 0 OR status_code BETWEEN 200 AND 299)
-                         AND EXISTS (
-                           SELECT 1 FROM resource_server_async_requestlog rl 
-                           WHERE rl.access_log_id = al.id {cluster_filter}
-                         )) AS successful_requests,
-                        -- Failed auth: 401/403 OR (no RequestLog AND error status) - filtered by cluster if RequestLog exists
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                         WHERE (
-                           -- Explicit auth failures (401 Unauthorized, 403 Forbidden)
-                           status_code IN (401, 403)
-                           -- OR no RequestLog with error status (failed before reaching inference)
-                           OR (NOT EXISTS (
-                             SELECT 1 FROM resource_server_async_requestlog rl 
-                             WHERE rl.access_log_id = al.id
-                           ) AND status_code >= 300)
-                           -- OR has RequestLog for this cluster but with 401/403 (auth failed at inference layer)
-                           OR EXISTS (
-                             SELECT 1 FROM resource_server_async_requestlog rl 
-                             WHERE rl.access_log_id = al.id {cluster_filter}
-                             AND al.status_code IN (401, 403)
-                           )
-                         )) AS auth_failures,
-                        -- Failed inference: Has RequestLog for this cluster, error status, but NOT 401/403
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                         WHERE EXISTS (
-                           SELECT 1 FROM resource_server_async_requestlog rl 
-                           WHERE rl.access_log_id = al.id {cluster_filter}
-                         ) AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
-                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm
-                         WHERE rm.cluster = %s) AS total_tokens
-                    """,
-                    cluster_params * 5  # 5 placeholders: 4 in EXISTS/WHERE clauses + 1 in total_tokens
-                )
-            else:
+                # Cluster-filtered query using INNER JOIN - only count requests that reached this cluster
                 cursor.execute(
                     """
                     SELECT 
-                        (SELECT COUNT(*)::bigint FROM resource_server_async_accesslog) AS total_all_requests,
-                        -- Successful: status_code 200-299 or 0
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog
-                         WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
-                        -- Failed auth: 401/403 OR (no RequestLog AND error status)
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                         WHERE (
-                           -- Explicit auth failures (401 Unauthorized, 403 Forbidden)
-                           status_code IN (401, 403)
-                           -- OR no RequestLog with error status (failed before reaching inference)
-                           OR (NOT EXISTS (
-                             SELECT 1 FROM resource_server_async_requestlog rl 
-                             WHERE rl.access_log_id = al.id
-                           ) AND status_code >= 300)
-                         )) AS auth_failures,
-                        -- Failed inference: Has RequestLog, error status, but NOT 401/403
-                        (SELECT COUNT(*) FROM resource_server_async_accesslog al
-                         WHERE EXISTS (
-                           SELECT 1 FROM resource_server_async_requestlog rl 
-                           WHERE rl.access_log_id = al.id
-                         ) AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
+                        COUNT(*)::bigint AS total_all_requests,
+                        COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful_requests,
+                        COUNT(*) FILTER (WHERE al.status_code IN (401, 403)) AS auth_failures,
+                        COUNT(*) FILTER (WHERE al.status_code >= 300 AND al.status_code NOT IN (401, 403)) AS failed_inference,
+                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm WHERE rm.cluster = %s) AS total_tokens
+                    FROM resource_server_async_accesslog al
+                    INNER JOIN resource_server_async_requestlog rl 
+                        ON rl.access_log_id = al.id AND rl.cluster = %s
+                    """,
+                    [cluster.lower(), cluster.lower()]
+                )
+            else:
+                # Non-filtered query using LEFT JOIN - much faster than correlated subqueries
+                cursor.execute(
+                    """
+                    WITH access_with_request AS (
+                        SELECT 
+                            al.id,
+                            al.status_code,
+                            CASE WHEN rl.id IS NOT NULL THEN 1 ELSE 0 END AS has_request_log
+                        FROM resource_server_async_accesslog al
+                        LEFT JOIN resource_server_async_requestlog rl 
+                            ON rl.access_log_id = al.id
+                    )
+                    SELECT 
+                        COUNT(*)::bigint AS total_all_requests,
+                        COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
+                        COUNT(*) FILTER (WHERE (
+                            status_code IN (401, 403)
+                            OR (has_request_log = 0 AND status_code >= 300)
+                        )) AS auth_failures,
+                        COUNT(*) FILTER (WHERE has_request_log = 1 AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
                         (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
+                    FROM access_with_request
                     """
                 )
             row = cursor.fetchone()
