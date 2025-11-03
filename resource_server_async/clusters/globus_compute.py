@@ -1,4 +1,4 @@
-from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse, ClusterStatus
+from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse, Jobs
 from resource_server_async.models import Endpoint
 from utils import globus_utils
 from pydantic import BaseModel
@@ -116,7 +116,7 @@ class GlobusComputeCluster(BaseCluster):
 
         # Build response
         try:
-            response = GetJobsResponse(status=ClusterStatus(**result))
+            response = GetJobsResponse(status=Jobs(**result))
         except Exception as e:
             return GetJobsResponse(error_message=f"Error: Could not generate GetJobsResponse: {e}", error_code=500)
 
