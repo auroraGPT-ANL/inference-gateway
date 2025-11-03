@@ -14,7 +14,7 @@ from resource_server_async.endpoints.endpoint import (
 )
 from utils import metis_utils
 
-# Tool to log access requests
+# Logging tool
 import logging
 log = logging.getLogger(__name__)
 
