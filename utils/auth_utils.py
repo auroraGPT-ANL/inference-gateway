@@ -253,11 +253,20 @@ def check_session_info(introspection, user_groups):
             if identity["identity_provider"] in session_info_idp_ids:
                 user_str.append(f"{identity['name']} ({identity['username']})")
         user_str = ", ".join(user_str)
+        if len(user_str) == 0:
+            user_str = "Unknown (no active session found)"
     except Exception as e:
         user_str = "could not recover user identity"
     
     # Revoke access if authentication did not come from authorized provider
-    return False, None, f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS_STRING}. Currently authenticated as {user_str}."
+    error_message = ""
+    error_message += f"Error: Permission denied. Must authenticate with {settings.AUTHORIZED_IDP_DOMAINS_STRING}. "
+    error_message += f"Currently authenticated as {user_str}. "
+    error_message += "If you are passing an access token directly to this API, "
+    error_message += "please logout from Globus by visiting https://app.globus.org/logout "
+    error_message += "and re-authenticate with the following command: "
+    error_message += "'python3 inference_auth_token.py authenticate --force'."
+    return False, None, error_message
 
 
 # Check Session Info
