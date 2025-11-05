@@ -104,9 +104,7 @@ GLOBUS_EXECUTOR_API_BURST_WINDOW_S = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_WI
 GLOBUS_MANAGEMENT_TASK_GROUP_ID = os.getenv("GLOBUS_MANAGEMENT_TASK_GROUP_ID", None)
 
 # Extract allowed identity providers
-AUTHORIZED_IDPS = json.loads(os.getenv("AUTHORIZED_IDPS", "{}"))
-AUTHORIZED_IDP_DOMAINS = list(AUTHORIZED_IDPS.keys())
-AUTHORIZED_IDP_UUIDS = list(AUTHORIZED_IDPS.values())
+AUTHORIZED_IDP_DOMAINS = textfield_to_strlist(os.getenv("AUTHORIZED_IDP_DOMAINS", ""))
 
 # Extract list of allowed groups per identity providers
 AUTHORIZED_GROUPS_PER_IDP = json.loads(os.getenv("AUTHORIZED_GROUPS_PER_IDP", "{}"))
