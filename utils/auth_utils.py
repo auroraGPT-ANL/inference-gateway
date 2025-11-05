@@ -216,28 +216,31 @@ def check_session_info(introspection, user_groups):
         # This array is used to log un-authorized attempts
         session_info_idp_ids = []
 
-        # If there is an authorized authentication (or if no AUTHORIZED_IDP_UUIDS was provided) ...
-        for _, auth in introspection["session_info"]["authentications"].items():
-            session_info_idp_ids.append(auth["idp"])
-            if auth["idp"] in settings.AUTHORIZED_IDP_UUIDS or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
+        # For each active authentication session ...
+        session_info_identities = []
+        for session_idp in [auth["idp"] for auth in introspection["session_info"]["authentications"].values()]:
 
-                # Find the user info linked to the authorized identity provider
-                for identity in introspection["identity_set_detail"]:
-                    if auth["idp"] == identity["identity_provider"]:
+            # Recover the domain (e.g. anl.gov) tied to the active session
+            identity = next((i for i in introspection["identity_set_detail"] if i["identity_provider"] == session_idp))
+            session_domain = identity["username"].split("@")[1]
+            session_info_identities.append(identity)
 
-                        # Create the User object from the Globus introspection
-                        try:
-                            user = UserPydantic(
-                                id=identity["sub"],
-                                name=identity["name"],
-                                username=identity["username"],
-                                user_group_uuids=user_groups,
-                                idp_id=identity["identity_provider"],
-                                idp_name=identity["identity_provider_display_name"],
-                                auth_service=AuthService.GLOBUS.value
-                            )
-                        except Exception as e:
-                            return False, None, f"Error: Could not create User object: {e}"
+            # If the domain is authorized by the service ...
+            if session_domain in settings.AUTHORIZED_IDP_DOMAINS:
+
+                # Create the User object from the Globus introspection
+                try:
+                    user = UserPydantic(
+                        id=identity["sub"],
+                        name=identity["name"],
+                        username=identity["username"],
+                        user_group_uuids=user_groups,
+                        idp_id=identity["identity_provider"],
+                        idp_name=identity["identity_provider_display_name"],
+                        auth_service=AuthService.GLOBUS.value
+                    )
+                except Exception as e:
+                    return False, None, f"Error: Could not create User object: {e}"
 
                 # Return successful check along with user details
                 return True, user, ""
@@ -249,9 +252,8 @@ def check_session_info(introspection, user_groups):
     # If user not authorized, extract user details for error message
     try:
         user_str = []
-        for identity in introspection["identity_set_detail"]:
-            if identity["identity_provider"] in session_info_idp_ids:
-                user_str.append(f"{identity['name']} ({identity['username']})")
+        for identity in session_info_identities:
+            user_str.append(f"{identity['name']} ({identity['username']})")
         user_str = ", ".join(user_str)
         if len(user_str) == 0:
             user_str = "Unknown (no active session found)"
@@ -278,10 +280,11 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
         Returns: True/False if granted or not, error_message, group_overlap
     """
 
-    # Extract the identity provider's UUID
-    idp_domain = next((k for k, v in settings.AUTHORIZED_IDPS.items() if v == user.idp_id), None)
-    if idp_domain is None:
-        return False, "Error: Could not check groups per IdP, user.idp_id did not match any AUTHORIZED_IDPS values.", None
+    # Extract the user's IdP domain
+    try:
+        idp_domain = user.username.split("@")[1]
+    except:
+        return False, "Error: Could not extract IdP domain from user.username.split('@')[1].", None
     
     # If there is a Globus Group check tied to this identity provider ...
     if idp_domain in settings.AUTHORIZED_GROUPS_PER_IDP:

@@ -20,14 +20,11 @@ class AuthCheckConfig(AppConfig):
             raise ImproperlyConfigured("Only one Globus High Assurance Policy must be used.")
         
         # Make sure the authorization safety net is in place
-        if len(settings.AUTHORIZED_IDP_DOMAINS) == 0 or len(settings.AUTHORIZED_IDP_UUIDS) == 0:
-            raise ImproperlyConfigured("AUTHORIZED_IDP_DOMAINS and AUTHORIZED_IDP_UUIDS must be defined.")
+        if len(settings.AUTHORIZED_IDP_DOMAINS) == 0:
+            raise ImproperlyConfigured("AUTHORIZED_IDP_DOMAINS must be defined.")
         for idp_name in settings.AUTHORIZED_IDP_DOMAINS:
             if len(idp_name) == 0:
                 raise ImproperlyConfigured("AUTHORIZED_IDP_DOMAINS cannot be empty.")
-        for idp_uuid in settings.AUTHORIZED_IDP_UUIDS:
-            if len(idp_uuid) == 0:
-                raise ImproperlyConfigured("AUTHORIZED_IDP_UUIDS cannot be empty.")
             
         # Recover the Globus policy
         client = globus_sdk.ConfidentialAppAuthClient(settings.POLARIS_ENDPOINT_ID, settings.POLARIS_ENDPOINT_SECRET)
