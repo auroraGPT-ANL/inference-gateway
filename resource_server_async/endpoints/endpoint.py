@@ -4,15 +4,11 @@ from enum import Enum
 from abc import ABC, abstractmethod
 from django.http import StreamingHttpResponse
 from typing import List, Optional, Any
-from resource_server_async.models import User
+from resource_server_async.models import User, BatchLog
+from utils.pydantic_models.batch import BatchStatusEnum
 from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.auth_utils import CheckPermissionResponse
 
-class BatchStatusEnum(Enum):
-    pending = "pending"
-    running = "running"
-    completed = "completed"
-    failed = "failed"
 
 class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
@@ -31,20 +27,13 @@ class SubmitStreamingTaskResponse(BaseModelWithError):
     model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable StreamingHttpResponse
 
 class SubmitBatchResponse(BaseModelWithError):
-    batch_id: Optional[str] = None
-    input_file: Optional[str] = None
-    status: Optional[str] = None
+    batch_id: Optional[str] = Field(default=str(uuid.uuid4()))
+    task_ids: Optional[str] = None
+    status: Optional[BatchStatusEnum] = Field(default=BatchStatusEnum.failed.value)
 
 class GetBatchStatusResponse(BaseModelWithError):
-    batch_id: Optional[str] = None
-    cluster: Optional[str] = None
-    created_at: Optional[str] = None
-    framework: Optional[str] = None
-    input_file: Optional[str] = None
-    status: BatchStatusEnum
-
-class GetBatchListResponse(BaseModelWithError):
-    batch_list: Optional[List[GetBatchStatusResponse]] = None
+    status: Optional[BatchStatusEnum] = None
+    result: Optional[str] = None
 
 class BatchResultMetrics(BaseModel):
     response_time: float
@@ -104,7 +93,7 @@ class BaseEndpoint(ABC):
     # ---------------------
 
     @abstractmethod
-    async def get_endpoint_status(self) -> GetEndpointStatusResponse:
+    async def get_endpoint_status(self, batch: BatchLog) -> GetEndpointStatusResponse:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
         pass
 
@@ -127,24 +116,15 @@ class BaseEndpoint(ABC):
         return False
 
     # Redefine in the child class if needed
-    async def submit_batch(self) -> SubmitBatchResponse:
+    async def submit_batch(self, batch_data: dict, username: str) -> SubmitBatchResponse:
         """Submits a batch job to the compute resource."""
-        return SubmitBatchResponse(error_message=f"Error: submit_batch disabled for endpoint {self.endpoint_slug}", error_code=501)
+        return SubmitBatchResponse(error_message=f"Error: submit_batch unavailable for endpoint {self.endpoint_slug}", error_code=501)
 
     # Redefine in the child class if needed
-    async def get_batch_status(self) -> GetBatchStatusResponse: # <-- Needs arguments here ...
-        """Get the status of a batch job."""
-        return GetBatchStatusResponse(error_message=f"Error: submit_batch disabled for endpoint {self.endpoint_slug}", error_code=501)
+    async def get_batch_status(self, batch: BatchLog) -> GetBatchStatusResponse:
+        """Get the status and results of a batch job."""
+        return GetBatchStatusResponse(error_message=f"Error: get_batch_status unavailable for endpoint {self.endpoint_slug}", error_code=501)
 
-    # Redefine in the child class if needed
-    async def get_batch_list(self) -> GetBatchListResponse: # <-- Needs arguments here ...
-        """Get the list of a all batch jobs and their statuses."""
-        return GetBatchListResponse(error_message=f"Error: submit_batch disabled for endpoint {self.endpoint_slug}", error_code=501)
-
-    # Redefine in the child class if needed
-    async def get_batch_result(self) -> GetBatchResultResponse: # <-- Needs arguments here ...
-        """Get the result of a completed batch job."""
-        return GetBatchResultResponse(error_message=f"Error: submit_batch disabled for endpoint {self.endpoint_slug}", error_code=501)
 
     # Read-only properties
     # --------------------
