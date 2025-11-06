@@ -1,6 +1,5 @@
 import uuid
 from pydantic import BaseModel, Field
-from enum import Enum
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict
 from resource_server_async.models import User, Endpoint
