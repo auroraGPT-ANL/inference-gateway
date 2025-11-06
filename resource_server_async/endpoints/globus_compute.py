@@ -28,8 +28,9 @@ from resource_server_async.endpoints.endpoint import (
     SubmitBatchResponse,
     GetBatchResultResponse,
     GetBatchStatusResponse,
-    GetBatchListResponse
 )
+from resource_server_async.models import BatchLog
+from utils.pydantic_models.batch import BatchStatusEnum
 
 # Logging tool
 import logging
@@ -69,7 +70,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
 
 
     # Get endpoint status
-    async def get_endpoint_status(self, gcc=None, check_managers=False) -> GetEndpointStatusResponse:
+    async def get_endpoint_status(self, gcc=None, check_managers=False, for_batch=False) -> GetEndpointStatusResponse:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
         
         # Get Globus Compute client
@@ -77,19 +78,33 @@ class GlobusComputeEndpoint(BaseEndpoint):
             try:
                 gcc = globus_utils.get_compute_client_from_globus_app()
             except Exception as e:
-                return GetEndpointStatusResponse(error_code=500, error_message=str(e))
+                return GetEndpointStatusResponse(
+                    error_message=str(e),
+                    error_code=500
+                )
         
         # Query the status of the targetted Globus Compute endpoint
         # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
-        endpoint_status, error_message = globus_utils.get_endpoint_status(
-            endpoint_uuid=self.config.endpoint_uuid, client=gcc, endpoint_slug=self.endpoint_slug
-        )
+        if for_batch:
+            endpoint_status, error_message = globus_utils.get_endpoint_status(
+                endpoint_uuid=self.config.batch_endpoint_uuid, client=gcc, endpoint_slug=self.endpoint_slug+"/batch"
+            )
+        else:
+            endpoint_status, error_message = globus_utils.get_endpoint_status(
+                endpoint_uuid=self.config.endpoint_uuid, client=gcc, endpoint_slug=self.endpoint_slug
+            )
         if len(error_message) > 0:
-            return GetEndpointStatusResponse(error_code=500, error_message=error_message)
+            return GetEndpointStatusResponse(
+                error_message=error_message,
+                error_code=500
+            )
 
         # Check if the endpoint is online
         if not endpoint_status["status"] == "online":
-            return GetEndpointStatusResponse(error_code=503, error_message=f"Error: Endpoint {self.endpoint_slug} is offline.")
+            return GetEndpointStatusResponse(
+                error_message=f"Error: Endpoint {self.endpoint_slug} is offline.",
+                error_code=503
+            )
         
         # If managers should be checked ...
         # This is to prevent submitting requests to an endpoint that is not ready yet
@@ -99,7 +114,10 @@ class GlobusComputeEndpoint(BaseEndpoint):
             try:
                 resources_ready = int(endpoint_status["details"]["managers"]) > 0
             except Exception as e:
-                return GetEndpointStatusResponse(error_code=500, error_message=f"Error: Cannot parse endpoint status: {e}")
+                return GetEndpointStatusResponse(
+                    error_message=f"Error: Cannot parse endpoint status: {e}",
+                    error_code=500
+                )
 
             # If the compute resource is not ready (if node not acquired, worker_init not completed, or lost managers) ...
             if not resources_ready:
@@ -112,10 +130,15 @@ class GlobusComputeEndpoint(BaseEndpoint):
                     # This also reduces memory footprint on the API application
                     error_message = f"Error: Endpoint {self.endpoint_slug} online but not ready to receive tasks. "
                     error_message += "Please try again later."
-                    return GetEndpointStatusResponse(error_code=503, error_message=error_message)
+                    return GetEndpointStatusResponse(
+                        error_message=error_message,
+                        error_code=503
+                    )
 
         # Return endpoint status
-        return GetEndpointStatusResponse(status=endpoint_status)
+        return GetEndpointStatusResponse(
+            status=endpoint_status
+        )
 
 
     # Submit task
@@ -127,12 +150,18 @@ class GlobusComputeEndpoint(BaseEndpoint):
             gcc = globus_utils.get_compute_client_from_globus_app()
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
-            return SubmitTaskResponse(error_code=500, error_message=str(e))
+            return SubmitTaskResponse(
+                error_message=str(e),
+                error_code=500
+            )
 
         # Check endpoint status
         response = await self.get_endpoint_status(gcc=gcc, check_managers=True)
         if response.error_message:
-            return SubmitTaskResponse(error_code=response.error_code, error_message=response.error_message)
+            return SubmitTaskResponse(
+                error_code=response.error_code,
+                error_message=response.error_message
+            )
 
         # Add API port to the input data
         try:
@@ -140,8 +169,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         except Exception as e:
             remove_endpoint_from_cache(self.endpoint_slug)
             return SubmitTaskResponse(
-                error_code=400,
-                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}"
+                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}",
+                error_code=400
             )
 
         # Submit Globus Compute task and wait for the result
@@ -149,10 +178,16 @@ class GlobusComputeEndpoint(BaseEndpoint):
             gce, self.config.endpoint_uuid, self.config.function_uuid, data=data, endpoint_slug=self.endpoint_slug
         )
         if len(error_message) > 0:
-            return SubmitTaskResponse(error_code=error_code, error_message=error_message)
+            return SubmitTaskResponse(
+                error_message=error_message,
+                error_code=error_code
+            )
 
         # Return the successful result
-        return SubmitTaskResponse(result=result, task_id=task_id)
+        return SubmitTaskResponse(
+            result=result,
+            task_id=task_id
+        )
     
 
     # Submit streaming task
@@ -172,8 +207,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         except Exception as e:
             remove_endpoint_from_cache(self.endpoint_slug)
             return SubmitStreamingTaskResponse(
-                error_code=400,
-                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}"
+                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}",
+                error_code=400
             )
         
         # Submit task to Globus Compute (same logic as non-streaming)
@@ -185,15 +220,18 @@ class GlobusComputeEndpoint(BaseEndpoint):
                 gce = globus_utils.get_compute_executor(client=gcc)
             except Exception as e:
                 return SubmitStreamingTaskResponse(
-                    error_code=500,
-                    error_message=str(e)
+                    error_message=str(e),
+                    error_code=500
                 )
             gce.endpoint_id = self.config.endpoint_uuid
 
             # Check endpoint status
             response = await self.get_endpoint_status(gcc=gcc)
             if response.error_message:
-                return SubmitStreamingTaskResponse(error_code=response.error_code, error_message=response.error_message)
+                return SubmitStreamingTaskResponse(
+                    error_message=response.error_message,
+                    error_code=response.error_code
+                )
             
             # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
             future = gce.submit_to_registered_function(self.config.function_uuid, args=[data])
@@ -215,7 +253,10 @@ class GlobusComputeEndpoint(BaseEndpoint):
             task_uuid = globus_utils.get_task_uuid(future)
             
         except Exception as e:
-            return SubmitStreamingTaskResponse(error_code=500, error_message=f"Error: Could not submit streaming task: {e}")
+            return SubmitStreamingTaskResponse(
+                error_message=f"Error: Could not submit streaming task: {e}",
+                error_code=500
+            )
         
         # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
         cache_key = f"endpoint_triggered:{self.endpoint_slug}"
@@ -351,29 +392,174 @@ class GlobusComputeEndpoint(BaseEndpoint):
             response[key] = value
 
         # Return response with StreamingHttpResponse object
-        return SubmitStreamingTaskResponse(response=response, task_id=task_uuid)
+        return SubmitStreamingTaskResponse(
+            response=response,
+            task_id=task_uuid
+        )
       
     # Enable batch support
     def has_batch_enabled(self) -> bool:
         """Return True if batch can be used for this endpoint, False otherwise."""
         return (self.config.batch_endpoint_uuid is not None) and (self.config.batch_function_uuid is not None)
-
-    async def submit_batch(self) -> SubmitBatchResponse: # <-- Needs arguments here ...
+    
+    # Submit batch
+    async def submit_batch(self, batch_data: dict, username: str) -> SubmitBatchResponse: # <-- Needs arguments here ...
         """Submits a batch job to the compute resource."""
-        pass
-        # If not has_batch_enabled ... error
 
-    async def get_batch_status(self) -> GetBatchStatusResponse: # <-- Needs arguments here ...
+        # Get Globus Compute client (using the endpoint identity)
+        try:
+            gcc = globus_utils.get_compute_client_from_globus_app()
+        except Exception as e:
+            return SubmitBatchResponse(
+                error_message=f"Error: Could not get the Globus Compute client: {e}", 
+                error_code=500
+            )
+
+        # Check endpoint status
+        response = await self.get_endpoint_status(gcc=gcc, check_managers=True, for_batch=True)
+        if response.error_message:
+            return SubmitBatchResponse(
+                error_message=response.error_message,
+                error_code=response.error_code
+            )
+        
+        # Prepare input parameter for the compute tasks
+        # NOTE: This is already in list format in case we submit multiple tasks per batch
+        batch_id = str(uuid.uuid4())
+        params_list = [
+            {
+                "model_params": {
+                    "input_file": batch_data["input_file"],
+                    "model": batch_data["model"]
+                },
+                "batch_id": batch_id,
+                "username": username
+            }
+        ]
+        if "output_folder_path" in batch_data:
+            params_list[0]["model_params"]["output_folder_path"] = batch_data["output_folder_path"]
+
+        # Prepare the batch job
+        try:
+            batch = gcc.create_batch()
+            for params in params_list:
+                batch.add(function_id=self.config.batch_function_uuid, args=[params])
+        except Exception as e:
+            return SubmitBatchResponse(
+                error_message=f"Error: Could not create Globus Compute batch: {e}",
+                error_code=500
+            )
+
+        # Submit batch to Globus Compute and update batch status if submission is successful
+        try:
+            batch_response = gcc.batch_run(endpoint_id=self.config.batch_endpoint_uuid, batch=batch)
+        except Exception as e:
+            return SubmitBatchResponse(
+                error_message=f"Error: Could not submit the Globus Compute batch: {e}",
+                error_code=500
+            )
+        
+        # Extract the Globus batch UUID from submission
+        # Temporary: globus_batch_uuid not used
+        try:
+            globus_batch_uuid = batch_response["request_id"]
+        except Exception as e:
+            return SubmitBatchResponse(
+                batch_id=batch_id,
+                error_message=f"Error: Batch submitted but no batch UUID recovered: {e}",
+                error_code=500
+            )
+
+        # Extract the batch and task UUIDs from submission
+        try:
+            globus_task_uuids = ""
+            for _, task_uuids in batch_response["tasks"].items():
+                globus_task_uuids += ",".join(task_uuids) + ","
+            globus_task_uuids = globus_task_uuids[:-1]
+        except Exception as e:
+            return SubmitBatchResponse(
+                batch_id=batch_id,
+                error_message=f"Error: Batch submitted but no task UUID recovered: {e}",
+                error_code=500
+            )
+        
+        # Return success response with batch ID
+        return SubmitBatchResponse(
+            batch_id=batch_id,
+            task_ids=globus_task_uuids,
+            status=BatchStatusEnum.pending.value
+        )
+
+
+    # Get batch status
+    async def get_batch_status(self, batch: BatchLog) -> GetBatchStatusResponse:
         """Get the status of a batch job."""
-        pass
 
-    async def get_batch_list(self) -> GetBatchListResponse: # <-- Needs arguments here ...
-        """Get the list of a all batch jobs and their statuses."""
-        pass
+        # Get the Globus batch status response
+        status_response, error_message, error_code = globus_utils.get_batch_status(batch.task_ids)
 
-    async def get_batch_result(self) -> GetBatchResultResponse: # <-- Needs arguments here ...
-        """Get the result of a completed batch job."""
-        pass
+        # If there is an error when recovering Globus tasks status/results ...
+        if len(error_message) > 0:
+
+            # Mark the batch as failed if the function execution failed
+            if "TaskExecutionFailed" in error_message:
+                return GetBatchStatusResponse(
+                    status=BatchStatusEnum.failed.value,
+                    result=error_message
+                )
+                
+            # Return error message if something else occured
+            return GetBatchStatusResponse(
+                error_message=error_message, 
+                error_code=error_code
+            )
+        
+        # Parse Globus batch status response
+        try:
+            status_response_values = list(status_response.values())
+            pending_list = [status["pending"] for status in status_response_values]
+            status_list = [status["status"] for status in status_response_values]
+        except Exception as e:
+            return GetBatchStatusResponse(
+                error_message=f"Error: Could not parse get_batch_status response for status: {e}",
+                error_code=500
+            )
+        
+        # Collect latest batch status
+        try:
+            if pending_list.count(True) > 0:
+                latest_batch_status = BatchStatusEnum.pending.value
+            elif status_list.count("success") == len(status_list):
+                latest_batch_status = BatchStatusEnum.completed.value
+            else:
+                latest_batch_status = BatchStatusEnum.failed.value
+        except Exception as e:
+            return GetBatchStatusResponse(
+                error_message=f"Error: Could not define batch status: {e}",
+                error_code=500
+            )
+        
+        # If batch result is available ...
+        batch_result = None
+        if latest_batch_status == BatchStatusEnum.completed.value:
+
+            # Parse Globus batch status response to extract result
+            try:
+                result_list = [status["result"] for status in status_response_values]
+                batch_result = ",".join(result_list) + ","
+                batch_result = batch_result[:-1]
+            except Exception as e:
+                return GetBatchStatusResponse(
+                    error_message=f"Error: Could not parse get_batch_status response for result: {e}",
+                    error_code=500
+                )
+
+        # Return latest batch status and result
+        return GetBatchStatusResponse(
+            status=latest_batch_status,
+            result=batch_result
+        )
+
 
     # Read-only access to the configuration
     @property
