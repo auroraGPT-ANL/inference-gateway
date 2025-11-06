@@ -9,15 +9,14 @@ import ast
 import secrets
 import hmac
 import importlib
-from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
 from django.core.cache import cache
 from django.forms.models import model_to_dict
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.text import slugify
 from django.conf import settings
-from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
@@ -26,14 +25,6 @@ from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydanti
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from cachetools import TTLCache
-from utils.globus_utils import (
-    submit_and_get_result,
-    get_endpoint_status,
-    get_batch_status,
-    get_compute_client_from_globus_app,
-    get_compute_executor,
-    get_endpoint_status
-)
 from resource_server_async.models import (
     AccessLog, 
     RequestLog, 
@@ -55,15 +46,6 @@ ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
 ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
 ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
 ALLOWED_QSTAT_ENDPOINTS = settings.ALLOWED_QSTAT_ENDPOINTS
-
-# Batch list filter
-class BatchStatusEnum(str, Enum):
-    pending = 'pending'
-    running = 'running'
-    failed = 'failed'
-    completed = 'completed'
-class BatchListFilter(FilterSchema):
-    status: BatchStatusEnum = None
 
 
 # Exception to raise in case of errors
@@ -220,212 +202,6 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
-
-
-# Update batch status result
-async def update_batch_status_result(batch, cross_check=False):
-    """
-    From a database Batch object, query batch status from Globus
-    if necessary, update the "status" and "result" fields in the
-    database, and return the batch details.
-
-    Arguments
-    ---------
-        batch: batch object from the Batch database model
-        cross_check: If True, will cross check Globus status with qstat function
-
-    Returns
-    -------
-        status, result, "", 200 OR "", "", error_message, error_code
-    """
-
-    # Skip all of the Globus task status check if the batch already completed or failed
-    if batch.status in ["completed", "failed"]:
-        return batch.status, batch.result, "", 200
-
-    # Get the Globus batch status response
-    status_response, error_message, code = get_batch_status(batch.globus_task_uuids)
-
-    # If there is an error when recovering Globus tasks status/results ...
-    if len(error_message) > 0:
-
-        # Mark the batch as failed if the function execution failed
-        if "TaskExecutionFailed" in error_message:
-            try:
-                batch.status = "failed"
-                batch.access_log.error = error_message
-                await update_database(db_object=batch)
-                await update_database(db_object=batch.access_log)
-                return batch.status, batch.result, "", 200
-            except Exception as e:
-                return "", "", f"Error: Could not update batch status in database: {e}", 400
-            
-        # Return error message
-        return "", "", error_message, code
-    
-    # Parse Globus batch status response
-    try:
-        status_response_values = list(status_response.values())
-        pending_list = [status["pending"] for status in status_response_values]
-        status_list = [status["status"] for status in status_response_values]
-    except Exception as e:
-        return "", "", f"Error: Could not parse get_batch_status response for status: {e}", 400
-    
-    # Collect latest batch status
-    try:
-
-        # If Globus server claims that the tasks are still pending ...
-        # TODO: We currently need to do extra checks since the AMQP server does not 
-        #       communicate node failure and endpoint restarts to the Globus server.
-        #       This means tasks can be lost and will always be flagged as "pending".
-        #       Globus has an open ticket for this issue so the below measure is temporary
-        if pending_list.count(True) > 0:
-            if cross_check:
-                batch_status = await cross_check_status(batch)
-                if batch_status == "pending" or batch_status == "running":
-                    batch.in_progress_at = timezone.now()
-                elif batch_status == "failed":
-                    batch.failed_at = timezone.now()
-                    batch.access_log.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
-            else:
-                batch_status = batch.status
-
-        # Completed
-        elif status_list.count("success") == len(status_list):
-            batch_status = "completed"
-            batch.completed_at = timezone.now()
-
-        # Failed
-        else:
-            batch_status = "failed"
-            batch.failed_at = timezone.now()
-
-    # Error if something went wrong while parsing the batch status response
-    except Exception as e:
-        return "", "", f"Error: Could not define batch status: {e}", 400
-    
-    # Update batch status in the database
-    try:
-        batch.status = batch_status
-        await update_database(db_object=batch)
-        await update_database(db_object=batch.access_log)
-    except Exception as e:
-        return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
-    
-    # If batch result is available ...
-    if batch_status == "completed":
-
-        # Parse Globus batch status response to extract result
-        try:
-            result_list = [status["result"] for status in status_response_values]
-            batch_result = ",".join(result_list) + ","
-            batch_result = batch_result[:-1]
-
-        # Error if something went wrong while parsing the batch status response
-        except Exception as e:
-            return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
-
-        # Update batch result in the database and upsert BatchMetrics
-        try:
-            batch.result = batch_result
-            await update_database(db_object=batch)
-            await update_database(db_object=batch.access_log)
-
-            # Try to parse metrics summary from result if available
-            total_tokens = None
-            num_responses = None
-            response_time_sec = None
-            throughput = None
-            try:
-                result_data = json.loads(batch_result)
-                if isinstance(result_data, dict) and 'metrics' in result_data:
-                    metrics = result_data.get('metrics') or {}
-                    total_tokens = metrics.get('total_tokens')
-                    num_responses = metrics.get('num_responses')
-                    response_time_sec = metrics.get('response_time_sec')
-                    throughput = metrics.get('throughput_tokens_per_sec')
-            except Exception:
-                pass
-            try:
-                await _upsert_batch_metrics(
-                    batch_obj=batch,
-                    total_tokens=total_tokens,
-                    num_responses=num_responses,
-                    response_time_sec=response_time_sec,
-                    throughput_tokens_per_sec=throughput,
-                )
-            except Exception as e:
-                log.error(f"Error upserting BatchMetrics: {e}")
-        except Exception as e:
-            return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
-
-    # Return the new status if nothing went wrong
-    return batch.status, batch.result, "", 200
-
-
-# Cross check status
-# TODO: Remove this function once Globus status includes "task lost"
-async def cross_check_status(batch):
-    """
-    This verifies whether a Globus task is pending or lost due to an endpoint
-    restart or a compute node failure. This is not 100% accurate, but it serves
-    as a temporary improvement while Globus addresses the open ticket on improving
-    the communication between Globus and AMQP when tasks are lost.
-    Returns: status
-    """
-
-    # Get Globus Compute client and executor
-    try:
-        gcc = get_compute_client_from_globus_app()
-        gce = get_compute_executor(client=gcc)
-    except Exception as e:
-        return batch.status
-    
-    # Collect (qstat) details on the jobs running/queued on the cluster
-    qstat_result, _, error_message, _ = await get_qstat_details(batch.cluster, gcc, gce, timeout=60)
-
-    # Preserve current status if no further investigation can be done
-    if len(error_message) > 0:
-        return batch.status
-    try:
-        qstat_result = json.loads(qstat_result)
-    except Exception as e:
-        return batch.status
-    
-    # Attempt to parse qstat_result
-    try:
-
-        # Collect batch ids that are running
-        running_batch_ids = []
-        for running in qstat_result["private-batch-running"]:
-            if "Batch ID" in running:
-                running_batch_ids.append(running["Batch ID"])
-        nb_running_batches = len(qstat_result["private-batch-running"])
-
-        # Collect the number of queued batches
-        nb_queued_batches = len(qstat_result["private-batch-queued"])
-        
-        # Set status to "running" if an HPC job is running for the targetted batch
-        if str(batch.batch_id) in running_batch_ids:
-            return "running"
-            
-        # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
-        if not batch.batch_id in running_batch_ids and batch.status == "running":
-            return "failed"
-        
-        # Set status to "failed" if batch is pending, but nothing is queued or running
-        # Do not fail just because nothing is in the HPC queue. If a batch is running,
-        # it is possible that the targetted batch is in the Globus queue in the cloud.
-        if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
-            if (timezone.now() - batch.created_at).seconds > 10:
-                return "failed"
-
-    # Preserve current status if no further investigation can be done    
-    except Exception as e:
-        return batch.status
-    
-    # Return same status if no special case was catched
-    return batch.status
 
 
 # Update database
@@ -945,25 +721,6 @@ async def get_response(content, code, request):
         return HttpResponse(json.dumps(content), status=code)
 
 
-async def get_batch_response(db_data, content, code, db_Model):
-    """Log result or error in the current database model and return the HTTP response."""
-    
-    # Create database entry
-    try:
-        await update_database(db_Model=db_Model, db_data=db_data)
-    except Exception as e:
-        error_message = f"Error: Could not update database: {e}"
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
-        
-    # Return the response or the error message from previous steps
-    if code == 200:
-        return HttpResponse(content, status=code)
-    else:
-        log.error(content)
-        return HttpResponse(json.dumps(content), status=code)
-
-
 # ========================================
 # Streaming Setup
 # ========================================
@@ -1149,6 +906,89 @@ def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
     }
     obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
     return obj
+
+# Data structure for the update_batch() function response
+class UpdateBatchResponse(BaseModel):
+    batch: BatchLog
+    error_message: Optional[str] = None
+    error_code: Optional[int] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable BatchLog
+
+
+# Update batch entry
+async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
+    """Update batch database entry and return the modified BatchLog instance data."""
+
+    # Get endpoint wrapper from database
+    endpoint_slug = slugify(" ".join([batch.cluster, batch.framework, batch.model]))
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return UpdateBatchResponse(
+            error_message=response.error_message,
+            error_code=response.error_code
+        )
+    endpoint = response.endpoint
+
+    # Get latest batch status
+    response = await endpoint.get_batch_status(batch)
+    if response.error_message:
+        return UpdateBatchResponse(
+            error_message=response.error_message,
+            error_code=response.error_code
+        )
+    status = response.status
+    result = response.result
+
+    # If status changed ...
+    if batch.status != status:
+        
+        # Update status and result
+        batch.status = status
+        batch.result = result
+
+        # Adjust timestamp
+        if batch.status == BatchStatusEnum.failed.value:
+            batch.failed_at = timezone.now()
+        elif batch.status == BatchStatusEnum.completed.value:
+            batch.completed_at = timezone.now()
+        
+        # Try to parse metrics summary from result if available
+        if result:
+            try:
+                result_data = json.loads(batch.result)
+                if isinstance(result_data, dict) and 'metrics' in result_data:
+                    metrics = result_data.get('metrics') or {}
+                    total_tokens = metrics.get('total_tokens')
+                    num_responses = metrics.get('num_responses')
+                    response_time_sec = metrics.get('response_time_sec')
+                    throughput = metrics.get('throughput_tokens_per_sec')
+            except Exception:
+                total_tokens = None
+                num_responses = None
+                response_time_sec = None
+                throughput = None
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch,
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
+            except Exception as e:
+                log.error(f"Error upserting BatchMetrics: {e}")
+        
+        # Update entry in the database
+        try:
+            await update_database(db_object=batch)
+        except Exception as e:
+            return UpdateBatchResponse(
+                error_message=f"Error: {str(e)}",
+                error_code=500
+            )
+
+    # Return the batch object
+    return UpdateBatchResponse(batch=batch)
 
 
 # Create batch log
