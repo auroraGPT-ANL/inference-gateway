@@ -108,11 +108,16 @@ class GlobusComputeCluster(BaseCluster):
                     if int(endpoint_status["details"].get("managers", 0)) == 0:
                         result["running"][i]["Model Status"] = "disconnected"
 
-            # Turn the result back to a string
-            result = json.dumps(result)
-
         except Exception as e:
             log.warning(f"Failed to refine qstat model status: {e}")
+
+        # Convert dashes into underscores
+        try:
+            result["private_batch_running"] = result["private-batch-running"]
+            result["private_batch_queued"] = result["private-batch-queued"]
+        except Exception as e:
+            return GetJobsResponse(error_message=f"Error: Could not parse batch details: {e}", error_code=500)
+
 
         # Build response
         try:
