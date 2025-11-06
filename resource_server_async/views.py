@@ -17,17 +17,15 @@ from logging_config import LOGGING_CONFIG
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-import utils.globus_utils as globus_utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
+from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
-    update_batch_status_result,
-    ALLOWED_QSTAT_ENDPOINTS,
-    BatchListFilter,
+    update_batch,
     decode_request_body,
     # Streaming functions
     store_streaming_data,
@@ -46,12 +44,8 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import (
-    Batch, 
-    FederatedEndpoint
-)
-from resource_server.models import Endpoint as EndpointOld
-from resource_server_async.models import RequestLog, BatchLog, Endpoint, Cluster
+from resource_server.models import FederatedEndpoint
+from resource_server_async.models import BatchLog, Cluster
 
 # Django Ninja API
 from resource_server_async.api import api, router
@@ -161,6 +155,34 @@ async def get_jobs(request, cluster:str):
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
+
+    # Validate and build the inference request data
+    batch_data = validate_batch_body(request)
+    if "error" in batch_data.keys():
+        return await get_response(batch_data['error'], 400, request)
+
+    # Make sure the URL inputs point to an available endpoint 
+    error_message = validate_cluster_framework(cluster, framework)
+    if len(error_message):
+        return await get_response(error_message, 400, request)
+
+    # Build the requested endpoint slug
+    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
+
+    # Get endpoint wrapper from database
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    endpoint = response.endpoint
+
+    # Error if batch is disabled for this endpoint
+    if not endpoint.has_batch_enabled():
+        return await get_response(f"Error: Batch is unavailable for endpoint {endpoint_slug}", 501, request)
+
+    # Block access if the user is not allowed to use the endpoint
+    response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
     
     # Reject request if the allowed quota per user would be exceeded
     try:
@@ -176,36 +198,12 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_response(f"Error: Could not query active batches owned by user: {e}", 400, request)
     
-    # Validate and build the inference request data
-    batch_data = validate_batch_body(request)
-    if "error" in batch_data.keys():
-        return await get_response(batch_data['error'], 400, request)
-
-    # Make sure the URL inputs point to an available endpoint 
-    error_message = validate_cluster_framework(cluster, framework)
-    if len(error_message):
-        return await get_response(error_message, 400, request)
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    endpoint = response.endpoint
-
-    # Block access if the user is not allowed to use the endpoint
-    response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-        
-    # Make sure the endpoint has batch UUIDs
-    if len(endpoint.batch_endpoint_uuid) == 0 or len(endpoint.batch_function_uuid) == 0:
-        return await get_response(f"Endpoint {endpoint_slug} does not have batch enabled.", 501, request)
-
-    # Error if an ongoing batch already exists with the same input_file
-    # TODO: More checks here to make sure we don't duplicate batches?
-    #       Do we allow multiple batches on the same file on different clusters?
+    # Error if an ongoing batch already exists with the same input_file for the same user
     try:
-        async for batch in BatchLog.objects.filter(input_file=batch_data["input_file"]):
+        async for batch in BatchLog.objects.filter(
+            access_log__user__username=request.auth.username,
+            input_file=batch_data["input_file"]
+        ).select_related("access_log", "access_log__user").aiterator():
             if not batch.status in ["failed", "completed"]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_response(error_message, 400, request)
@@ -214,87 +212,27 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     except Exception as e:
         return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, request)
 
-    # Get Globus Compute client (using the endpoint identity)
-    try:
-        gcc = globus_utils.get_compute_client_from_globus_app()
-    except Exception as e:
-        return await get_response(f"Error: Could not get the Globus Compute client: {e}", 500, request)
+    # Submit batch
+    batch_response = await endpoint.submit_batch(batch_data, request.auth.username)
 
-    # Query the status of the Globus Compute batch endpoint
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests,
-    # otherwise, coroutines can set off the too-many-requests Globus error before the "first" requests can cache the status
-    endpoint_slug = f"{endpoint_slug}/batch"
-    endpoint_uuid = endpoint.batch_endpoint_uuid
-    function_uuid = endpoint.batch_function_uuid
-    endpoint_status, error_message = globus_utils.get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return await get_response(error_message, 500, request)
-
-    # Error if the endpoint is not online
-    if not endpoint_status["status"] == "online":
-        return await get_response(f"Error: Endpoint {endpoint_slug} is offline.", 503, request)
-    
-    # Prepare input parameter for the compute tasks
-    # NOTE: This is already in list format in case we submit multiple tasks per batch
-    batch_id = str(uuid.uuid4())
-    params_list = [
-        {
-            "model_params": {
-                "input_file": batch_data["input_file"],
-                "model": batch_data["model"]
-            },
-            "batch_id": batch_id,
-            "username": request.auth.username
-        }
-    ]
-    if "output_folder_path" in batch_data:
-        params_list[0]["model_params"]["output_folder_path"] = batch_data["output_folder_path"]
-
-    # Prepare the batch job
-    try:
-        batch = gcc.create_batch()
-        for params in params_list:
-            batch.add(function_id=function_uuid, args=[params])
-    except Exception as e:
-        return await get_response(f"Error: Could not create Globus Compute batch: {e}", 500, request)
-    
     # Create batch log data
     request.batch_log_data = BatchLogPydantic(
-        id=batch_id,
+        id=batch_response.batch_id,
+        task_ids=batch_response.task_ids,
         cluster=cluster,
         framework=framework,
         model=batch_data["model"],
         input_file=batch_data["input_file"],
         output_folder_path=batch_data.get("output_folder_path", ""),
-        status="failed",
+        status=batch_response.status,
         in_progress_at=timezone.now()
     )
 
-    # Submit batch to Globus Compute and update batch status if submission is successful
-    try:
-        batch_response = gcc.batch_run(endpoint_id=endpoint_uuid, batch=batch)
-        request.batch_log_data.status = "pending"
-    except Exception as e:
-        return await get_response(f"Error: Could not submit the Globus Compute batch: {e}", 500, request)
-    
-    # Extract the Globus batch UUID from submission
-    try:
-        request.batch_log_data.globus_batch_uuid = batch_response["request_id"]
-    except Exception as e:
-        return await get_response(f"Error: Batch submitted but no batch UUID recovered: {e}", 400, request)
+    # Error if something went wrong during the batch submission
+    if batch_response.error_message:
+        return await get_response(batch_response.error_message, batch_response.error_code, request)
 
-    # Extract the batch and task UUIDs from submission
-    try:
-        request.batch_log_data.globus_task_uuids = ""
-        for _, task_uuids in batch_response["tasks"].items():
-            request.batch_log_data.globus_task_uuids += ",".join(task_uuids) + ","
-        request.batch_log_data.globus_task_uuids = request.batch_log_data.globus_task_uuids[:-1]
-    except Exception as e:
-        return await get_response(f"Error: Batch submitted but no task UUID recovered: {e}", 400, request)
-
-    # Create batch entry in the database and return response to the user
+    # Prepare response and return it to the user
     response = {
         "batch_id": request.batch_log_data.id,
         "input_file": request.batch_log_data.input_file,
@@ -311,22 +249,26 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 
     # Declare the list of batches to be returned to the user
     batch_list = []
-    try:
 
-        # For each batch object owned by the user ...
+    # For each batch object owned by the user ...
+    try:
         async for batch in BatchLog.objects.filter(
             access_log__user__username=request.auth.username
         ).select_related("access_log", "access_log__user").aiterator():
-
-            # Get a status update for the batch (this will update the database if needed)
-            batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
-            if len(error_message) > 0:
-                return await get_response(error_message, code, request)
-            
+        
+            # If the batch status needs to be revised ...
+            if batch.status not in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
+                
+                # Get the latest batch status and result (and update database if needed)
+                response = await update_batch(batch)
+                if response.error_message:
+                    return await get_response(response.error_message, response.error_code, request)
+                batch = response.batch
+                
             # If no optional status filter was provided ...
             # or if the status filter matches the current batch status ...
             if isinstance(filters.status, type(None)) or \
-                (isinstance(filters.status, str) and filters.status == batch_status):
+                (isinstance(filters.status, str) and filters.status == batch.status):
 
                 # Add the batch details to the list
                 batch_list.append(
@@ -338,7 +280,7 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
                     "in_progress_at": str(batch.in_progress_at),
                     "completed_at": str(batch.completed_at),
                     "failed_at": str(batch.failed_at),
-                    "status": batch_status
+                    "status": batch.status
                 }
             )
 
@@ -362,33 +304,34 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
 
     # Recover batch object in the database
     try:
-        batch = await sync_to_async(
-            lambda: BatchLog.objects.select_related(
-                "access_log",
-                "access_log__user"
-            ).get(id=batch_id),
+        batch: BatchLog = await sync_to_async(
+            lambda: BatchLog.objects.select_related("access_log", "access_log__user").get(id=batch_id),
             thread_sensitive=True,
         )()
     except BatchLog.DoesNotExist:
         return await get_response(f"Error: Batch {batch_id} does not exist.", 400, request)
     except Exception as e:
-        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400, request)
+        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 500, request)
 
     # Make sure user has permission to access this batch_id
     try:
         if not request.auth.username == batch.access_log.user.username:
-            error_message = f"Error: Permission denied to Batch {batch_id}."
-            return await get_response(error_message, 403, request)
+            return await get_response(f"Error: Permission denied to Batch {batch_id}.", 403, request)
     except Exception as e:
-        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, request)
+        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 500, request)
     
-    # Get a status update for the batch (this will update the database if needed)
-    batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
-    if len(error_message) > 0:
-        return await get_response(error_message, code, request)
-
+    # Return status directly if batch already completed or failed
+    if batch.status in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
+        return await get_response(json.dumps(batch.status), 200, request)
+    
+    # Get the latest batch status and result (and update database if needed)
+    response = await update_batch(batch)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    batch = response.batch
+        
     # Return status of the batch job
-    return await get_response(json.dumps(batch_status), 200, request)
+    return await get_response(json.dumps(batch.status), 200, request)
 
 
 # Inference batch result (GET)
@@ -400,10 +343,7 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     # Recover batch object in the database
     try:
         batch = await sync_to_async(
-            lambda: BatchLog.objects.select_related(
-                "access_log",
-                "access_log__user"
-            ).get(id=batch_id),
+            lambda: BatchLog.objects.select_related("access_log", "access_log__user").get(id=batch_id),
             thread_sensitive=True,
         )()
     except BatchLog.DoesNotExist:
@@ -419,21 +359,22 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     except Exception as e:
         return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, request)
 
-    # Get a status update for the batch (this will update the database if needed)
-    batch_status, batch_result, error_message, code = await update_batch_status_result(batch)
-    if len(error_message) > 0:
-        return await get_response(error_message, code, request)
+    # Get the latest batch status and result (and update database if needed)
+    response = await update_batch(batch)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    batch = response.batch
 
     # Return error if batch failed
-    if batch_status == "failed":
-        return await get_response(f"Error: Batch failed: {batch.access_log.error}", 400, request)
+    if batch.status == BatchStatusEnum.failed.value:
+        return await get_response(f"Error: Batch failed: {batch.result}", 400, request)
 
     # Return error if results are not ready yet
-    if not batch_status == "completed":
+    if batch.status != BatchStatusEnum.completed.value:
         return await get_response("Error: Batch not completed yet. Results not ready.", 400, request)
 
     # Return status of the batch job
-    return await get_response(json.dumps(batch_result), 200, request)
+    return await get_response(json.dumps(batch.result), 200, request)
 
 
 # Inference (POST)
@@ -651,6 +592,8 @@ async def receive_streaming_done(request):
 
 
 # Federated Inference (POST) - Chooses cluster/framework automatically
+# TEMPORARY: deactivating federated inference. Needs to be re-written with endpoint/cluster wrappers
+'''
 @router.post("/v1/{path:openai_endpoint}")
 async def post_federated_inference(request, openai_endpoint: str, *args, **kwargs):
     """
@@ -893,6 +836,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
 
     # Return Globus Compute results
     return await get_response(result, 200, request)
-
+'''
+    
 # Add URLs to the Ninja API
 api.add_router("/", router)
