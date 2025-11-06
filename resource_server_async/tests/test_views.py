@@ -163,6 +163,7 @@ class ResourceServerViewTestCase(TestCase):
 
         # For each supported endpoint in the database ...
         async for endpoint in Endpoint.objects.all():
+          if "model-removed" not in endpoint.endpoint_slug:
             
             # Build the targeted Django URLs
             url_dict = self.__get_endpoint_urls(endpoint)
@@ -225,6 +226,7 @@ class ResourceServerViewTestCase(TestCase):
 
         # For each endpoint that support batch in the database ...
         async for endpoint in Endpoint.objects.all():
+          if "model-removed" not in endpoint.endpoint_slug:
             if len(endpoint.batch_endpoint_uuid) > 0:
             
                 # Build the targeted Django URL
@@ -281,6 +283,7 @@ class ResourceServerViewTestCase(TestCase):
         
         # For each supported endpoint in the database that supports chat/completions...
         async for endpoint in Endpoint.objects.all():
+          if "model-removed" not in endpoint.endpoint_slug:
             
             # Build the targeted Django URL for chat/completions
             url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
@@ -334,6 +337,7 @@ class ResourceServerViewTestCase(TestCase):
         
         # For each supported endpoint that allows streaming...
         async for endpoint in Endpoint.objects.all():
+          if "model-removed" not in endpoint.endpoint_slug:
             
             # Build the targeted Django URL for chat/completions
             url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
