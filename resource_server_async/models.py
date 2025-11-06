@@ -148,7 +148,7 @@ class BatchLog(models.Model):
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)
-    globus_task_uuids = models.TextField(null=True)
+    task_ids = models.TextField(null=True)
     result = models.TextField(blank=True)
 
     # What is the status of the batch?
