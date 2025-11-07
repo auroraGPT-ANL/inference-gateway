@@ -37,7 +37,7 @@ from resource_server_async.utils import (
     get_response,
     create_access_log,
     create_request_log,
-    # Metis utilities
+    # Wrapper function
     get_endpoint_wrapper,
     get_cluster_wrapper
 )
