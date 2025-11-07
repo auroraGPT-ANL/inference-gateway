@@ -4,7 +4,6 @@ import time
 from django.http import StreamingHttpResponse
 from pydantic import BaseModel
 from typing import Any
-from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic
 from resource_server_async.utils import create_streaming_response_headers
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
