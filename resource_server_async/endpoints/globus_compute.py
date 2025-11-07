@@ -396,14 +396,16 @@ class GlobusComputeEndpoint(BaseEndpoint):
             response=response,
             task_id=task_uuid
         )
-      
+    
+    
     # Enable batch support
     def has_batch_enabled(self) -> bool:
         """Return True if batch can be used for this endpoint, False otherwise."""
         return (self.config.batch_endpoint_uuid is not None) and (self.config.batch_function_uuid is not None)
     
+
     # Submit batch
-    async def submit_batch(self, batch_data: dict, username: str) -> SubmitBatchResponse: # <-- Needs arguments here ...
+    async def submit_batch(self, batch_data: dict, username: str) -> SubmitBatchResponse:
         """Submits a batch job to the compute resource."""
 
         # Get Globus Compute client (using the endpoint identity)
@@ -493,7 +495,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
 
     # Get batch status
     async def get_batch_status(self, batch: BatchLog) -> GetBatchStatusResponse:
-        """Get the status of a batch job."""
+        """Get the status and results of a batch job."""
 
         # Get the Globus batch status response
         status_response, error_message, error_code = globus_utils.get_batch_status(batch.task_ids)
