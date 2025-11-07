@@ -1,6 +1,5 @@
 import uuid
 from pydantic import BaseModel, Field, ConfigDict
-from enum import Enum
 from abc import ABC, abstractmethod
 from django.http import StreamingHttpResponse
 from typing import List, Optional, Any
@@ -83,8 +82,7 @@ class BaseEndpoint(ABC):
         # Extract list of allowed domains
         self._allowed_domains = [d.strip() for d in self._allowed_domains.split(",") if d.strip()]
 
-
-    # Has permission (common function)
+    # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str] ) -> CheckPermissionResponse:
         """Verify is the user is permitted to access this endpoint."""
         return auth_utils_check_permission(auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains)
