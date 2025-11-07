@@ -24,7 +24,7 @@ class MetisCluster(BaseCluster):
     async def get_jobs(self) -> GetJobsResponse:
         """Provides a status of the cluster as a whole, including which models are running."""
 
-#        # Metis uses a status API instead of qstat
+        # Metis uses a status API instead of qstat
         metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
         if error_msg:
             return GetJobsResponse(error_message=error_msg, error_code=503)
