@@ -19,7 +19,6 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
-from utils.auth_utils import check_permission as auth_utils_check_permission
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
@@ -211,7 +210,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if response.error_message:
+    if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     
     # Reject request if the allowed quota per user would be exceeded
@@ -441,7 +440,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if response.error_message:
+    if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     
     # Initialize the request log data for the database entry
