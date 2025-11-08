@@ -77,7 +77,7 @@ class BaseEndpoint(ABC):
             try:
                 _ = uuid.UUID(uuid_to_test).version
             except Exception as e:
-                raise Exception(f"Error: Could not extract UUID format from the database. {e}")
+                raise Exception(f"Error: Could not extract allowed_globus_groups UUID format from the database. {e}")
         
         # Extract list of allowed domains
         self._allowed_domains = [d.strip() for d in self._allowed_domains.split(",") if d.strip()]
@@ -85,7 +85,18 @@ class BaseEndpoint(ABC):
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str] ) -> CheckPermissionResponse:
         """Verify is the user is permitted to access this endpoint."""
-        return auth_utils_check_permission(auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains)
+
+        # Check permission
+        response = auth_utils_check_permission(auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains)
+        if response.error_message:
+            return CheckPermissionResponse(
+                is_authorized=False,
+                error_message=response.error_message,
+                error_code=response.error_code
+            )
+        
+        # Return permission check result
+        return CheckPermissionResponse(is_authorized=response.is_authorized)
     
     # Mandatory definitions
     # ---------------------
@@ -105,8 +116,8 @@ class BaseEndpoint(ABC):
         """Submits a single interactive task to the compute resource with streaming enabled."""
         pass
 
-    # Optional batch support
-    # ----------------------
+    # Optional batch support (deactivated by default)
+    # -----------------------------------------------
 
     # Redefine in the child class if needed
     def has_batch_enabled(self) -> bool:

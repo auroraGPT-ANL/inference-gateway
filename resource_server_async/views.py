@@ -19,6 +19,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
+from utils.auth_utils import check_permission as auth_utils_check_permission
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
@@ -45,7 +46,7 @@ log.info("Utils functions loaded.")
 
 # Django database
 from resource_server.models import FederatedEndpoint
-from resource_server_async.models import BatchLog, Cluster
+from resource_server_async.models import BatchLog, Cluster, Endpoint
 
 # Django Ninja API
 from resource_server_async.api import api, router
@@ -111,11 +112,40 @@ async def get_list_endpoints(request):
             cluster = response.cluster
 
             # If the user is allowed to see the cluster ...
-            response = cluster.check_permission(request.auth, request.user_group_uuids)
-            if response.is_authorized:
+            if cluster.check_permission(request.auth, request.user_group_uuids).is_authorized:
 
-                # Collect the list of endpoints that the user is authorized to see
-                all_endpoints["clusters"][cluster.cluster_name] = await cluster.get_endpoint_list(request.auth, request.user_group_uuids)
+                # For each endpoint related to this cluster ...
+                frameworks = {}
+                async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
+
+                    # Get endpoint wrapper from database
+                    response = await get_endpoint_wrapper(endpoint.endpoint_slug)
+                    if response.error_message:
+                        return await get_response(response.error_message, response.error_code, request)
+                    endpoint = response.endpoint
+
+                    # If the user is allowed to see this endpoint ...
+                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
+
+                        # Add framework if needed
+                        if endpoint.framework not in frameworks:
+                            frameworks[endpoint.framework] = {
+                                "models": [],
+                                "endpoints": cluster.openai_endpoints
+                            }
+
+                        # Add model to the framework
+                        frameworks[endpoint.framework]["models"].append(endpoint.model) 
+                    
+                # Sort models alphabetically
+                for fw in frameworks:
+                    frameworks[fw]["models"] = sorted(frameworks[fw]["models"])
+
+                # Add endpoint list to the response
+                all_endpoints["clusters"][cluster.cluster_name] = {
+                    "base_url": f"/resource_server/{cluster.cluster_name}",
+                    "frameworks": frameworks
+                }
 
         # Error message if something went wrong while building the endpoint list
         except Exception as e:
