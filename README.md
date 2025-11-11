@@ -7,6 +7,7 @@ FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables
 
 ## Table of Contents
 
+- [Documentation](#documentation)
 - [System Architecture](#system-architecture)
 - [Prerequisites](#prerequisites)
 - [Setup Overview](#setup-overview)
@@ -31,6 +32,12 @@ FIRST (Federated Inference Resource Scheduling Toolkit) is a system that enables
 - [Production Considerations (Nginx)](#production-considerations-nginx)
 - [Monitoring](#monitoring)
 - [Troubleshooting](#troubleshooting)
+
+## Documentation
+
+Detailed installation and deployment recipes now live under `docs/`. Start with the Docker quickstart if you are looking for a lightweight path to run the gateway locally:
+
+- [Administrator Guide — Docker Quickstart](docs/admin-guide/docker-quickstart.md)
 
 ## System Architecture
 
@@ -60,6 +67,8 @@ The setup involves two main parts:
 These parts can be done in parallel, but configuration details from each are needed to link them.
 
 ## Gateway Setup
+
+> 📝 Looking for a shorter, task-oriented walkthrough? See the [Docker Quickstart](docs/admin-guide/docker-quickstart.md) in the Administrator Guide.
 
 This section covers setting up the central Django application.
 
@@ -768,7 +777,7 @@ For an example of how user-facing documentation might look for a deployed instan
 
 ## Troubleshooting
 
-*   **Docker Nginx 404/502/504 Errors:** Verify `nginx_app.conf` mount and upstream definition, check `inference-gateway` logs.
+*   **Docker Nginx 404/502/504 Errors:** Verify `deploy/docker/nginx.conf` mount and upstream definition, check `inference-gateway` logs.
 *   **Database Connection Errors:** Check `.env` variables (`PGHOST`, etc.) match context (Docker vs. Host vs. Bare-metal) and firewall/`pg_hba.conf` rules.
 *   **Globus Auth Errors**: Ensure Redirect URIs match in Globus Developer portal and `.env` credentials are correct.
 *   **Compute Endpoint Issues**: Check endpoint logs (`~/.globus_compute/<endpoint_name>/endpoint.log`) for function execution errors, environment problems, or connection issues.
