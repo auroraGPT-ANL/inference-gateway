@@ -1,0 +1,219 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Build documentation site
+        run: |
+          mkdir -p _site
+          cp -r docs/* _site/
+          cp README.md _site/index.md
+          
+          # Create a simple index.html that redirects to the main docs
+          cat > _site/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>FIRST Inference Gateway Documentation</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                      line-height: 1.6;
+                      max-width: 900px;
+                      margin: 0 auto;
+                      padding: 2rem;
+                      color: #333;
+                  }
+                  h1 {
+                      color: #2c3e50;
+                      border-bottom: 3px solid #3498db;
+                      padding-bottom: 0.5rem;
+                  }
+                  .nav-section {
+                      margin: 2rem 0;
+                      padding: 1.5rem;
+                      background: #f8f9fa;
+                      border-radius: 8px;
+                      border-left: 4px solid #3498db;
+                  }
+                  .nav-section h2 {
+                      margin-top: 0;
+                      color: #2c3e50;
+                  }
+                  ul {
+                      list-style: none;
+                      padding: 0;
+                  }
+                  li {
+                      margin: 0.75rem 0;
+                  }
+                  a {
+                      color: #3498db;
+                      text-decoration: none;
+                      font-weight: 500;
+                  }
+                  a:hover {
+                      text-decoration: underline;
+                  }
+                  .badge {
+                      display: inline-block;
+                      padding: 0.25rem 0.5rem;
+                      margin-left: 0.5rem;
+                      font-size: 0.75rem;
+                      background: #e74c3c;
+                      color: white;
+                      border-radius: 3px;
+                  }
+                  .description {
+                      color: #666;
+                      margin-top: 0.5rem;
+                  }
+              </style>
+          </head>
+          <body>
+              <h1>🚀 FIRST Inference Gateway Documentation</h1>
+              
+              <p>Welcome to the documentation for the Federated Inference Resource Scheduling Toolkit (FIRST). FIRST enables LLM inference as a service across distributed HPC clusters through an OpenAI-compatible API.</p>
+              
+              <div class="nav-section">
+                  <h2>📖 Administrator Guides</h2>
+                  <ul>
+                      <li>
+                          <a href="admin-guide/docker-quickstart.html">Docker Quickstart</a>
+                          <span class="badge">START HERE</span>
+                          <div class="description">Fast-track Docker deployment in under 10 minutes</div>
+                      </li>
+                      <li>
+                          <a href="admin-guide/setup.html">Complete Setup Guide</a>
+                          <div class="description">Comprehensive installation and configuration for all deployment types</div>
+                      </li>
+                  </ul>
+              </div>
+              
+              <div class="nav-section">
+                  <h2>👥 User Guide</h2>
+                  <ul>
+                      <li>
+                          <a href="usage-guide.html">Usage Guide</a>
+                          <div class="description">Learn how to authenticate and make inference requests</div>
+                      </li>
+                  </ul>
+              </div>
+              
+              <div class="nav-section">
+                  <h2>🔗 Additional Resources</h2>
+                  <ul>
+                      <li><a href="https://github.com/auroraGPT-ANL/inference-gateway">GitHub Repository</a></li>
+                      <li><a href="https://github.com/argonne-lcf/inference-endpoints">Example Production Deployment (ALCF)</a></li>
+                      <li><a href="https://doi.org/10.1145/3731599.3767346">Research Paper</a></li>
+                  </ul>
+              </div>
+              
+              <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
+              
+              <p style="color: #666; font-size: 0.9rem;">
+                  <strong>License:</strong> Apache 2.0 | 
+                  <strong>Maintained by:</strong> Argonne National Laboratory
+              </p>
+          </body>
+          </html>
+          EOF
+          
+          # Convert markdown files to HTML using a simple approach
+          # For a more sophisticated setup, you could use Jekyll, MkDocs, or Sphinx
+          for md_file in $(find _site -name "*.md"); do
+              html_file="${md_file%.md}.html"
+              cat > "$html_file" << 'HEADER'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>FIRST Documentation</title>
+              <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+              <style>
+                  .markdown-body {
+                      box-sizing: border-box;
+                      min-width: 200px;
+                      max-width: 980px;
+                      margin: 0 auto;
+                      padding: 45px;
+                  }
+                  @media (max-width: 767px) {
+                      .markdown-body { padding: 15px; }
+                  }
+                  .nav-header {
+                      background: #24292e;
+                      color: white;
+                      padding: 1rem;
+                      margin: -45px -45px 2rem -45px;
+                  }
+                  .nav-header a {
+                      color: #58a6ff;
+                      text-decoration: none;
+                  }
+                  .nav-header a:hover {
+                      text-decoration: underline;
+                  }
+              </style>
+          </head>
+          <body>
+              <article class="markdown-body">
+                  <div class="nav-header">
+                      <a href="/">← Back to Documentation Home</a>
+                  </div>
+          HEADER
+              
+              # Use a simple markdown renderer - in production you'd want something more robust
+              echo '<div id="content"></div>' >> "$html_file"
+              echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>' >> "$html_file"
+              echo '<script>' >> "$html_file"
+              echo 'fetch("'"${md_file##*/}"'").then(r => r.text()).then(text => {' >> "$html_file"
+              echo '  document.getElementById("content").innerHTML = marked.parse(text);' >> "$html_file"
+              echo '});' >> "$html_file"
+              echo '</script>' >> "$html_file"
+              echo '</article></body></html>' >> "$html_file"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
