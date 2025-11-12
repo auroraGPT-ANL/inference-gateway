@@ -1,4 +1,4 @@
-site_name: FIRST Inference Gateway Documentation
+site_name: FIRST Documentation
 site_description: Federated Inference Resource Scheduling Toolkit - Documentation for deploying and using LLM inference as a service
 site_author: Argonne National Laboratory
 site_url: https://auroragpt-anl.github.io/inference-gateway/
