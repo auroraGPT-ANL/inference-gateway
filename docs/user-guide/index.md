@@ -343,5 +343,5 @@ The Gateway returns standard HTTP status codes:
 For issues, questions, or feature requests:
 - Check the [GitHub repository](https://github.com/auroraGPT-ANL/inference-gateway)
 - Contact your Gateway administrator
-- Review the [Administrator Setup Guide](admin-guide/setup.md) for deployment issues
+- Review the [Administrator Setup Guide](../admin-guide/index.md) for deployment issues
 

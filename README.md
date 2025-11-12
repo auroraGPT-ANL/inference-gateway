@@ -17,18 +17,18 @@ The Inference Gateway consists of several components:
 
 ## Documentation
 
-### For Administrators
+📚 **Complete documentation is available at: [https://auroragpt-anl.github.io/inference-gateway/](https://auroragpt-anl.github.io/inference-gateway/)**
 
-- **[Setup Guide](docs/admin-guide/setup.md)** - Complete installation and configuration instructions
-- **[Docker Quickstart](docs/admin-guide/docker-quickstart.md)** - Fast-track Docker deployment guide
+### Quick Links
 
-### For Users
+- **[Administrator Guide](https://auroragpt-anl.github.io/inference-gateway/admin-guide/)** - Setup and deployment instructions
+  - [Docker Deployment](https://auroragpt-anl.github.io/inference-gateway/admin-guide/gateway-setup/docker/)
+  - [Bare Metal Setup](https://auroragpt-anl.github.io/inference-gateway/admin-guide/gateway-setup/bare-metal/)
+  - [Inference Backend Setup](https://auroragpt-anl.github.io/inference-gateway/admin-guide/inference-setup/)
+  
+- **[User Guide](https://auroragpt-anl.github.io/inference-gateway/user-guide/)** - How to use the inference API
 
-- **[Usage Guide](docs/usage-guide.md)** - How to authenticate and make inference requests
-
-### Example Deployment
-
-For an example of a production deployment, see the [ALCF Inference Endpoints documentation](https://github.com/argonne-lcf/inference-endpoints).
+- **[Example Deployment](https://github.com/argonne-lcf/inference-endpoints)** - ALCF production deployment
 
 ## Citation
 
