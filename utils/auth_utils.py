@@ -232,7 +232,7 @@ def check_session_info(introspection, user_groups):
                 try:
                     user = UserPydantic(
                         id=identity["sub"],
-                        name=identity["name"],
+                        name=identity["name"] if isinstance(identity["name"], str) else "",
                         username=identity["username"],
                         user_group_uuids=user_groups,
                         idp_id=identity["identity_provider"],
