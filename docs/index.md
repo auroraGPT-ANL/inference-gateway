@@ -1,4 +1,4 @@
-# FIRST Inference Gateway Documentation
+# FIRST
 
 Welcome to the documentation for the **Federated Inference Resource Scheduling Toolkit (FIRST)**. FIRST enables LLM inference as a service across distributed HPC clusters through an OpenAI-compatible API.
 
