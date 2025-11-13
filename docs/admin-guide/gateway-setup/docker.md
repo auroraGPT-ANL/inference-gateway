@@ -80,12 +80,16 @@ Collect static files:
 docker-compose exec inference-gateway python manage.py collectstatic --noinput
 ```
 
-## Step 5: Verify the Gateway
+## Step 5: Verify the Inference Gateway API
 
 Check that the gateway is running:
-
 ```bash
-curl http://localhost:8000/
+curl http://localhost:8000/resource_server/whoami
+```
+
+If everything is running, the command should give you the following error:
+```bash
+Missing ('Authorization': 'Bearer <your-access-token>') in request headers.
 ```
 
 ## Common Commands
@@ -185,7 +189,7 @@ docker-compose exec inference-gateway python manage.py createsuperuser
 
 ### 502 Bad Gateway from Nginx
 
-Check that the gateway container is running:
+Vefiry that the gateway container is running:
 
 ```bash
 docker-compose ps inference-gateway
