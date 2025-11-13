@@ -15,11 +15,11 @@ These can be deployed independently and connected together through configuration
 
 Before you begin, ensure you have:
 
-- [x] Python 3.12 or later
-- [x] Docker and Docker Compose (for Docker deployment)
-- [x] PostgreSQL Server (or use Docker)
-- [x] Globus Account
-- [x] Access to compute resources (for inference backends)
+- Python 3.12 or later
+- Docker and Docker Compose (for Docker deployment)
+- PostgreSQL Server (or use Docker)
+- Globus Account
+- Access to compute resources (for inference backends)
 
 ## Deployment Architecture
 
