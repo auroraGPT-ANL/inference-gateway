@@ -195,7 +195,6 @@ REDIS_URL="redis://localhost:6379/0"
 MAX_BATCHES_PER_USER=2
 STREAMING_SERVER_HOST="localhost:8080"
 INTERNAL_STREAMING_SECRET="<generate-random-secret>"
-CLI_AUTH_CLIENT_ID="58fdd3bc-e1c3-4ce5-80ea-8d6b87cfb944"
 EOF
 ```
 

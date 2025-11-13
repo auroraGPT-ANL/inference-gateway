@@ -94,7 +94,6 @@ REDIS_URL="redis://:password@localhost:6379/0"
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `CLI_AUTH_CLIENT_ID` | No | `58fdd3bc...` | Public client ID for CLI auth script |
 | `CLI_ALLOWED_DOMAINS` | No | - | Comma-separated domains for CLI login |
 | `CLI_TOKEN_DIR` | No | `~/.globus/app` | Token storage directory |
 | `CLI_APP_NAME` | No | `inference_auth` | App name for token storage |
