@@ -71,16 +71,11 @@ docker-compose ps
 Run migrations:
 
 ```bash
+docker-compose exec inference-gateway python manage.py makemigrations
 docker-compose exec inference-gateway python manage.py migrate
 ```
 
-Collect static files:
-
-```bash
-docker-compose exec inference-gateway python manage.py collectstatic --noinput
-```
-
-## Step 5: Verify the Inference Gateway API
+## Step 5: Test the Gateway
 
 Check that the gateway is running:
 ```bash
