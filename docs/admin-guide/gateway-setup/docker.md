@@ -40,21 +40,28 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
     - Consider using secrets management (e.g., Docker secrets)
 
 ## Step 3: Start the Services
-
 ```bash
 cd deploy/docker
 docker-compose up -d --build
 ```
 
-This starts:
+The `docker-compose.yml` includes:
 
-- `inference-gateway`: The Django API application
-- `postgres`: PostgreSQL database
-- `redis`: Redis cache
-- `nginx`: Reverse proxy (optional, if configured)
+### Core Services
 
-Verify services are running:
+- **inference-gateway**: Django API application (internal port 8000)
+- **postgres**: PostgreSQL 15 database (internal port 5432)
+- **redis**: Redis 7 cache (internal port 6379)
+- **nginx**: Reverse proxy (internal port 80 exposed to localhost port 8000)
 
+### Optional Services
+
+You can add these to your compose file:
+
+- **prometheus**: Metrics collection
+- **grafana**: Visualization dashboard
+
+Verify that the core-service containers are running:
 ```bash
 docker-compose ps
 ```
@@ -65,12 +72,6 @@ Run migrations:
 
 ```bash
 docker-compose exec inference-gateway python manage.py migrate
-```
-
-Create a superuser (optional, for Django admin access):
-
-```bash
-docker-compose exec inference-gateway python manage.py createsuperuser
 ```
 
 Collect static files:
@@ -86,37 +87,6 @@ Check that the gateway is running:
 ```bash
 curl http://localhost:8000/
 ```
-
-Access the Django admin (if superuser was created):
-
-- URL: http://localhost:8000/admin/
-- Login with your superuser credentials
-
-## Step 6: Configure Backends
-
-Now you need to connect inference backends. Choose one:
-
-- [Direct API Connection](../inference-setup/direct-api.md) - Connect to OpenAI or similar APIs
-- [Local vLLM](../inference-setup/local-vllm.md) - Run vLLM locally
-- [Globus Compute + vLLM](../inference-setup/globus-compute.md) - HPC cluster deployment
-
-## Docker Compose Services
-
-The `docker-compose.yml` includes:
-
-### Core Services
-
-- **inference-gateway**: Django application (port 8000)
-- **postgres**: PostgreSQL 15 (port 5432)
-- **redis**: Redis 7 (port 6379)
-
-### Optional Services
-
-You can add these to your compose file:
-
-- **nginx**: Reverse proxy for production
-- **prometheus**: Metrics collection
-- **grafana**: Visualization dashboard
 
 ## Common Commands
 
@@ -238,4 +208,3 @@ docker-compose exec nginx nginx -t
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [Configuration Reference](configuration.md)
 - [User Guide](../../user-guide/index.md)
-
