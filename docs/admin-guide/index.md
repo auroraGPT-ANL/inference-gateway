@@ -91,7 +91,7 @@ Choose your deployment approach:
 
 ```mermaid
 graph LR
-    A[Docker Gateway] --> B[Local vLLM]
+    A[Gateway] --> B[Local vLLM]
     B --> C[Small Model<br/>OPT-125M]
 ```
 
@@ -105,7 +105,7 @@ graph LR
 
 ```mermaid
 graph LR
-    A[Bare Metal Gateway] --> B[Globus Compute]
+    A[Gateway] --> B[Globus Compute]
     B --> C[HPC Cluster]
     C --> D[Multiple Models]
 ```
@@ -138,6 +138,26 @@ Ready to get started? Choose your path:
 - **Quick Start**: [Docker Deployment](gateway-setup/docker.md)
 - **Full Setup**: [Bare Metal Deployment](gateway-setup/bare-metal.md)
 - **Backend Setup**: [Inference Backend Overview](inference-setup/index.md)
+
+## Production Examples
+
+### ALCF Sophia Cluster
+
+We provide production-ready examples from our deployment at **Argonne Leadership Computing Facility (ALCF)** Sophia cluster:
+
+- **Modular launcher scripts** with automatic Ray setup for multi-node models
+- **Environment management** with dynamic version selection
+- **Production configurations** for single-node and multi-node deployments (up to 405B parameter models)
+- **Advanced features**: chunked prefill, prefix caching, tool calling
+
+These examples are located in `compute-endpoints/` and `compute-functions/` directories and should be adapted for your specific HPC environment.
+
+!!! example "See ALCF Examples"
+    View the complete ALCF Sophia production setup in the [Globus Compute Guide](inference-setup/globus-compute.md#alcf-sophia-production-example) including:
+    
+    - `sophia_env_setup_with_ray.sh` - Environment and Ray cluster management
+    - `launch_vllm_model.sh` - Flexible vLLM launcher with multi-node support
+    - Example YAML configurations for various model sizes
 
 ## Additional Resources
 

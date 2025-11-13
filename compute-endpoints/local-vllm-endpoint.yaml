@@ -11,7 +11,7 @@ engine:
       type: SimpleLauncher
     init_blocks: 1
     max_blocks: 1
-    min_blocks: 0
+    min_blocks: 1
     worker_init: |
       # Activate the conda environment
       # conda activate /opt/anaconda3/envs/inference-gateway-py3.11.9-env
@@ -112,4 +112,4 @@ engine:
       # independently after starting the background process.
       # sleep infinity
 allowed_functions:
-  - b9779cbe-c6d3-45ee-b68d-9012530cfa82
+  - $VLLM_FUNCTION_UUID
