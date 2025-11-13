@@ -18,53 +18,12 @@ cd inference-gateway
 
 ## Step 2: Configure Environment
 
-Copy the example environment file:
-
+Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
 ```bash
-cp deploy/docker/env.example .env
+cp env.example .env
 ```
 
-Edit `.env` with your configuration:
-
-```dotenv
-# --- Core Django Settings ---
-SECRET_KEY="<generate-with-command-below>"
-DEBUG=True
-ALLOWED_HOSTS="localhost,127.0.0.1"
-
-# --- Testing/Development Flags ---
-# Set to True to skip Globus High Assurance policy checks (for development/testing)
-# Set to False for production deployment
-RUNNING_AUTOMATED_TEST_SUITE=True
-LOG_TO_STDOUT=True  # Makes logs visible via docker-compose logs
-
-# --- Globus Credentials ---
-GLOBUS_APPLICATION_ID="<Your-Service-API-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Service-API-Client-Secret>"
-SERVICE_ACCOUNT_ID="<Your-Service-Account-Client-UUID>"
-SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Client-Secret>"
-
-# --- Database Credentials (change for production) ---
-POSTGRES_DB="inferencegateway"
-POSTGRES_USER="inferencedev"
-POSTGRES_PASSWORD="change-this-password"
-PGHOST="postgres"
-PGPORT=5432
-PGUSER="inferencedev"
-PGPASSWORD="change-this-password"
-PGDATABASE="inferencegateway"
-
-# --- Redis ---
-REDIS_URL="redis://redis:6379/0"
-
-# --- Gateway Settings ---
-MAX_BATCHES_PER_USER=2
-STREAMING_SERVER_HOST="localhost:8080"
-INTERNAL_STREAMING_SECRET="change-this-secret"
-```
-
-Generate a secret key:
-
+Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](../globus-setup/index.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
@@ -73,12 +32,11 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
     For production deployments:
     
     - Set `RUNNING_AUTOMATED_TEST_SUITE=False`
-    - Change all passwords and secrets
     - Set `DEBUG=False`
-    - Add your domain to `ALLOWED_HOSTS`
-    - Configure proper Globus policies (`GLOBUS_POLICIES`)
-    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`)
-    - Use strong, unique passwords
+    - Use secure passwords and secrets
+    - Add your domain to `ALLOWED_HOSTS` or use "*" if appropriate
+    - Add at least one Globus High Assurance policy (`GLOBUS_POLICIES`)
+    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`) to match the policy
     - Consider using secrets management (e.g., Docker secrets)
 
 ## Step 3: Start the Services

@@ -122,46 +122,25 @@ redis-cli ping
 
 ## Step 6: Configure Environment
 
-Create `.env` file in project root:
-
+Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
 ```bash
-cat > .env << 'EOF'
-# --- Core Django Settings ---
-SECRET_KEY="<generate-with-command-below>"
-DEBUG=False
-ALLOWED_HOSTS="your-server-ip,your-domain.com"
-
-# --- Globus Credentials ---
-GLOBUS_APPLICATION_ID="<Your-Service-API-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Service-API-Client-Secret>"
-SERVICE_ACCOUNT_ID="<Your-Service-Account-Client-UUID>"
-SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Client-Secret>"
-
-# --- Database Credentials ---
-POSTGRES_DB="inferencegateway"
-POSTGRES_USER="inferencedev"
-POSTGRES_PASSWORD="your-secure-password"
-PGHOST="localhost"
-PGPORT=5432
-PGUSER="inferencedev"
-PGPASSWORD="your-secure-password"
-PGDATABASE="inferencegateway"
-
-# --- Redis ---
-REDIS_URL="redis://localhost:6379/0"
-
-# --- Gateway Settings ---
-MAX_BATCHES_PER_USER=2
-STREAMING_SERVER_HOST="localhost:8080"
-INTERNAL_STREAMING_SECRET="<generate-random-secret>"
-EOF
+cp env.example .env
 ```
 
-Generate secret key:
-
+Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](../globus-setup/index.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
+
+!!! warning "Production Security"
+    For production deployments:
+    
+    - Set `RUNNING_AUTOMATED_TEST_SUITE=False`
+    - Set `DEBUG=False`
+    - Use secure passwords and secrets
+    - Add your domain to `ALLOWED_HOSTS` or use "*" if appropriate
+    - Add at least one Globus High Assurance policy (`GLOBUS_POLICIES`)
+    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`) to match the policy
 
 ## Step 7: Initialize Database
 
