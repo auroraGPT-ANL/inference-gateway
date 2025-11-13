@@ -21,6 +21,12 @@ Before you begin, ensure you have:
 - Globus Account
 - Access to compute resources (for inference backends)
 
+## Globus Applications
+
+Globus applications are required to operate the service and manage the authentication and authorization layer. 
+
+[Globus Guide →](globus-setup/index.md)
+
 ## Deployment Architecture
 
 Choose your deployment approach:

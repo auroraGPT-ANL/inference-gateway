@@ -16,67 +16,7 @@ git clone https://github.com/auroraGPT-ANL/inference-gateway.git
 cd inference-gateway
 ```
 
-## Step 2: Register Globus Applications
-
-Before deploying, you need to register two Globus applications.
-
-### Service API Application
-
-This handles API authorization:
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers)
-2. Click **Register a service API**
-3. Fill in the form:
-   - **App Name**: "My Inference Gateway"
-   - **Redirect URIs**: `http://localhost:8000/complete/globus/` (for local development)
-   - Add your production URL if deploying to a server
-4. Note the **Client UUID** and generate a **Client Secret**
-
-### Add Scope to Service API Application
-
-```bash
-export CLIENT_ID="<Your-Service-API-Client-UUID>"
-export CLIENT_SECRET="<Your-Service-API-Client-Secret>"
-
-curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
-    https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
-    -H "Content-Type: application/json" \
-    -d '{
-        "scope": {
-            "name": "Action Provider - all",
-            "description": "Access to inference service.",
-            "scope_suffix": "action_all",
-            "dependent_scopes": [
-                {
-                    "scope": "73320ffe-4cb4-4b25-a0a3-83d53d59ce4f",
-                    "optional": false,
-                    "requires_refresh_token": true
-                }
-            ]
-        }
-    }'
-```
-
-Verify the scope:
-
-```bash
-curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID
-```
-
-### Service Account Application
-
-To handle the communication between the Gateway API and the compute resources (the Inference Backend), you need to create a Globus **Service Account application**. This application represents the Globus identity that will own the Globus Compute endpoints.
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
-2. Under **Projects**, click on the project used to register your Service API application from the previous step.
-3. Click on **Add an App**.
-4. Select **Register a service account ...**.
-5. Complete the registration form:
-   - Set **App Name** (e.g., "My Inference Endpoints").
-   - Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
-6. After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `SERVICE_ACCOUNT_ID`, and the secret will be for `SERVICE_ACCOUNT_SECRET`.
-
-## Step 3: Configure Environment
+## Step 2: Configure Environment
 
 Copy the example environment file:
 
@@ -141,7 +81,7 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
     - Use strong, unique passwords
     - Consider using secrets management (e.g., Docker secrets)
 
-## Step 4: Start the Services
+## Step 3: Start the Services
 
 ```bash
 cd deploy/docker
@@ -161,7 +101,7 @@ Verify services are running:
 docker-compose ps
 ```
 
-## Step 5: Initialize the Database
+## Step 4: Initialize the Database
 
 Run migrations:
 
@@ -181,7 +121,7 @@ Collect static files:
 docker-compose exec inference-gateway python manage.py collectstatic --noinput
 ```
 
-## Step 6: Verify the Gateway
+## Step 5: Verify the Gateway
 
 Check that the gateway is running:
 
@@ -194,7 +134,7 @@ Access the Django admin (if superuser was created):
 - URL: http://localhost:8000/admin/
 - Login with your superuser credentials
 
-## Step 7: Configure Backends
+## Step 6: Configure Backends
 
 Now you need to connect inference backends. Choose one:
 

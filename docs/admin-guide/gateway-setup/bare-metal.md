@@ -120,48 +120,7 @@ redis-cli ping
 # Should return: PONG
 ```
 
-## Step 6: Register Globus Applications
-
-Follow the same steps as in the Docker guide:
-
-### Service API Application
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers)
-2. Register a **service API application**
-3. Add redirect URI: `http://your-server-ip:8000/complete/globus/`
-4. Note Client UUID and Secret
-
-### Add Scope
-
-```bash
-export CLIENT_ID="<Your-Service-API-Client-UUID>"
-export CLIENT_SECRET="<Your-Service-API-Client-Secret>"
-
-curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
-    https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
-    -H "Content-Type: application/json" \
-    -d '{
-        "scope": {
-            "name": "Action Provider - all",
-            "description": "Access to inference service.",
-            "scope_suffix": "action_all",
-            "dependent_scopes": [
-                {
-                    "scope": "73320ffe-4cb4-4b25-a0a3-83d53d59ce4f",
-                    "optional": false,
-                    "requires_refresh_token": true
-                }
-            ]
-        }
-    }'
-```
-
-### Service Account Application
-
-1. In the same project, register a **service account application**
-2. Note Client UUID and Secret
-
-## Step 7: Configure Environment
+## Step 6: Configure Environment
 
 Create `.env` file in project root:
 
@@ -204,7 +163,7 @@ Generate secret key:
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
-## Step 8: Initialize Database
+## Step 7: Initialize Database
 
 ```bash
 # Make sure you're in the poetry shell
@@ -221,7 +180,7 @@ python manage.py createsuperuser
 python manage.py collectstatic --noinput
 ```
 
-## Step 9: Test the Gateway
+## Step 8: Test the Gateway
 
 Run development server:
 
@@ -235,7 +194,7 @@ Test in another terminal:
 curl http://localhost:8000/
 ```
 
-## Step 10: Setup Production Server (Gunicorn)
+## Step 9: Setup Production Server (Gunicorn)
 
 ### Install Gunicorn (already included in poetry dependencies)
 
@@ -291,7 +250,7 @@ sudo systemctl enable inference-gateway
 sudo systemctl status inference-gateway
 ```
 
-## Step 11: Setup Nginx (Recommended)
+## Step 10: Setup Nginx (Recommended)
 
 ### Install Nginx
 
@@ -365,7 +324,7 @@ sudo dnf install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
-## Step 12: Configure Firewall
+## Step 11: Configure Firewall
 
 ```bash
 # Ubuntu/Debian (UFW)
