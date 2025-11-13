@@ -119,14 +119,13 @@ else:
     domains_string = [domain for domain in AUTHORIZED_IDP_DOMAINS if not domain in AUTHORIZED_GROUPS_PER_IDP]
     AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(domains_string) + ", or providers with approved projects"
 
-# THIS SHOULD BE CHANGED
-ALLOWED_HOSTS = ["*"]
+# Allowed hosts
+ALLOWED_HOSTS = textfield_to_strlist(os.getenv("ALLOWED_HOSTS", "*"))
 
 APPEND_SLASH = False
 
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
