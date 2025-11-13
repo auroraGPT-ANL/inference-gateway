@@ -359,8 +359,8 @@ def validate_access_token(request):
             return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
 
     # Make sure the user's identity can be recorded
-    if len(user.name) == 0 or len(user.username) == 0:
-        return ATVResponse(is_valid=False, error_message="Error: Name and usernames could not be recovered.", error_code=400)
+    if len(user.username) == 0:
+        return ATVResponse(is_valid=False, error_message="Error: Username could not be recovered.", error_code=400)
 
     # Return valid token response
     log.info(f"{user.name} requesting {introspection['scope']}")
