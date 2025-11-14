@@ -120,91 +120,29 @@ redis-cli ping
 # Should return: PONG
 ```
 
-## Step 6: Register Globus Applications
+## Step 6: Configure Environment
 
-Follow the same steps as in the Docker guide:
-
-### Service API Application
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers)
-2. Register a **service API application**
-3. Add redirect URI: `http://your-server-ip:8000/complete/globus/`
-4. Note Client UUID and Secret
-
-### Add Scope
-
+Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
 ```bash
-export CLIENT_ID="<Your-Service-API-Client-UUID>"
-export CLIENT_SECRET="<Your-Service-API-Client-Secret>"
-
-curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
-    https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
-    -H "Content-Type: application/json" \
-    -d '{
-        "scope": {
-            "name": "Action Provider - all",
-            "description": "Access to inference service.",
-            "scope_suffix": "action_all",
-            "dependent_scopes": [
-                {
-                    "scope": "73320ffe-4cb4-4b25-a0a3-83d53d59ce4f",
-                    "optional": false,
-                    "requires_refresh_token": true
-                }
-            ]
-        }
-    }'
+cp env.example .env
 ```
 
-### Service Account Application
-
-1. In the same project, register a **service account application**
-2. Note Client UUID and Secret
-
-## Step 7: Configure Environment
-
-Create `.env` file in project root:
-
-```bash
-cat > .env << 'EOF'
-# --- Core Django Settings ---
-SECRET_KEY="<generate-with-command-below>"
-DEBUG=False
-ALLOWED_HOSTS="your-server-ip,your-domain.com"
-
-# --- Globus Credentials ---
-GLOBUS_APPLICATION_ID="<Your-Service-API-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Service-API-Client-Secret>"
-SERVICE_ACCOUNT_ID="<Your-Service-Account-Client-UUID>"
-SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Client-Secret>"
-
-# --- Database Credentials ---
-POSTGRES_DB="inferencegateway"
-POSTGRES_USER="inferencedev"
-POSTGRES_PASSWORD="your-secure-password"
-PGHOST="localhost"
-PGPORT=5432
-PGUSER="inferencedev"
-PGPASSWORD="your-secure-password"
-PGDATABASE="inferencegateway"
-
-# --- Redis ---
-REDIS_URL="redis://localhost:6379/0"
-
-# --- Gateway Settings ---
-MAX_BATCHES_PER_USER=2
-STREAMING_SERVER_HOST="localhost:8080"
-INTERNAL_STREAMING_SECRET="<generate-random-secret>"
-EOF
-```
-
-Generate secret key:
-
+Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](../globus-setup/index.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
-## Step 8: Initialize Database
+!!! warning "Production Security"
+    For production deployments:
+    
+    - Set `RUNNING_AUTOMATED_TEST_SUITE=False`
+    - Set `DEBUG=False`
+    - Use secure passwords and secrets
+    - Add your domain to `ALLOWED_HOSTS` or use "*" if appropriate
+    - Add at least one Globus High Assurance policy (`GLOBUS_POLICIES`)
+    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`) to match the policy
+
+## Step 7: Initialize Database
 
 ```bash
 # Make sure you're in the poetry shell
@@ -221,7 +159,7 @@ python manage.py createsuperuser
 python manage.py collectstatic --noinput
 ```
 
-## Step 9: Test the Gateway
+## Step 8: Test the Gateway
 
 Run development server:
 
@@ -235,7 +173,7 @@ Test in another terminal:
 curl http://localhost:8000/
 ```
 
-## Step 10: Setup Production Server (Gunicorn)
+## Step 9: Setup Production Server (Gunicorn)
 
 ### Install Gunicorn (already included in poetry dependencies)
 
@@ -291,7 +229,7 @@ sudo systemctl enable inference-gateway
 sudo systemctl status inference-gateway
 ```
 
-## Step 11: Setup Nginx (Recommended)
+## Step 10: Setup Nginx (Recommended)
 
 ### Install Nginx
 
@@ -365,7 +303,7 @@ sudo dnf install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
-## Step 12: Configure Firewall
+## Step 11: Configure Firewall
 
 ```bash
 # Ubuntu/Debian (UFW)

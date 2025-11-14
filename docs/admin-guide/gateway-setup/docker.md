@@ -16,115 +16,14 @@ git clone https://github.com/auroraGPT-ANL/inference-gateway.git
 cd inference-gateway
 ```
 
-## Step 2: Register Globus Applications
+## Step 2: Configure Environment
 
-Before deploying, you need to register two Globus applications.
-
-### Service API Application
-
-This handles API authorization:
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers)
-2. Click **Register a service API**
-3. Fill in the form:
-   - **App Name**: "My Inference Gateway"
-   - **Redirect URIs**: `http://localhost:8000/complete/globus/` (for local development)
-   - Add your production URL if deploying to a server
-4. Note the **Client UUID** and generate a **Client Secret**
-
-### Add Scope to Service API Application
-
+Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
 ```bash
-export CLIENT_ID="<Your-Service-API-Client-UUID>"
-export CLIENT_SECRET="<Your-Service-API-Client-Secret>"
-
-curl -X POST -s --user $CLIENT_ID:$CLIENT_SECRET \
-    https://auth.globus.org/v2/api/clients/$CLIENT_ID/scopes \
-    -H "Content-Type: application/json" \
-    -d '{
-        "scope": {
-            "name": "Action Provider - all",
-            "description": "Access to inference service.",
-            "scope_suffix": "action_all",
-            "dependent_scopes": [
-                {
-                    "scope": "73320ffe-4cb4-4b25-a0a3-83d53d59ce4f",
-                    "optional": false,
-                    "requires_refresh_token": true
-                }
-            ]
-        }
-    }'
+cp env.example .env
 ```
 
-Verify the scope:
-
-```bash
-curl -s --user $CLIENT_ID:$CLIENT_SECRET https://auth.globus.org/v2/api/clients/$CLIENT_ID
-```
-
-### Service Account Application
-
-To handle the communication between the Gateway API and the compute resources (the Inference Backend), you need to create a Globus **Service Account application**. This application represents the Globus identity that will own the Globus Compute endpoints.
-
-1. Visit [developers.globus.org](https://app.globus.org/settings/developers) and sign in.
-2. Under **Projects**, click on the project used to register your Service API application from the previous step.
-3. Click on **Add an App**.
-4. Select **Register a service account ...**.
-5. Complete the registration form:
-   - Set **App Name** (e.g., "My Inference Endpoints").
-   - Set **Privacy Policy** and **Terms & Conditions** URLs if applicable.
-6. After registration, a **Client UUID** will be assigned to your Globus application. Generate a **Client Secret** by clicking on the **Add Client Secret** button on the right-hand side. **You will need both for the `.env` configuration.** The UUID will be for `SERVICE_ACCOUNT_ID`, and the secret will be for `SERVICE_ACCOUNT_SECRET`.
-
-## Step 3: Configure Environment
-
-Copy the example environment file:
-
-```bash
-cp deploy/docker/env.example .env
-```
-
-Edit `.env` with your configuration:
-
-```dotenv
-# --- Core Django Settings ---
-SECRET_KEY="<generate-with-command-below>"
-DEBUG=True
-ALLOWED_HOSTS="localhost,127.0.0.1"
-
-# --- Testing/Development Flags ---
-# Set to True to skip Globus High Assurance policy checks (for development/testing)
-# Set to False for production deployment
-RUNNING_AUTOMATED_TEST_SUITE=True
-LOG_TO_STDOUT=True  # Makes logs visible via docker-compose logs
-
-# --- Globus Credentials ---
-GLOBUS_APPLICATION_ID="<Your-Service-API-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Service-API-Client-Secret>"
-SERVICE_ACCOUNT_ID="<Your-Service-Account-Client-UUID>"
-SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Client-Secret>"
-
-# --- Database Credentials (change for production) ---
-POSTGRES_DB="inferencegateway"
-POSTGRES_USER="inferencedev"
-POSTGRES_PASSWORD="change-this-password"
-PGHOST="postgres"
-PGPORT=5432
-PGUSER="inferencedev"
-PGPASSWORD="change-this-password"
-PGDATABASE="inferencegateway"
-
-# --- Redis ---
-REDIS_URL="redis://redis:6379/0"
-
-# --- Gateway Settings ---
-MAX_BATCHES_PER_USER=2
-STREAMING_SERVER_HOST="localhost:8080"
-INTERNAL_STREAMING_SECRET="change-this-secret"
-```
-
-Generate a secret key:
-
+Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](../globus-setup/index.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
@@ -133,92 +32,60 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
     For production deployments:
     
     - Set `RUNNING_AUTOMATED_TEST_SUITE=False`
-    - Change all passwords and secrets
     - Set `DEBUG=False`
-    - Add your domain to `ALLOWED_HOSTS`
-    - Configure proper Globus policies (`GLOBUS_POLICIES`)
-    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`)
-    - Use strong, unique passwords
+    - Use secure passwords and secrets
+    - Add your domain to `ALLOWED_HOSTS` or use "*" if appropriate
+    - Add at least one Globus High Assurance policy (`GLOBUS_POLICIES`)
+    - Set authorized IDP domains (`AUTHORIZED_IDP_DOMAINS`) to match the policy
     - Consider using secrets management (e.g., Docker secrets)
 
-## Step 4: Start the Services
-
+## Step 3: Start the Services
 ```bash
 cd deploy/docker
 docker-compose up -d --build
 ```
 
-This starts:
-
-- `inference-gateway`: The Django API application
-- `postgres`: PostgreSQL database
-- `redis`: Redis cache
-- `nginx`: Reverse proxy (optional, if configured)
-
-Verify services are running:
-
-```bash
-docker-compose ps
-```
-
-## Step 5: Initialize the Database
-
-Run migrations:
-
-```bash
-docker-compose exec inference-gateway python manage.py migrate
-```
-
-Create a superuser (optional, for Django admin access):
-
-```bash
-docker-compose exec inference-gateway python manage.py createsuperuser
-```
-
-Collect static files:
-
-```bash
-docker-compose exec inference-gateway python manage.py collectstatic --noinput
-```
-
-## Step 6: Verify the Gateway
-
-Check that the gateway is running:
-
-```bash
-curl http://localhost:8000/
-```
-
-Access the Django admin (if superuser was created):
-
-- URL: http://localhost:8000/admin/
-- Login with your superuser credentials
-
-## Step 7: Configure Backends
-
-Now you need to connect inference backends. Choose one:
-
-- [Direct API Connection](../inference-setup/direct-api.md) - Connect to OpenAI or similar APIs
-- [Local vLLM](../inference-setup/local-vllm.md) - Run vLLM locally
-- [Globus Compute + vLLM](../inference-setup/globus-compute.md) - HPC cluster deployment
-
-## Docker Compose Services
-
 The `docker-compose.yml` includes:
 
 ### Core Services
 
-- **inference-gateway**: Django application (port 8000)
-- **postgres**: PostgreSQL 15 (port 5432)
-- **redis**: Redis 7 (port 6379)
+- **inference-gateway**: Django API application (internal port 8000)
+- **postgres**: PostgreSQL 15 database (internal port 5432)
+- **redis**: Redis 7 cache (internal port 6379)
+- **nginx**: Reverse proxy (internal port 80 exposed to localhost port 8000)
 
 ### Optional Services
 
 You can add these to your compose file:
 
-- **nginx**: Reverse proxy for production
 - **prometheus**: Metrics collection
 - **grafana**: Visualization dashboard
+
+Verify that the core-service containers are running:
+```bash
+docker-compose ps
+```
+
+## Step 4: Initialize the Database
+
+Run migrations:
+
+```bash
+docker-compose exec inference-gateway python manage.py makemigrations
+docker-compose exec inference-gateway python manage.py migrate
+```
+
+## Step 5: Test the Gateway
+
+Check that the gateway is running:
+```bash
+curl http://localhost:8000/resource_server/whoami
+```
+
+If everything is running, the command should give you the following error:
+```bash
+Missing ('Authorization': 'Bearer <your-access-token>') in request headers.
+```
 
 ## Common Commands
 
@@ -317,7 +184,7 @@ docker-compose exec inference-gateway python manage.py createsuperuser
 
 ### 502 Bad Gateway from Nginx
 
-Check that the gateway container is running:
+Vefiry that the gateway container is running:
 
 ```bash
 docker-compose ps inference-gateway
@@ -340,4 +207,3 @@ docker-compose exec nginx nginx -t
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [Configuration Reference](configuration.md)
 - [User Guide](../../user-guide/index.md)
-
