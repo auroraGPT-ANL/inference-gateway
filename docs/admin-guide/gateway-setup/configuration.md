@@ -292,12 +292,6 @@ server {
     proxy_send_timeout 600s;
     proxy_read_timeout 600s;
     
-    location /static/ {
-        alias /path/to/staticfiles/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-    
     location / {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;

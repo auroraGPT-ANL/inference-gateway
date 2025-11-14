@@ -25,9 +25,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy project files
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/staticfiles
-
 # Expose port
 EXPOSE 7000
 

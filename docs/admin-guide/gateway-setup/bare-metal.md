@@ -341,7 +341,6 @@ cd /path/to/inference-gateway
 git pull origin main
 poetry install
 python manage.py migrate
-python manage.py collectstatic --noinput
 sudo systemctl restart inference-gateway
 ```
 
