@@ -1,10 +1,10 @@
 # FIRST
 
-Welcome to the documentation for the **Federated Inference Resource Scheduling Toolkit (FIRST)**. FIRST enables LLM inference as a service across distributed HPC clusters through an OpenAI-compatible API.
+Welcome to the documentation for the **Federated Inference Resource Scheduling Toolkit (FIRST)**. FIRST enables AI Model inference as a service across distributed HPC clusters through an OpenAI-compatible API.
 
 ## What is FIRST?
 
-FIRST (Federated Inference Resource Scheduling Toolkit) is a system that allows secure, remote execution of Large Language Models through an OpenAI-compatible API. It validates and authorizes inference requests to scientific computing clusters using Globus Auth and Globus Compute.
+FIRST (Federated Inference Resource Scheduling Toolkit) is a system that allows secure, remote execution of Inference on AI Models through an OpenAI-compatible API. It validates and authorizes inference requests to scientific computing clusters using Globus Auth and Globus Compute.
 
 ## System Architecture
 
