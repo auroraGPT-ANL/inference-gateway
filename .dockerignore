@@ -1,3 +1,67 @@
+# Environment files
 .env
 .env.*
 .venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Development tools
+.git/
+.gitignore
+.github/
+.aider*/
+.cursor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/
+site/
+*.md
+!README.md
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Examples and development scripts
+examples/
+scripts/
+
+# Static files (will be collected in container)
+staticfiles/
+
+# Misc
+.DS_Store
+*.pyc

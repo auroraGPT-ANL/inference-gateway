@@ -34,8 +34,8 @@ RUNNING_AUTOMATED_TEST_SUITE = os.getenv("RUNNING_AUTOMATED_TEST_SUITE", "False"
 # Globus App credentials
 GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
 GLOBUS_APPLICATION_SECRET = os.getenv("GLOBUS_APPLICATION_SECRET")
-POLARIS_ENDPOINT_ID = os.getenv("POLARIS_ENDPOINT_ID")
-POLARIS_ENDPOINT_SECRET = os.getenv("POLARIS_ENDPOINT_SECRET")
+SERVICE_ACCOUNT_ID = os.getenv("SERVICE_ACCOUNT_ID")
+SERVICE_ACCOUNT_SECRET = os.getenv("SERVICE_ACCOUNT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
@@ -119,14 +119,13 @@ else:
     domains_string = [domain for domain in AUTHORIZED_IDP_DOMAINS if not domain in AUTHORIZED_GROUPS_PER_IDP]
     AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(domains_string) + ", or providers with approved projects"
 
-# THIS SHOULD BE CHANGED
-ALLOWED_HOSTS = ["*"]
+# Allowed hosts
+ALLOWED_HOSTS = textfield_to_strlist(os.getenv("ALLOWED_HOSTS", "*"))
 
 APPEND_SLASH = False
 
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

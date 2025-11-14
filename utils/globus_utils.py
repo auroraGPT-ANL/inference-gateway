@@ -37,8 +37,8 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
     try:
         return Client(
             app=globus_sdk.ClientApp(
-                client_id=settings.POLARIS_ENDPOINT_ID,
-                client_secret=settings.POLARIS_ENDPOINT_SECRET
+                client_id=settings.SERVICE_ACCOUNT_ID,
+                client_secret=settings.SERVICE_ACCOUNT_SECRET
             )
         )
     except Exception as e:

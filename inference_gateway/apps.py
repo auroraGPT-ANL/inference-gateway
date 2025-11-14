@@ -27,7 +27,7 @@ class AuthCheckConfig(AppConfig):
                 raise ImproperlyConfigured("AUTHORIZED_IDP_DOMAINS cannot be empty.")
             
         # Recover the Globus policy
-        client = globus_sdk.ConfidentialAppAuthClient(settings.POLARIS_ENDPOINT_ID, settings.POLARIS_ENDPOINT_SECRET)
+        client = globus_sdk.ConfidentialAppAuthClient(settings.SERVICE_ACCOUNT_ID, settings.SERVICE_ACCOUNT_SECRET)
         token_response = client.oauth2_client_credentials_tokens()
         globus_auth_token = token_response.by_resource_server["auth.globus.org"]["access_token"]
         auth_client = globus_sdk.AuthClient(authorizer=globus_sdk.AccessTokenAuthorizer(globus_auth_token))
