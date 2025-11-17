@@ -4,7 +4,7 @@ The FIRST Inference Gateway supports multiple types of inference backends. Choos
 
 ## Backend Options
 
-### 1. Globus Compute + vLLM (Recommended)
+### 1. Globus Compute + vLLM
 
 Deploy vLLM on HPC clusters or multiple servers with Globus Compute for remote execution and federated routing.
 
@@ -12,22 +12,21 @@ Deploy vLLM on HPC clusters or multiple servers with Globus Compute for remote e
 
 - Multi-cluster deployments
 - HPC environments
-- Federated inference across organizations
-- Production deployments requiring high availability
 
 **Pros:**
 
 - Federated routing across clusters
 - Automatic failover
 - HPC job scheduler integration
-- Scales across organizations
-- Secure, authenticated remote execution
+- Automatic scaling
+- Integrates with Globus Auth
 
 **Cons:**
 
 - More complex setup
 - Requires Globus Compute knowledge
 - Additional configuration overhead
+- Additional connections and components
 
 [→ Setup Globus Compute + vLLM](globus-compute.md)
 
@@ -35,28 +34,24 @@ Deploy vLLM on HPC clusters or multiple servers with Globus Compute for remote e
 
 ### 2. Local vLLM Setup
 
-Run vLLM inference server locally without Globus Compute.
+Run vLLM inference server locally for development.
 
 **Best for:**
 
-- Single-server deployments
 - Development and testing with local models
-- Controlled environments where Globus Compute isn't needed
 - Simple architectures
 
 **Pros:**
 
 - Full control over models and data
 - No external dependencies
-- Simple architecture
 - Lower latency for local requests
 
 **Cons:**
 
-- Requires GPU resources
+- Limited compute resources
+- Limited and manual scaling
 - Single point of failure
-- Manual scaling
-- No federated routing
 
 [→ Setup Local vLLM](local-vllm.md)
 
@@ -75,7 +70,7 @@ Connect to existing OpenAI-compatible APIs without any local inference infrastru
 
 **Pros:**
 
-- Fastest setup (5-10 minutes)
+- Fastest setup
 - No local compute resources needed
 - Scales with the provider
 - Multiple models immediately available
@@ -124,30 +119,6 @@ You can use multiple backends simultaneously! The gateway supports:
 - **Mix Local and Remote**: Some models local, some via Globus Compute
 - **Federated Endpoints**: Route same model across multiple clusters
 
-Example combined setup:
-
-```json
-{
-  "endpoints": [
-    {
-      "cluster": "openai",
-      "model": "gpt-4",
-      "type": "direct_api"
-    },
-    {
-      "cluster": "local",
-      "model": "llama-3-8b",
-      "type": "vllm"
-    },
-    {
-      "cluster": "sophia",
-      "model": "llama-3-70b",
-      "type": "globus_compute"
-    }
-  ]
-}
-```
-
 ## Prerequisites by Backend Type
 
 ### All Backends
@@ -171,7 +142,7 @@ Example combined setup:
 
 - All Local vLLM requirements plus:
 - Globus Service Account application
-- Access to HPC cluster (optional)
+- Access to HPC cluster
 - Ability to configure Globus Compute endpoints
 
 ## Setup Workflow
