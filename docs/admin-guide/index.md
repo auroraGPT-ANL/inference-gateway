@@ -6,8 +6,9 @@ Welcome to the FIRST Inference Gateway Administrator Guide. This guide will help
 
 Setting up FIRST involves two main components:
 
-1. **Gateway Setup**: The central API service that handles authentication and routing
-2. **Inference Backend Setup**: The actual inference servers where models run
+1. **Globus Setup**: The applications and clients that communicate with Globus services
+2. **Gateway Setup**: The central API service that handles authentication and routing
+3. **Inference Backend Setup**: The actual inference servers where models run
 
 These can be deployed independently and connected together through configuration.
 
