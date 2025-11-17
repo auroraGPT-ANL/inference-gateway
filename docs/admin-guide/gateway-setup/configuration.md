@@ -4,80 +4,7 @@ This page documents all environment variables and configuration options for the 
 
 ## Environment Variables
 
-All configuration is done through environment variables, typically stored in a `.env` file.
-
-```bash
-# --- Core Django Settings ---
-SECRET_KEY="<generate-a-strong-random-key>"
-DEBUG=True
-
-# --- Allowed hosts ---
-# Optional: one per line (default to "*")
-ALLOWED_HOSTS="
-localhost
-127.0.0.1
-"
-
-# --- Test Mode (set to True to skip Globus policy checks and bypass rate-limiting during development) ---
-RUNNING_AUTOMATED_TEST_SUITE=False
-
-# --- Logging ---
-# Set to True to send application logs to stdout/stderr (recommended for Docker)
-LOG_TO_STDOUT=True
-
-# --- Globus Credentials ---
-# Required
-GLOBUS_APPLICATION_ID="<Your-Gateway-Service-API-Globus-App-Client-UUID>"
-GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
-SERVICE_ACCOUNT_ID="<Your-Service-Account-Globus-App-Client-UUID>"
-SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Globus-App-Client-Secret>"
-
-# --- Globus Policies ---
-# Required: comma-separated list of policy IDs (at least one must be provided)
-# Example: GLOBUS_POLICIES="policy-id-1,policy-id-2"
-GLOBUS_POLICIES=""
-
-# --- Globus Groups ---
-# Optional: comma-separated list of group IDs
-GLOBUS_GROUPS=""
-
-# --- Authorized Identity Provider Domains (one per line) ---
-# Required: one per line (cannot be empty, must match Globus policy)
-# Example: AUTHORIZED_IDP_DOMAINS="
-#          anl.gov,
-#          uchicago.edu
-#          "
-AUTHORIZED_IDP_DOMAINS=""
-
-# --- Authorized Groups Per IDP ---
-# Optional: JSON format with domains (keys: domains, values: comma-separated list of group IDs)
-# Example: AUTHORIZED_GROUPS_PER_IDP='
-#          {
-#              "uchicago.edu": "groupd-id-1"
-#          }
-#          '
-AUTHORIZED_GROUPS_PER_IDP='{}'
-
-# --- Postgres Database ---
-POSTGRES_DB="inferencegateway"
-POSTGRES_USER="inferencedev"
-POSTGRES_PASSWORD="change-this-password"
-PGHOST="postgres"
-PGPORT=5432
-PGUSER="inferencedev"
-PGPASSWORD="change-this-password"
-PGDATABASE="inferencegateway"
-
-# --- Redis Cache ---
-REDIS_URL="redis://redis:6379/0"
-USE_REDIS_CACHE=true
-
-# --- Gateway Specific Settings ---
-MAX_BATCHES_PER_USER=2
-RATE_LIMIT_PER_SEC_PER_USER=10
-STREAMING_SERVER_HOST="localhost:8080"
-INTERNAL_STREAMING_SECRET="your-internal-streaming-secret-key"
-```
+All configuration is done through environment variables, typically stored in a `.env` file. See [example environment file](https://github.com/auroraGPT-ANL/inference-gateway/blob/main/env.example) to get started and see definition examples of all variables.
 
 ### Core Django Settings
 
@@ -102,22 +29,9 @@ INTERNAL_STREAMING_SECRET="your-internal-streaming-secret-key"
 | `SERVICE_ACCOUNT_ID` | Yes | - | Service Account application client UUID |
 | `SERVICE_ACCOUNT_SECRET` | Yes | - | Service Account application client secret |
 | `GLOBUS_GROUPS` | No | - | Space-separated UUIDs of allowed Globus groups |
-| `AUTHORIZED_IDPS` | No | - | JSON string of authorized identity providers |
+| `AUTHORIZED_IDP_DOMAINS` | No | - | String field of authorized identity providers |
 | `AUTHORIZED_GROUPS_PER_IDP` | No | - | JSON string of groups per IDP |
 | `GLOBUS_POLICIES` | No | - | Space-separated policy UUIDs |
-
-Example with group restrictions:
-
-```dotenv
-GLOBUS_GROUPS="uuid-1 uuid-2 uuid-3"
-```
-
-Example with IDP restrictions:
-
-```dotenv
-AUTHORIZED_IDPS='{"University": "uuid-here"}'
-AUTHORIZED_GROUPS_PER_IDP='{"University": "group-uuid-1,group-uuid-2"}'
-```
 
 ### Database Configuration
 
@@ -141,19 +55,6 @@ AUTHORIZED_GROUPS_PER_IDP='{"University": "group-uuid-1,group-uuid-2"}'
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `REDIS_URL` | Yes | - | Redis connection URL |
-
-Examples:
-
-```dotenv
-# Docker
-REDIS_URL="redis://redis:6379/0"
-
-# Bare metal
-REDIS_URL="redis://localhost:6379/0"
-
-# With password
-REDIS_URL="redis://:password@localhost:6379/0"
-```
 
 ### Gateway Settings
 
