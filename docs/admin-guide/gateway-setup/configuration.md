@@ -54,7 +54,8 @@ All configuration is done through environment variables, typically stored in a `
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `REDIS_URL` | Yes | - | Redis connection URL |
+| `REDIS_URL` | No | - | Redis connection URL |
+| `USE_REDIS_CACHE` | No | false | Whether Redis cache is enabled |
 
 ### Gateway Settings
 
