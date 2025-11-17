@@ -65,20 +65,6 @@ All configuration is done through environment variables, typically stored in a `
 | `STREAMING_SERVER_HOST` | No | - | Internal streaming server host:port |
 | `INTERNAL_STREAMING_SECRET` | No | - | Secret for internal streaming authentication |
 
-### CLI Authentication Helper
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CLI_ALLOWED_DOMAINS` | No | - | Comma-separated domains for CLI login |
-| `CLI_TOKEN_DIR` | No | `~/.globus/app` | Token storage directory |
-| `CLI_APP_NAME` | No | `inference_auth` | App name for token storage |
-
-Example:
-
-```dotenv
-CLI_ALLOWED_DOMAINS="anl.gov,alcf.anl.gov,university.edu"
-```
-
 ### Metis (Direct API) Configuration
 
 For direct OpenAI-compatible API connections:
