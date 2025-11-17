@@ -34,29 +34,14 @@ This directory contains all the necessary files for deploying the FIRST Inferenc
    - Adjust database credentials if needed
    - Update `ALLOWED_HOSTS` for your domain
 
-3. Create required directories (if they don't exist):
-   ```bash
-   mkdir -p ../../staticfiles
-   ```
-
-4. Start the services:
+3. Start the services:
    ```bash
    docker-compose up -d
    ```
 
-5. Initialize the database:
+4. Initialize the database:
    ```bash
    docker-compose exec inference-gateway python manage.py migrate
-   ```
-
-6. Create a superuser (optional):
-   ```bash
-   docker-compose exec inference-gateway python manage.py createsuperuser
-   ```
-
-7. Collect static files:
-   ```bash
-   docker-compose exec inference-gateway python manage.py collectstatic --noinput
    ```
 
 ## Accessing the Gateway
@@ -85,12 +70,6 @@ docker-compose logs inference-gateway
 If you see database connection errors, ensure PostgreSQL is fully initialized:
 ```bash
 docker-compose logs postgres
-```
-
-### Permission Issues
-If you encounter permission issues with volumes, check that the directories exist:
-```bash
-ls -la ../../staticfiles
 ```
 
 ### View Application Logs

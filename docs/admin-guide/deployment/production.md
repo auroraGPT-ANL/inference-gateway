@@ -6,30 +6,11 @@ This guide covers best practices for deploying FIRST Inference Gateway in produc
 
 ### Authentication & Authorization
 
-#### Globus Group Restrictions
+Restrict access to:
+ - specific identity providers (`AUTHORIZED_IDP_DOMAINS` and Globus High-Assurance policy)
+ - specific groups (`GLOBUS_GROUPS` and `AUTHORIZED_GROUPS_PER_IDP`)
 
-Restrict access to specific Globus groups:
-
-```dotenv
-GLOBUS_GROUPS="group-uuid-1 group-uuid-2"
-```
-
-#### Identity Provider Restrictions
-
-Limit to specific institutions:
-
-```dotenv
-AUTHORIZED_IDPS='{"University Name": "idp-uuid"}'
-AUTHORIZED_GROUPS_PER_IDP='{"University Name": "group-uuid-1,group-uuid-2"}'
-```
-
-#### High Assurance Policies
-
-Require MFA and other security policies:
-
-```dotenv
-GLOBUS_POLICIES="policy-uuid-1 policy-uuid-2"
-```
+See [example environment file](https://github.com/auroraGPT-ANL/inference-gateway/blob/main/env.example) and [Globus Setup](../globus-setup/index.md) for more details.
 
 ### Secrets Management
 

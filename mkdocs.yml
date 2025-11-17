@@ -71,6 +71,7 @@ nav:
   - Home: index.md
   - Administrator Guide:
       - Overview: admin-guide/index.md
+      - Globus Setup: admin-guide/globus-setup/index.md
       - Gateway Setup:
           - Docker Deployment: admin-guide/gateway-setup/docker.md
           - Bare Metal Setup: admin-guide/gateway-setup/bare-metal.md

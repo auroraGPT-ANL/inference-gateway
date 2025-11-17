@@ -66,12 +66,16 @@ poetry shell
 
 ### Initialize PostgreSQL (if first time)
 
+#### Ubuntu/Debian (usually auto-initialized)
+
 ```bash
-# Ubuntu/Debian (usually auto-initialized)
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
+```
 
-# CentOS/RHEL
+#### CentOS/RHEL
+
+```bash
 sudo postgresql-setup --initdb
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
@@ -79,16 +83,23 @@ sudo systemctl enable postgresql
 
 ### Create Database and User
 
+Start a PostgreSQL shell:
 ```bash
 sudo -u postgres psql
+```
 
-# In PostgreSQL shell:
+Create database and user
+```bash
 CREATE DATABASE inferencegateway;
 CREATE USER inferencedev WITH PASSWORD 'your-secure-password';
 ALTER ROLE inferencedev SET client_encoding TO 'utf8';
 ALTER ROLE inferencedev SET default_transaction_isolation TO 'read committed';
 ALTER ROLE inferencedev SET timezone TO 'UTC';
 GRANT ALL PRIVILEGES ON DATABASE inferencegateway TO inferencedev;
+```
+
+Exit shell
+```bash
 \q
 ```
 
@@ -114,15 +125,16 @@ Start and enable Redis:
 ```bash
 sudo systemctl start redis
 sudo systemctl enable redis
+```
 
-# Verify it's running
+Verify Redis is running (should return `PONG`)
+```bash
 redis-cli ping
-# Should return: PONG
 ```
 
 ## Step 6: Configure Environment
 
-Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
+Create a `.env` file from the [example environment file](https://github.com/auroraGPT-ANL/inference-gateway/blob/main/env.example) and customize the `.env` file following the instructions found in the example file:
 ```bash
 cp env.example .env
 ```
@@ -144,19 +156,15 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
 
 ## Step 7: Initialize Database
 
+Make sure you activate your python environment:
 ```bash
-# Make sure you're in the poetry shell
 poetry shell
+```
 
-# Run migrations
+Apply Django models to the database
+```bash
 python manage.py makemigrations
 python manage.py migrate
-
-# Create superuser
-python manage.py createsuperuser
-
-# Collect static files
-python manage.py collectstatic --noinput
 ```
 
 ## Step 8: Test the Gateway
@@ -164,13 +172,17 @@ python manage.py collectstatic --noinput
 Run development server:
 
 ```bash
-python manage.py runserver 0.0.0.0:8000
+python manage.py runserver
 ```
 
-Test in another terminal:
-
+In another terminal, execute the following command:
 ```bash
-curl http://localhost:8000/
+curl http://localhost:8000/resource_server/whoami
+```
+
+If everything is running, the command should give you the following error:
+```bash
+Missing ('Authorization': 'Bearer <your-access-token>') in request headers.
 ```
 
 ## Step 9: Setup Production Server (Gunicorn)
@@ -224,24 +236,23 @@ sudo systemctl start inference-gateway
 
 # Enable on boot
 sudo systemctl enable inference-gateway
+```
 
-# Check status
+Verify that the service is running
+```bash
 sudo systemctl status inference-gateway
 ```
 
-## Step 10: Setup Nginx (Recommended)
+## [Optional] Step 10: Configure Nginx
 
-### Install Nginx
-
-```bash
+Install Nginx:
+```
 # Ubuntu/Debian
 sudo apt install nginx
 
 # CentOS/RHEL
 sudo dnf install nginx
 ```
-
-### Configure Nginx
 
 Create site configuration:
 
@@ -260,10 +271,6 @@ server {
     listen 80;
     server_name your-domain.com;
     client_max_body_size 100M;
-
-    location /static/ {
-        alias /path/to/inference-gateway/staticfiles/;
-    }
 
     location / {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -343,7 +350,6 @@ cd /path/to/inference-gateway
 git pull origin main
 poetry install
 python manage.py migrate
-python manage.py collectstatic --noinput
 sudo systemctl restart inference-gateway
 ```
 

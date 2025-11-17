@@ -4,7 +4,7 @@ This page documents all environment variables and configuration options for the 
 
 ## Environment Variables
 
-All configuration is done through environment variables, typically stored in a `.env` file.
+All configuration is done through environment variables, typically stored in a `.env` file. See [example environment file](https://github.com/auroraGPT-ANL/inference-gateway/blob/main/env.example) to get started and see definition examples of all variables.
 
 ### Core Django Settings
 
@@ -29,22 +29,9 @@ All configuration is done through environment variables, typically stored in a `
 | `SERVICE_ACCOUNT_ID` | Yes | - | Service Account application client UUID |
 | `SERVICE_ACCOUNT_SECRET` | Yes | - | Service Account application client secret |
 | `GLOBUS_GROUPS` | No | - | Space-separated UUIDs of allowed Globus groups |
-| `AUTHORIZED_IDPS` | No | - | JSON string of authorized identity providers |
+| `AUTHORIZED_IDP_DOMAINS` | No | - | String field of authorized identity providers |
 | `AUTHORIZED_GROUPS_PER_IDP` | No | - | JSON string of groups per IDP |
 | `GLOBUS_POLICIES` | No | - | Space-separated policy UUIDs |
-
-Example with group restrictions:
-
-```dotenv
-GLOBUS_GROUPS="uuid-1 uuid-2 uuid-3"
-```
-
-Example with IDP restrictions:
-
-```dotenv
-AUTHORIZED_IDPS='{"University": "uuid-here"}'
-AUTHORIZED_GROUPS_PER_IDP='{"University": "group-uuid-1,group-uuid-2"}'
-```
 
 ### Database Configuration
 
@@ -67,20 +54,8 @@ AUTHORIZED_GROUPS_PER_IDP='{"University": "group-uuid-1,group-uuid-2"}'
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `REDIS_URL` | Yes | - | Redis connection URL |
-
-Examples:
-
-```dotenv
-# Docker
-REDIS_URL="redis://redis:6379/0"
-
-# Bare metal
-REDIS_URL="redis://localhost:6379/0"
-
-# With password
-REDIS_URL="redis://:password@localhost:6379/0"
-```
+| `REDIS_URL` | No | - | Redis connection URL |
+| `USE_REDIS_CACHE` | No | false | Whether Redis cache is enabled |
 
 ### Gateway Settings
 
@@ -89,20 +64,6 @@ REDIS_URL="redis://:password@localhost:6379/0"
 | `MAX_BATCHES_PER_USER` | No | `2` | Maximum concurrent batch jobs per user |
 | `STREAMING_SERVER_HOST` | No | - | Internal streaming server host:port |
 | `INTERNAL_STREAMING_SECRET` | No | - | Secret for internal streaming authentication |
-
-### CLI Authentication Helper
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CLI_ALLOWED_DOMAINS` | No | - | Comma-separated domains for CLI login |
-| `CLI_TOKEN_DIR` | No | `~/.globus/app` | Token storage directory |
-| `CLI_APP_NAME` | No | `inference_auth` | App name for token storage |
-
-Example:
-
-```dotenv
-CLI_ALLOWED_DOMAINS="anl.gov,alcf.anl.gov,university.edu"
-```
 
 ### Metis (Direct API) Configuration
 
@@ -291,12 +252,6 @@ server {
     proxy_connect_timeout 600s;
     proxy_send_timeout 600s;
     proxy_read_timeout 600s;
-    
-    location /static/ {
-        alias /path/to/staticfiles/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
     
     location / {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
