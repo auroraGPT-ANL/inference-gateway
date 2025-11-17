@@ -20,7 +20,7 @@ This guide covers installing the FIRST Inference Gateway directly on your server
 sudo apt update
 sudo apt install -y python3.12 python3.12-dev python3.12-venv \
     postgresql postgresql-contrib redis-server \
-    build-essential libpq-dev git curl nginx
+    build-essential libpq-dev git curl
 ```
 
 ### CentOS/RHEL
@@ -28,7 +28,7 @@ sudo apt install -y python3.12 python3.12-dev python3.12-venv \
 ```bash
 sudo dnf install -y python3.12 python3.12-devel \
     postgresql postgresql-server redis \
-    gcc gcc-c++ make libpq-devel git nginx
+    gcc gcc-c++ make libpq-devel git
 ```
 
 ## Step 2: Install Poetry
@@ -243,7 +243,16 @@ Verify that the service is running
 sudo systemctl status inference-gateway
 ```
 
-## Step 10: Configure Nginx
+## [Optional] Step 10: Configure Nginx
+
+Install Nginx:
+```
+# Ubuntu/Debian
+sudo apt install nginx
+
+# CentOS/RHEL
+sudo dnf install nginx
+```
 
 Create site configuration:
 
