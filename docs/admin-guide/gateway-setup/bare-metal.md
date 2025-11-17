@@ -134,7 +134,7 @@ redis-cli ping
 
 ## Step 6: Configure Environment
 
-Create a `.env` file from the [example environment file](../../../env.example) and customize the `.env` file following the instructions found in the example file:
+Create a `.env` file from the [example environment file](gateway-setup/configuration.md) and customize the `.env` file following the instructions found in the example file:
 ```bash
 cp env.example .env
 ```

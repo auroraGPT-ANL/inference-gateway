@@ -6,6 +6,79 @@ This page documents all environment variables and configuration options for the 
 
 All configuration is done through environment variables, typically stored in a `.env` file.
 
+```bash
+# --- Core Django Settings ---
+SECRET_KEY="<generate-a-strong-random-key>"
+DEBUG=True
+
+# --- Allowed hosts ---
+# Optional: one per line (default to "*")
+ALLOWED_HOSTS="
+localhost
+127.0.0.1
+"
+
+# --- Test Mode (set to True to skip Globus policy checks and bypass rate-limiting during development) ---
+RUNNING_AUTOMATED_TEST_SUITE=False
+
+# --- Logging ---
+# Set to True to send application logs to stdout/stderr (recommended for Docker)
+LOG_TO_STDOUT=True
+
+# --- Globus Credentials ---
+# Required
+GLOBUS_APPLICATION_ID="<Your-Gateway-Service-API-Globus-App-Client-UUID>"
+GLOBUS_APPLICATION_SECRET="<Your-Gateway-Service-API-Globus-App-Client-Secret>"
+SERVICE_ACCOUNT_ID="<Your-Service-Account-Globus-App-Client-UUID>"
+SERVICE_ACCOUNT_SECRET="<Your-Service-Account-Globus-App-Client-Secret>"
+
+# --- Globus Policies ---
+# Required: comma-separated list of policy IDs (at least one must be provided)
+# Example: GLOBUS_POLICIES="policy-id-1,policy-id-2"
+GLOBUS_POLICIES=""
+
+# --- Globus Groups ---
+# Optional: comma-separated list of group IDs
+GLOBUS_GROUPS=""
+
+# --- Authorized Identity Provider Domains (one per line) ---
+# Required: one per line (cannot be empty, must match Globus policy)
+# Example: AUTHORIZED_IDP_DOMAINS="
+#          anl.gov,
+#          uchicago.edu
+#          "
+AUTHORIZED_IDP_DOMAINS=""
+
+# --- Authorized Groups Per IDP ---
+# Optional: JSON format with domains (keys: domains, values: comma-separated list of group IDs)
+# Example: AUTHORIZED_GROUPS_PER_IDP='
+#          {
+#              "uchicago.edu": "groupd-id-1"
+#          }
+#          '
+AUTHORIZED_GROUPS_PER_IDP='{}'
+
+# --- Postgres Database ---
+POSTGRES_DB="inferencegateway"
+POSTGRES_USER="inferencedev"
+POSTGRES_PASSWORD="change-this-password"
+PGHOST="postgres"
+PGPORT=5432
+PGUSER="inferencedev"
+PGPASSWORD="change-this-password"
+PGDATABASE="inferencegateway"
+
+# --- Redis Cache ---
+REDIS_URL="redis://redis:6379/0"
+USE_REDIS_CACHE=true
+
+# --- Gateway Specific Settings ---
+MAX_BATCHES_PER_USER=2
+RATE_LIMIT_PER_SEC_PER_USER=10
+STREAMING_SERVER_HOST="localhost:8080"
+INTERNAL_STREAMING_SECRET="your-internal-streaming-secret-key"
+```
+
 ### Core Django Settings
 
 | Variable | Required | Default | Description |
