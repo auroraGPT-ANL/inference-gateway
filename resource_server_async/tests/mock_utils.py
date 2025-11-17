@@ -186,7 +186,7 @@ def check_globus_groups(my_groups):
 
 
 # Mock check_session_info function
-# .env requirement --> AUTHORIZED_IDPS='{"mock_domain.com": "mock_idp_id"}'
+# .env requirement --> AUTHORIZED_IDP_DOMAINS=["mock_domain.com"]
 def check_session_info(introspection, user_groups):
     user = UserPydantic(
         id="mock_id",
