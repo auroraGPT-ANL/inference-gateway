@@ -26,11 +26,10 @@ graph TB
 
 ## Prerequisites
 
-- FIRST Gateway deployed with Service Account application credentials
+- FIRST Gateway deployed with [Globus project and applications](../globus-setup/index.md) ready
 - Access to compute resources (HPC cluster or powerful workstation)
 - GPU resources for running models
 - Python 3.12+ (same version as gateway)
-- Globus Compute SDK and Endpoint software
 
 ## Part 1: Setup on Compute Resource
 
@@ -72,7 +71,7 @@ pip install -e .
 pip install globus-compute-sdk globus-compute-endpoint
 ```
 
-### Step 4: Export Service Account Credentials
+### Step 4: Export Globus Service Account Credentials
 
 These are from your Gateway's Service Account application:
 
@@ -191,25 +190,24 @@ engine:
     init_blocks: 1
     max_blocks: 1
     min_blocks: 0
+    # Activate your environment and start vLLM server
+    worker_init: |
+      source /path/to/vllm-env/bin/activate
+      # OR: conda activate vllm-env
+      
+      # Start vLLM server in background
+      nohup vllm serve facebook/opt-125m \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --gpu-memory-utilization 0.9 \
+        > vllm.log 2>&1 &
+      
+      # Wait for server to be ready
+      sleep 30
 
 # Allow only your registered functions
 allowed_functions:
   - 12345678-1234-1234-1234-123456789abc  # Your vLLM function UUID
-
-# Activate your environment and start vLLM server
-worker_init: |
-  source /path/to/vllm-env/bin/activate
-  # OR: conda activate vllm-env
-  
-  # Start vLLM server in background
-  nohup vllm serve facebook/opt-125m \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --gpu-memory-utilization 0.9 \
-    > vllm.log 2>&1 &
-  
-  # Wait for server to be ready
-  sleep 30
 ```
 
 #### For HPC with PBS (e.g., ALCF Sophia)
