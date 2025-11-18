@@ -5,11 +5,12 @@
         "fields": {
             "cluster_name": "sophia",
             "cluster_adapter": "resource_server_async.clusters.globus_compute.GlobusComputeCluster",
-            "openai_endpoints": {
-                "chat": "/vllm/v1/chat/completions/",
-                "completion": "/vllm/v1/completions/",
-                "embedding": "/vllm/v1/embeddings/"
-            },
+            "frameworks": ["vllm"],
+            "openai_endpoints": [
+                "/v1/chat/completions/",
+                "/v1/completions/",
+                "/v1/embeddings/"
+            ],
             "config": {
                 "qstat_endpoint_uuid": "23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
                 "qstat_function_uuid": "c570f15f-1349-49a0-b281-97415e8c44b0"
@@ -22,9 +23,10 @@
         "fields": {
             "cluster_name": "metis",
             "cluster_adapter": "resource_server_async.clusters.metis.MetisCluster",
-            "openai_endpoints": {
-                "chat": "/api/v1/chat/completions/"
-            },
+            "frameworks": ["api"],
+            "openai_endpoints": [
+                "/v1/chat/completions/"
+            ],
             "config": {}
         }
     }
