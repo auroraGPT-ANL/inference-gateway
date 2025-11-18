@@ -2,11 +2,27 @@ import uuid
 from django.db import models
 from django.utils.timezone import now
 from django.utils.text import slugify
+from django.core.exceptions import ValidationError
 
 
 # Supported authentication origins
 class AuthService(models.TextChoices):
     GLOBUS = "globus", "Globus"
+
+
+# Function to validate that some inputs are list of strings
+def validate_str_list(value):
+    if not isinstance(value, list):
+        raise ValidationError("Value must be a list.")
+    if not all(isinstance(v, str) for v in value):
+        raise ValidationError("All items must be strings.")
+    
+
+# JSON field specifically containing a list of strings
+class StrListJSONField(models.JSONField):
+    def get_prep_value(self, value):
+        validate_str_list(value)
+        return super().get_prep_value(value)
 
 
 # User model
@@ -253,6 +269,8 @@ class Endpoint(models.Model):
     endpoint_slug = models.SlugField(max_length=100, unique=True)
 
     # HPC machine the endpoint is running on (e.g. sophia)
+    # TODO Foreign key here to point to cluster
+    # TODO add endpoint uuid if GC, URL if Metis, etc...
     cluster = models.CharField(max_length=100)
 
     # Framework (e.g. vllm)
@@ -265,12 +283,12 @@ class Endpoint(models.Model):
     endpoint_adapter = models.CharField(max_length=250)
 
     # Additional Globus group restrictions to access the endpoint (no restriction if empty)
-    # Example: "group1-uuid, group2-uuid, ..."
-    allowed_globus_groups = models.TextField(default="", blank=True)
+    # Example: ["group1-uuid", "group2-uuid"]
+    allowed_globus_groups = StrListJSONField(default=list, blank=True)
 
     # Additional domains restrictions to access the endpoint (no restriction if empty)
-    # Example: "anl.gov, alcf.anl.gov"
-    allowed_domains = models.TextField(default="", blank=True)
+    # Example: ["anl.gov", "alcf.anl.gov"]
+    allowed_domains = StrListJSONField(default=list, blank=True)
 
     # Extra configuration needed to instantiate the endpoint class
     # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
@@ -293,20 +311,24 @@ class Cluster(models.Model):
     # Cluster name
     cluster_name = models.CharField(max_length=100, unique=True)
 
+    # Inference serving framework
+    # e.g. ["vllm"]
+    frameworks = StrListJSONField(null=False)
+
     # OpenAI endpoints
-    # e.g. {"completion": "/vllm/v1/completions/"}
-    openai_endpoints = models.TextField()
+    # e.g. ["/v1/completions/", "/v1/chat/completions"]
+    openai_endpoints = StrListJSONField(null=False)
 
     # Cluster adapter (e.g. resource_server_async.clusters.globus_compute.GlobusComputeCluster)
     cluster_adapter = models.CharField(max_length=250)
 
     # Additional Globus group restrictions to access the cluster (no restriction if empty)
-    # Example: "group1-uuid, group2-uuid, ..."
-    allowed_globus_groups = models.TextField(default="", blank=True)
+    # Example: ["group1-uuid", "group2-uuid"]
+    allowed_globus_groups = StrListJSONField(default=list, blank=True)
 
     # Additional domains restrictions to access the cluster (no restriction if empty)
-    # Example: "anl.gov, alcf.anl.gov"
-    allowed_domains = models.TextField(default="", blank=True)
+    # Example: ["anl.gov", "alcf.anl.gov"]
+    allowed_domains = StrListJSONField(default=list, blank=True)
 
     # Extra configuration needed to instantiate the cluster class
     # Should be json.dumps string. Will be converted into a python dictionaty within the cluster object
