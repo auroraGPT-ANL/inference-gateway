@@ -58,8 +58,8 @@ class BaseEndpoint(ABC):
         framework: str,
         model: str,
         endpoint_adapter: str,
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None
+        allowed_globus_groups: List[str] = None,
+        allowed_domains: List[str] = None
     ):
         # Assign common self variables 
         self._id = id
@@ -70,17 +70,6 @@ class BaseEndpoint(ABC):
         self._endpoint_adapter = endpoint_adapter
         self._allowed_globus_groups = allowed_globus_groups
         self._allowed_domains = allowed_domains
-
-        # Extract list of allowed globus group IDs and make sure they are in the UUID format
-        self._allowed_globus_groups = [g.strip() for g in self._allowed_globus_groups.split(",") if g.strip()]
-        for uuid_to_test in self._allowed_globus_groups:
-            try:
-                _ = uuid.UUID(uuid_to_test).version
-            except Exception as e:
-                raise Exception(f"Error: Could not extract allowed_globus_groups UUID format from the database. {e}")
-        
-        # Extract list of allowed domains
-        self._allowed_domains = [d.strip() for d in self._allowed_domains.split(",") if d.strip()]
 
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str] ) -> CheckPermissionResponse:
