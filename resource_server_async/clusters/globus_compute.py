@@ -5,13 +5,15 @@ from pydantic import BaseModel
 from django.core.cache import cache
 from django.utils.text import slugify
 from asgiref.sync import sync_to_async
-from typing import Dict, List
+from typing import List
 import json
 
 # Tool to log access requests
 import logging
 log = logging.getLogger(__name__)
 
+
+# Custom configuration for Globus Compute Cluster
 class ClusterConfig(BaseModel):
     qstat_endpoint_uuid: str
     qstat_function_uuid: str
@@ -33,7 +35,7 @@ class GlobusComputeCluster(BaseCluster):
         config: ClusterConfig = None
     ):
         # Validate endpoint configuration
-        self._config = ClusterConfig(**config)
+        self.__config = ClusterConfig(**config)
 
         # Initialize the rest of the common attributes
         super().__init__(id, cluster_name, cluster_adapter, frameworks, openai_endpoints, allowed_globus_groups, allowed_domains)
@@ -138,4 +140,4 @@ class GlobusComputeCluster(BaseCluster):
     # Read-only access to the configuration
     @property
     def config(self):
-        return self._config
+        return self.__config
