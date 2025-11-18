@@ -20,7 +20,7 @@ from django.conf import settings
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
-from utils.pydantic_models.batch import BatchPydantic
+from utils.pydantic_models.batch import BatchPydantic, BatchStatusEnum
 from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
@@ -38,13 +38,6 @@ from resource_server_async.endpoints.endpoint import BaseEndpoint
 from resource_server_async.clusters.cluster import BaseCluster
 
 log = logging.getLogger(__name__) # Add logger
-
-# --- Removed Configuration Loading ---
-
-# Constants are now loaded from settings.py
-ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
-ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
-ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
 
 
 # Exception to raise in case of errors
@@ -73,42 +66,6 @@ def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
         return True
 
 
-# Validate cluster and framework
-def validate_cluster_framework(cluster: str, framework: str):
-
-    # Error message if cluster not available
-    if not cluster in ALLOWED_CLUSTERS:
-        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
-    
-    # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
-        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
-
-    # No error message if the inputs are valid
-    return ""
-
-
-# Validate URL inputs
-# TODO: Incorporate re-usable validate_cluster_framework function
-def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
-    """Validate user inputs from POST requests."""
-
-    # Error message if cluster not available
-    if not cluster in ALLOWED_CLUSTERS:
-        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
-    
-    # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
-        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
-    
-    # Error message if openai endpoint not available
-    if not openai_endpoint in ALLOWED_OPENAI_ENDPOINTS.get(cluster, []): # Use .get for safety
-        return f"Error: {openai_endpoint} openai endpoint not supported for cluster {cluster}. Currently supporting {ALLOWED_OPENAI_ENDPOINTS.get(cluster, [])}."
-
-    # No error message if the inputs are valid
-    return ""
-
-
 # Extract user prompt
 def extract_prompt(model_params):
     """Extract the user input text from the requested model parameters."""
@@ -133,6 +90,10 @@ def extract_prompt(model_params):
 # TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
+
+    # Strip the last forward slash if needed (to be consistent with cluster's openai_endpoints)
+    if openai_endpoint[-1] == "/":
+        openai_endpoint = openai_endpoint[:-1]
         
     # Select the appropriate pydantic model for data validation
     if "chat/completions" in openai_endpoint:
@@ -906,13 +867,13 @@ def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
     obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
     return obj
 
+
 # Data structure for the update_batch() function response
 class UpdateBatchResponse(BaseModel):
     batch: BatchLog
     error_message: Optional[str] = None
     error_code: Optional[int] = None
     model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable BatchLog
-
 
 # Update batch entry
 async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
@@ -1372,7 +1333,6 @@ class EndpointWrapperResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseEndpoint
 
 # Get endpoint wrapper
-#TODO: CACHE ENDPOINT
 async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
     """Extract the endpoint from the database and return its underlying wrapper object."""
 
@@ -1481,7 +1441,6 @@ class ClusterWrapperResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseCluster
 
 # Get cluster wrapper
-#TODO: CACHE CLUSTER
 async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     """Extract the cluster from the database and return its underlying wrapper object."""
 
