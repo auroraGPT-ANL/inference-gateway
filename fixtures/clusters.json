@@ -9,9 +9,9 @@
                 "vllm"
             ],
             "openai_endpoints": [
-                "/v1/chat/completions",
-                "/v1/completions",
-                "/v1/embeddings",
+                "chat/completions",
+                "completions",
+                "embeddings",
                 "health", 
                 "metrics"
             ],
@@ -31,7 +31,7 @@
                 "api"
             ],
             "openai_endpoints": [
-                "/v1/chat/completions"
+                "chat/completions"
             ],
             "config": {}
         }
