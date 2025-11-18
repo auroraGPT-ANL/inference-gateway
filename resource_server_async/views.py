@@ -19,10 +19,8 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
-from resource_server_async.clusters.cluster import Jobs
+from resource_server_async.clusters.cluster import Jobs, BaseCluster
 from resource_server_async.utils import (
-    validate_url_inputs, 
-    validate_cluster_framework,
     extract_prompt, 
     validate_request_body,
     validate_batch_body,
@@ -177,8 +175,8 @@ async def get_jobs(request, cluster:str):
         return await get_response(response.error_message, response.error_code, request)
     jobs: Jobs = response.jobs
     
-    # For each block listed in the jobs response ...
-    for jobs_type in [
+    # For each job state listed in the jobs response ...
+    for jobs_state in [
         jobs.running,
         jobs.queued,
         jobs.stopped,
@@ -186,13 +184,15 @@ async def get_jobs(request, cluster:str):
         jobs.private_batch_running,
         jobs.private_batch_queued
     ]:
-        for i_block in range(len(jobs_type) - 1, -1, -1): # Reversed order to safely remove/edit values
-            block = jobs_type[i_block]
+        # For each block (set of models) in this state
+        # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
+        for i_block in range(len(jobs_state) - 1, -1, -1):
+            block = jobs_state[i_block]
         
             # Collect the list of models
             models = [m.strip() for m in block.Models.split(",") if m.strip()]
 
-            # Define list of models that the user is allowed to see
+            # Define list of models that the user is allowed to see within that block
             visible_models = []
 
             # For each model ...
@@ -211,18 +211,17 @@ async def get_jobs(request, cluster:str):
 
             # Remove block if no model should be visible
             if len(visible_models) == 0:
-                del jobs_type[i_block]
+                del jobs_state[i_block]
 
             # Update models if some (or all) of them are still visible
             else:
-                jobs_type[i_block].Models = ", ".join(visible_models)
+                jobs_state[i_block].Models = ", ".join(visible_models)
 
     # Return the cluster's jobs status
     return await get_response(jobs.model_dump(), 200, request)
 
 
 # Inference batch (POST)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.post("/{cluster}/{framework}/v1/batches")
 async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
     """POST request to send a batch to Globus Compute endpoints."""
@@ -232,13 +231,15 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if "error" in batch_data.keys():
         return await get_response(batch_data['error'], 400, request)
 
-    # Make sure the URL inputs point to an available endpoint
-    # TODO: Incorporate framework in the cluster wrapper and make the check there (or just throw an error)
-    # TODO: Even better, don't give the option of the framework anymore, just run on the cluster.
-    # TODO: Ignore framework argument since it is not necessary
-    error_message = validate_cluster_framework(cluster, framework)
-    if len(error_message):
-        return await get_response(error_message, 400, request)
+    # Get cluster wrapper from database
+    response = await get_cluster_wrapper(cluster)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    cluster: BaseCluster = response.cluster
+
+    # Verify that the framework is enabled by the cluster
+    if framework not in cluster.frameworks:
+        return await get_response(f"Error: framework {framework} not available on cluster {cluster.cluster_name}.", 400, request)
 
     # Build the requested endpoint slug
     endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
@@ -278,7 +279,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
             access_log__user__username=request.auth.username,
             input_file=batch_data["input_file"]
         ).select_related("access_log", "access_log__user").aiterator():
-            if not batch.status in ["failed", "completed"]:
+            if not batch.status in [BatchStatusEnum.failed.value, BatchStatusEnum.completed.value]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_response(error_message, 400, request)
     except BatchLog.DoesNotExist:
@@ -316,7 +317,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
 
 # List of batches (GET)
-# TODO: Use primary identity username to claim ownership on files and batches
 @router.get("/v1/batches")
 async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
     """GET request to list all batches linked to the authenticated user."""
@@ -432,16 +432,20 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
             return await get_response(error_message, 403, request)
     except Exception as e:
         return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, request)
+    
+    # Return error if batch failed
+    if batch.status == BatchStatusEnum.failed.value:
+        return await get_response(f"Error: Batch failed: {batch.result}", 400, request)
+    
+    # Return result if batch already finished
+    if batch.status == BatchStatusEnum.completed.value:
+        return await get_response(json.dumps(batch.result), 200, request)
 
     # Get the latest batch status and result (and update database if needed)
     response = await update_batch(batch)
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     batch = response.batch
-
-    # Return error if batch failed
-    if batch.status == BatchStatusEnum.failed.value:
-        return await get_response(f"Error: Batch failed: {batch.result}", 400, request)
 
     # Return error if results are not ready yet
     if batch.status != BatchStatusEnum.completed.value:
@@ -456,20 +460,25 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
     """POST request to reach Globus Compute endpoints."""
     
-    # Strip the last forward slash if needed
-    if openai_endpoint[-1] == "/":
-        openai_endpoint = openai_endpoint[:-1]
-
-    # Make sure the URL inputs point to an available endpoint 
-    # TODO: PUT that in the endpoint wrapper!!!
-    error_message = validate_url_inputs(cluster, framework, openai_endpoint)
-    if len(error_message):
-        return await get_response(error_message, 400, request)
-
-    # Validate and build the inference request data
+    # Validate and build the inference request data, and clear openai_endpoint string
     data = validate_request_body(request, openai_endpoint)
     if "error" in data.keys():
         return await get_response(data['error'], 400, request)
+    openai_endpoint = data["model_params"].get("openai_endpoint", openai_endpoint)
+
+    # Get cluster wrapper from database
+    response = await get_cluster_wrapper(cluster)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    cluster: BaseCluster = response.cluster
+
+    # Verify that the framework is available by the cluster
+    if framework not in cluster.frameworks:
+        return await get_response(f"Error: framework {framework} not available on cluster {cluster.cluster_name}.", 400, request)
+    
+    # Verify that the openAI endpoint is available by the cluster
+    if openai_endpoint not in cluster.openai_endpoints:
+        return await get_response(f"Error: OpenAI endpoint {openai_endpoint} not available on cluster {cluster.cluster_name}.", 400, request)
     
     # Check if streaming is requested
     stream = data["model_params"].get('stream', False)
@@ -532,8 +541,8 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     else:
         return await get_response(task_response.result, 200, request)
 
-# Streaming server endpoints (integrated into Django)
 
+# Streaming server endpoints (integrated into Django)
 @router.post("/api/streaming/data/", auth=None, throttle=[])
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY
