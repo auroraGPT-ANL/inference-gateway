@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from django.core.cache import cache
 from django.utils.text import slugify
 from asgiref.sync import sync_to_async
-from typing import Dict
+from typing import Dict, List
 import json
 
 # Tool to log access requests
@@ -26,16 +26,17 @@ class GlobusComputeCluster(BaseCluster):
         id: str,
         cluster_name: str,
         cluster_adapter: str,
-        openai_endpoints: Dict[str,str],
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None,
+        frameworks: List[str],
+        openai_endpoints: List[str],
+        allowed_globus_groups: List[str] = [],
+        allowed_domains: List[str] = [],
         config: ClusterConfig = None
     ):
         # Validate endpoint configuration
         self._config = ClusterConfig(**config)
 
         # Initialize the rest of the common attributes
-        super().__init__(id, cluster_name, cluster_adapter, openai_endpoints, allowed_globus_groups, allowed_domains)
+        super().__init__(id, cluster_name, cluster_adapter, frameworks, openai_endpoints, allowed_globus_groups, allowed_domains)
 
 
     # Get jobs
@@ -118,10 +119,9 @@ class GlobusComputeCluster(BaseCluster):
         except Exception as e:
             return GetJobsResponse(error_message=f"Error: Could not parse batch details: {e}", error_code=500)
 
-
         # Build response
         try:
-            response = GetJobsResponse(status=Jobs(**result))
+            response = GetJobsResponse(jobs=Jobs(**result))
         except Exception as e:
             return GetJobsResponse(error_message=f"Error: Could not generate GetJobsResponse: {e}", error_code=500)
 
