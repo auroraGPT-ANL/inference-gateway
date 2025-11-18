@@ -26,7 +26,7 @@ Before you begin, ensure you have:
 
 Globus applications are required to operate the service and manage the authentication and authorization layer. 
 
-[Globus Guide →](globus-setup/index.md)
+[Globus Guide →](gateway-setup/globus-setup.md)
 
 ## Deployment Architecture
 
