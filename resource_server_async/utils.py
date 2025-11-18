@@ -1397,42 +1397,6 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
             error_code=500
         )
 
-    # TODO: ADD CACHE (example below)
-    """
-    # Try to get endpoint from Redis cache first
-    endpoint = get_endpoint_from_cache(endpoint_slug)
-    if endpoint is None:
-        # If not in cache, fetch from DB asynchronously
-        try:
-            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
-            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
-
-            # Store the fetched endpoint in Redis cache
-            cache_endpoint(endpoint_slug, endpoint)
-
-        except Endpoint.DoesNotExist:
-            return await get_response(f"Error: The requested endpoint {endpoint_slug} does not exist.", 400, request)
-        except Exception as e:
-            return await get_response(f"Error: Could not extract endpoint {endpoint_slug}: {e}", 400, request)
-
-    # Use the endpoint data (either from cache or freshly fetched)
-    try:
-        data["model_params"]["api_port"] = endpoint.api_port
-    except Exception as e:
-         # If there was an error processing the data (e.g., attribute missing),
-         # it might be safer to remove it from the cache to force a refresh on next request.
-        remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(f"Error processing endpoint data for {endpoint_slug}: {e}", 400, request)
-
-    # Extract the list of allowed group UUIDs tied to the targetted endpoint
-    allowed_globus_groups, error_message = extract_group_uuids(endpoint.allowed_globus_groups)
-    if len(error_message) > 0:
-        # Remove from cache if group extraction fails, as the cached data might be problematic
-        remove_endpoint_from_cache(endpoint_slug)
-        return await get_response(error_message, 401, request)
-    """
-
-
 # Data structure for the get_cluster_wrapper() function response
 class ClusterWrapperResponse(BaseModel):
     cluster: Optional[BaseCluster] = Field(default=None)
