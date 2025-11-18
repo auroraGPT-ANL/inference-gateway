@@ -11,7 +11,9 @@
             "openai_endpoints": [
                 "/v1/chat/completions",
                 "/v1/completions",
-                "/v1/embeddings"
+                "/v1/embeddings",
+                "health", 
+                "metrics"
             ],
             "config": {
                 "qstat_endpoint_uuid": "23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
