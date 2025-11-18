@@ -23,6 +23,15 @@ class StrListJSONField(models.JSONField):
     def get_prep_value(self, value):
         validate_str_list(value)
         return super().get_prep_value(value)
+    
+# OpenAI endpoint list
+class OpenAIEndpointListJSONField(models.JSONField):
+    def get_prep_value(self, value):
+        validate_str_list(value)
+        for endpoint in value:
+            if endpoint[-1] == "/":
+                raise ValidationError("OpenAI endpoints cannot end with '/'. Remove the last '/'.")
+        return super().get_prep_value(value)
 
 
 # User model
@@ -316,8 +325,8 @@ class Cluster(models.Model):
     frameworks = StrListJSONField(null=False)
 
     # OpenAI endpoints
-    # e.g. ["/v1/completions/", "/v1/chat/completions"]
-    openai_endpoints = StrListJSONField(null=False)
+    # e.g. ["/v1/completions", "/v1/chat/completions"], cannot end with '/'
+    openai_endpoints = OpenAIEndpointListJSONField(null=False)
 
     # Cluster adapter (e.g. resource_server_async.clusters.globus_compute.GlobusComputeCluster)
     cluster_adapter = models.CharField(max_length=250)
