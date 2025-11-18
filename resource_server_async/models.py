@@ -28,9 +28,10 @@ class StrListJSONField(models.JSONField):
 class OpenAIEndpointListJSONField(models.JSONField):
     def get_prep_value(self, value):
         validate_str_list(value)
-        for endpoint in value:
-            if endpoint[-1] == "/":
-                raise ValidationError("OpenAI endpoints cannot end with '/'. Remove the last '/'.")
+        if value:
+            for endpoint in value:
+                if endpoint[-1] == "/" or endpoint[0] == "/":
+                    raise ValidationError("OpenAI endpoints cannot end or start with '/'.")
         return super().get_prep_value(value)
 
 
