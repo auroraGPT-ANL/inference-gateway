@@ -42,6 +42,8 @@ class MetisEndpoint(BaseEndpoint):
     ):
         # Validate endpoint configuration
         #self._config = DirectAPIConfig(**config)
+        # TODO get URL from config
+        # TODO get model-base key from env
 
         # Initialize the rest of the common attributes
         super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains)
