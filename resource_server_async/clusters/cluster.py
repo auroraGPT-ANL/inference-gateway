@@ -10,17 +10,23 @@ class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
 
+class JobInfo(BaseModel):
+    Models:    str
+    Framework: str
+    Cluster:   str
+    model_config = {"extra": "allow"} # Open dictionary that allow more fields
+
 class Jobs(BaseModel):
-    running: List[Dict] = Field(default_factory=list)
-    queued: List[Dict] = Field(default_factory=list)
-    stopped: List[Dict] = Field(default_factory=list)
-    others: List[Dict] = Field(default_factory=list)
-    private_batch_running: List[Dict] = Field(default_factory=list)
-    private_batch_queued: List[Dict] = Field(default_factory=list)
+    running: List[JobInfo] = Field(default_factory=list)
+    queued: List[JobInfo] = Field(default_factory=list)
+    stopped: List[JobInfo] = Field(default_factory=list)
+    others: List[JobInfo] = Field(default_factory=list)
+    private_batch_running: List[JobInfo] = Field(default_factory=list)
+    private_batch_queued: List[JobInfo] = Field(default_factory=list)
     cluster_status: Dict = Field(default_factory=dict)
 
 class GetJobsResponse(BaseModelWithError):
-    status: Optional[Jobs] = None
+    jobs: Optional[Jobs] = None
 
 
 class BaseCluster(ABC):
@@ -31,28 +37,19 @@ class BaseCluster(ABC):
         id: str,
         cluster_name: str,
         cluster_adapter: str,
-        openai_endpoints: Dict[str,str],
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None,
+        frameworks: List[str],
+        openai_endpoints: List[str],
+        allowed_globus_groups: List[str] = [],
+        allowed_domains:  List[str] = []
     ):
         # Assign common self variables
         self._id = id
         self._cluster_name = cluster_name
         self._cluster_adapter = cluster_adapter
+        self._frameworks = frameworks
         self._openai_endpoints = openai_endpoints
         self._allowed_globus_groups = allowed_globus_groups
         self._allowed_domains = allowed_domains
-
-        # Extract list of allowed globus group IDs and make sure they are in the UUID format
-        self._allowed_globus_groups = [g.strip() for g in self._allowed_globus_groups.split(",") if g.strip()]
-        for uuid_to_test in self._allowed_globus_groups:
-            try:
-                _ = uuid.UUID(uuid_to_test).version
-            except Exception as e:
-                raise Exception(f"Error: Could not extract UUID format from the database. {e}")
-        
-        # Extract list of allowed domains
-        self._allowed_domains = [d.strip() for d in self._allowed_domains.split(",") if d.strip()]
 
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str]) -> CheckPermissionResponse:
@@ -92,6 +89,10 @@ class BaseCluster(ABC):
     @property
     def cluster_adapter(self):
         return self._cluster_adapter
+    
+    @property
+    def frameworks(self):
+        return self._frameworks
     
     @property
     def openai_endpoints(self):
