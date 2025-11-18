@@ -43,13 +43,13 @@ class BaseCluster(ABC):
         allowed_domains:  List[str] = []
     ):
         # Assign common self variables
-        self._id = id
-        self._cluster_name = cluster_name
-        self._cluster_adapter = cluster_adapter
-        self._frameworks = frameworks
-        self._openai_endpoints = openai_endpoints
-        self._allowed_globus_groups = allowed_globus_groups
-        self._allowed_domains = allowed_domains
+        self.__id = id
+        self.__cluster_name = cluster_name
+        self.__cluster_adapter = cluster_adapter
+        self.__frameworks = frameworks
+        self.__openai_endpoints = openai_endpoints
+        self.__allowed_globus_groups = allowed_globus_groups
+        self.__allowed_domains = allowed_domains
 
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str]) -> CheckPermissionResponse:
@@ -80,28 +80,28 @@ class BaseCluster(ABC):
 
     @property
     def id(self):
-        return self._id
+        return self.__id
 
     @property
     def cluster_name(self):
-        return self._cluster_name
+        return self.__cluster_name
     
     @property
     def cluster_adapter(self):
-        return self._cluster_adapter
+        return self.__cluster_adapter
     
     @property
     def frameworks(self):
-        return self._frameworks
+        return self.__frameworks
     
     @property
     def openai_endpoints(self):
-        return self._openai_endpoints
+        return self.__openai_endpoints
 
     @property
     def allowed_globus_groups(self):
-        return self._allowed_globus_groups
+        return self.__allowed_globus_groups
 
     @property
     def allowed_domains(self):
-        return self._allowed_domains
+        return self.__allowed_domains
