@@ -13,9 +13,6 @@ class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
 
-class GetEndpointStatusResponse(BaseModelWithError):
-    status: Optional[Any] = None
-
 class SubmitTaskResponse(BaseModelWithError):
     result: Optional[str] = Field(default=None)
     task_id: Optional[str] = Field(default=None)
@@ -41,11 +38,6 @@ class BatchResultMetrics(BaseModel):
     num_responses: int
     lines_processed: int
 
-class GetBatchResultResponse(BaseModelWithError):
-    results_file: Optional[str] = None
-    progress_file: Optional[str] = None
-    metrics: Optional[BatchResultMetrics] = None
-
 
 class BaseEndpoint(ABC):
     """Generic abstract base class that enforces a common set of methods for inference endpoints."""
@@ -62,14 +54,14 @@ class BaseEndpoint(ABC):
         allowed_domains: List[str] = None
     ):
         # Assign common self variables 
-        self._id = id
-        self._endpoint_slug = endpoint_slug
-        self._cluster = cluster
-        self._framework = framework
-        self._model = model
-        self._endpoint_adapter = endpoint_adapter
-        self._allowed_globus_groups = allowed_globus_groups
-        self._allowed_domains = allowed_domains
+        self.__id = id
+        self.__endpoint_slug = endpoint_slug
+        self.__cluster = cluster
+        self.__framework = framework
+        self.__model = model
+        self.__endpoint_adapter = endpoint_adapter
+        self.__allowed_globus_groups = allowed_globus_groups
+        self.__allowed_domains = allowed_domains
 
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str] ) -> CheckPermissionResponse:
@@ -89,11 +81,6 @@ class BaseEndpoint(ABC):
     
     # Mandatory definitions
     # ---------------------
-
-    @abstractmethod
-    async def get_endpoint_status(self, batch: BatchLog) -> GetEndpointStatusResponse:
-        """Return endpoint status or an error is the endpoint cannot receive requests."""
-        pass
 
     @abstractmethod
     async def submit_task(self, data: dict) -> SubmitTaskResponse:
@@ -128,29 +115,33 @@ class BaseEndpoint(ABC):
     # --------------------
 
     @property
+    def id(self):
+        return self.__id
+
+    @property
     def endpoint_slug(self):
-        return self._endpoint_slug
+        return self.__endpoint_slug
 
     @property
     def cluster(self):
-        return self._cluster
+        return self.__cluster
 
     @property
     def framework(self):
-        return self._framework
+        return self.__framework
 
     @property
     def model(self):
-        return self._model
+        return self.__model
 
     @property
     def endpoint_adapter(self):
-        return self._endpoint_adapter
+        return self.__endpoint_adapter
 
     @property
     def allowed_globus_groups(self):
-        return self._allowed_globus_groups
+        return self.__allowed_globus_groups
 
     @property
     def allowed_domains(self):
-        return self._allowed_domains
+        return self.__allowed_domains
