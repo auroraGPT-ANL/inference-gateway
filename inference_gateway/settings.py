@@ -280,19 +280,6 @@ LOGGING = {
 # Static files directory for deployment
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 
-# --- Gateway Specific Settings ---
-# --- Resource Server Configuration ---
-ALLOWED_FRAMEWORKS = {
-    "polaris": ["llama-cpp", "vllm"],
-    "sophia": ["vllm","infinity"],
-    "metis": ["api"]  # Metis uses direct API calls (not Globus Compute)
-}
-ALLOWED_OPENAI_ENDPOINTS = {
-    "polaris": ["chat/completions", "completions", "embeddings", "health", "metrics"],
-    "sophia": ["chat/completions", "completions", "embeddings", "health", "metrics"],
-    "metis": ["chat/completions"]  # Metis only supports chat/completions
-}
-ALLOWED_CLUSTERS = list(ALLOWED_FRAMEWORKS.keys())
 
 # Cache configuration - Redis with fallback to local memory for development
 if os.environ.get('USE_REDIS_CACHE', 'false').lower() == 'true':
