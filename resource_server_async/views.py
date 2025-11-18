@@ -129,7 +129,7 @@ async def get_list_endpoints(request):
                         if endpoint.framework not in frameworks:
                             frameworks[endpoint.framework] = {
                                 "models": [],
-                                "endpoints": cluster.openai_endpoints
+                                "endpoints": [f"/v1/{e}" for e in cluster.openai_endpoints]
                             }
 
                         # Add model to the framework
@@ -242,7 +242,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         return await get_response(f"Error: framework {framework} not available on cluster {cluster.cluster_name}.", 400, request)
 
     # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster, framework, batch_data["model"].lower()]))
+    endpoint_slug = slugify(" ".join([cluster.cluster_name, framework, batch_data["model"].lower()]))
 
     # Get endpoint wrapper from database
     response = await get_endpoint_wrapper(endpoint_slug)
@@ -294,7 +294,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     request.batch_log_data = BatchLogPydantic(
         id=batch_response.batch_id,
         task_ids=batch_response.task_ids,
-        cluster=cluster,
+        cluster=cluster.cluster_name,
         framework=framework,
         model=batch_data["model"],
         input_file=batch_data["input_file"],
@@ -484,7 +484,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     stream = data["model_params"].get('stream', False)
     
     # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster, framework, data["model_params"]["model"].lower()]))
+    endpoint_slug = slugify(" ".join([cluster.cluster_name, framework, data["model_params"]["model"].lower()]))
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
 
     # Get endpoint wrapper from database
@@ -501,7 +501,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
         id=str(uuid.uuid4()),
-        cluster=cluster,
+        cluster=cluster.cluster_name,
         framework=framework,
         openai_endpoint=data["model_params"]["openai_endpoint"],
         prompt=json.dumps(extract_prompt(data["model_params"])),
@@ -553,7 +553,7 @@ async def receive_streaming_data(request):
     3. Per-task token validation (cached)
     4. Data size validation
     """
-
+    
     # Validate all security requirements
     is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=150000)
     if not is_valid:
