@@ -6,7 +6,7 @@ from utils import globus_utils
 from django.http import StreamingHttpResponse
 from django.core.cache import cache
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Any
 from resource_server_async.utils import (
     remove_endpoint_from_cache,
     prepare_streaming_task_data,
@@ -22,23 +22,22 @@ from resource_server_async.utils import (
 )
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
-    GetEndpointStatusResponse,
+    BaseModelWithError,
     SubmitTaskResponse,
     SubmitStreamingTaskResponse,
     SubmitBatchResponse,
-    GetBatchResultResponse,
     GetBatchStatusResponse,
 )
 from resource_server_async.models import BatchLog
 from utils.pydantic_models.batch import BatchStatusEnum
-
-# Logging tool
 import logging
 log = logging.getLogger(__name__)
 
 
-# Configuration data structure
-class EndpointConfig(BaseModel):
+class GetEndpointStatusResponse(BaseModelWithError):
+    status: Optional[Any] = None
+
+class GlobusComputeEndpointConfig(BaseModel):
     api_port: int
     endpoint_uuid: str
     function_uuid: str
@@ -63,7 +62,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         config: dict = None
     ):
         # Validate endpoint configuration
-        self._config = EndpointConfig(**config)
+        self.__config = GlobusComputeEndpointConfig(**config)
 
         # Initialize the rest of the common attributes
         super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains)
@@ -566,4 +565,4 @@ class GlobusComputeEndpoint(BaseEndpoint):
     # Read-only access to the configuration
     @property
     def config(self):
-        return self._config
+        return self.__config
