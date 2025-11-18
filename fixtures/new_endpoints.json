@@ -119,7 +119,9 @@
                 "batch_endpoint_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 "batch_function_uuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
             },
-            "allowed_globus_groups": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
         }
     },
     {
@@ -384,7 +386,7 @@
             "model": "gpt-oss-120b-131072",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
-                "hyper_params": {},
+                "api_url": "https://metis.alcf.anl.gov/v1/f718ae96-5330-4523-8cde-51c846447f45/chat/completions",
                 "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
             }
         }
@@ -399,8 +401,8 @@
             "model": "Llama-4-Maverick-17B-128E-Instruct",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
-                "hyper_params": {},
-                "api_key_env_name": "METIS_LLAMA_API_KEY"
+                "api_url": "https://metis.alcf.anl.gov/v1/05a5dbbe-266e-4d49-8617-e7177ee2bc71/chat/completions",
+                "api_key_env_name": "METIS_MAVERICK_17B-128E_API_KEY"
             }
         }
     }
