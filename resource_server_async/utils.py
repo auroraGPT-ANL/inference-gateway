@@ -45,7 +45,6 @@ log = logging.getLogger(__name__) # Add logger
 ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
 ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
 ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
-ALLOWED_QSTAT_ENDPOINTS = settings.ALLOWED_QSTAT_ENDPOINTS
 
 
 # Exception to raise in case of errors
@@ -1510,10 +1509,9 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
                 error_code=500
             )
 
-    # Convert the OpenAI endpoints and config fields into a dictionary
+    # Convert the config field into a dictionary
     try:
         cluster_dictionary = model_to_dict(cluster)
-        cluster_dictionary["openai_endpoints"] = ast.literal_eval(cluster.openai_endpoints)
         cluster_dictionary["config"] = ast.literal_eval(cluster.config)
     except Exception as e:
         return ClusterWrapperResponse(
