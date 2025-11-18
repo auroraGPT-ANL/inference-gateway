@@ -21,7 +21,7 @@ The Inference Gateway consists of several components:
 
 ### For Administrators
 
-- **[Globus Setup](admin-guide/globus-setup/index.md)** - Create Globus project and register applications
+- **[Globus Setup](admin-guide/gateway-setup/globus-setup.md)** - Create Globus project and register applications
 - **[Docker Deployment](admin-guide/gateway-setup/docker.md)** - Fast-track Docker deployment in under 10 minutes
 - **[Bare Metal Setup](admin-guide/gateway-setup/bare-metal.md)** - Complete installation on your own infrastructure
 - **[Inference Backend](admin-guide/inference-setup/index.md)** - Connect to OpenAI API, local vLLM, or Globus Compute
