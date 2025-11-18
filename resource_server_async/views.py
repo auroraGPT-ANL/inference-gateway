@@ -19,6 +19,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
+from resource_server_async.clusters.cluster import Jobs
 from resource_server_async.utils import (
     validate_url_inputs, 
     validate_cluster_framework,
@@ -174,9 +175,50 @@ async def get_jobs(request, cluster:str):
     response = await cluster.get_jobs()
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
+    jobs: Jobs = response.jobs
+    
+    # For each block listed in the jobs response ...
+    for jobs_type in [
+        jobs.running,
+        jobs.queued,
+        jobs.stopped,
+        jobs.others,
+        jobs.private_batch_running,
+        jobs.private_batch_queued
+    ]:
+        for i_block in range(len(jobs_type) - 1, -1, -1): # Reversed order to safely remove/edit values
+            block = jobs_type[i_block]
+        
+            # Collect the list of models
+            models = [m.strip() for m in block.Models.split(",") if m.strip()]
+
+            # Define list of models that the user is allowed to see
+            visible_models = []
+
+            # For each model ...
+            for model in models:
+
+                # Extract the underlying endpoint wrapper for this model
+                endpoint_slug = slugify(" ".join([block.Cluster, block.Framework, model.lower()]))
+                response = await get_endpoint_wrapper(endpoint_slug)
+                if response.error_message:
+                    return await get_response(response.error_message, response.error_code, request)
+                endpoint = response.endpoint
+
+                # Flag the model as "visible" if the user is authorized to see it ...
+                if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
+                    visible_models.append(model)
+
+            # Remove block if no model should be visible
+            if len(visible_models) == 0:
+                del jobs_type[i_block]
+
+            # Update models if some (or all) of them are still visible
+            else:
+                jobs_type[i_block].Models = ", ".join(visible_models)
 
     # Return the cluster's jobs status
-    return await get_response(response.status.model_dump(), 200, request)
+    return await get_response(jobs.model_dump(), 200, request)
 
 
 # Inference batch (POST)
@@ -190,7 +232,10 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if "error" in batch_data.keys():
         return await get_response(batch_data['error'], 400, request)
 
-    # Make sure the URL inputs point to an available endpoint 
+    # Make sure the URL inputs point to an available endpoint
+    # TODO: Incorporate framework in the cluster wrapper and make the check there (or just throw an error)
+    # TODO: Even better, don't give the option of the framework anymore, just run on the cluster.
+    # TODO: Ignore framework argument since it is not necessary
     error_message = validate_cluster_framework(cluster, framework)
     if len(error_message):
         return await get_response(error_message, 400, request)
@@ -416,6 +461,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         openai_endpoint = openai_endpoint[:-1]
 
     # Make sure the URL inputs point to an available endpoint 
+    # TODO: PUT that in the endpoint wrapper!!!
     error_message = validate_url_inputs(cluster, framework, openai_endpoint)
     if len(error_message):
         return await get_response(error_message, 400, request)
