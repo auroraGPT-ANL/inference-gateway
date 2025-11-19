@@ -43,7 +43,7 @@ from resource_server_async.utils import (
 log.info("Utils functions loaded.")
 
 # Django database
-from resource_server.models import FederatedEndpoint
+#from resource_server.models import FederatedEndpoint
 from resource_server_async.models import BatchLog, Cluster, Endpoint
 
 # Django Ninja API
