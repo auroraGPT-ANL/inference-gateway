@@ -6,7 +6,7 @@ from utils import globus_utils
 from django.http import StreamingHttpResponse
 from django.core.cache import cache
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional, Any, List
 from resource_server_async.utils import (
     remove_endpoint_from_cache,
     prepare_streaming_task_data,
@@ -51,14 +51,14 @@ class GlobusComputeEndpoint(BaseEndpoint):
     
     # Class initialization
     def __init__(self,
-        id: str = None,
-        endpoint_slug: str = None,
-        cluster: str = None,
-        framework: str = None,
-        model: str = None,
-        endpoint_adapter: str = None,
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None,
+        id: str,
+        endpoint_slug: str,
+        cluster: str,
+        framework: str,
+        model: str,
+        endpoint_adapter: str,
+        allowed_globus_groups: List[str] = None,
+        allowed_domains: List[str] = None,
         config: dict = None
     ):
         # Validate endpoint configuration

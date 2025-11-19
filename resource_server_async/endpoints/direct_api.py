@@ -7,7 +7,7 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 from django.http import StreamingHttpResponse
 from pydantic import BaseModel, Field
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 from resource_server_async.utils import create_streaming_response_headers
 from resource_server_async.models import RequestLog
 from resource_server_async.endpoints.endpoint import BaseEndpoint, BaseModelWithError, SubmitTaskResponse, SubmitStreamingTaskResponse
@@ -27,14 +27,14 @@ class DirectAPIEndpoint(BaseEndpoint):
     
     # Class initialization
     def __init__(self,
-        id: str = None,
-        endpoint_slug: str = None,
-        cluster: str = None,
-        framework: str = None,
-        model: str = None,
-        endpoint_adapter: str = None,
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None,
+        id: str,
+        endpoint_slug: str,
+        cluster: str,
+        framework: str,
+        model: str,
+        endpoint_adapter: str,
+        allowed_globus_groups: List[str] = None,
+        allowed_domains: List[str] = None,
         config: dict = None
     ):
         # Validate and assign endpoint configuration
