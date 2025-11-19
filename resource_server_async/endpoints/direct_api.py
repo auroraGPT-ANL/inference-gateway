@@ -242,3 +242,7 @@ class DirectAPIEndpoint(BaseEndpoint):
     @property
     def config(self):
         return self.__config
+    
+    # Overwrite function
+    def set_api_url(self, api_url: str):
+        self.__config.api_url = api_url
