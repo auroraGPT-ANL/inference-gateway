@@ -1,4 +1,4 @@
-# Connecting to Direct API Backend
+# Connecting to Direct API Backends
 
 This guide describes how to connect the Gateway to existing OpenAI-compatible backend APIs.
 
@@ -6,7 +6,7 @@ This guide describes how to connect the Gateway to existing OpenAI-compatible ba
 
 You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entries to the `endpoints.json` file. Each entry should respect the following the data structure:
 
-```dotenv
+```json
 {
     "model": "resource_server_async.endpoint",
     "pk": 1,
@@ -85,7 +85,7 @@ class CustomEndpoint(DirectAPIEndpoint):
 
 A cluster adaptor that inherits from the `BaseCluster` class must be created in order to add the `get_jobs` function logic, which is designed to list the state (e.g., `running`) of each model hosted in the backend. Entries in the `clusters.json` file should respect the following the data structure:
 
-```dotenv
+```json
 {
     "model": "resource_server_async.cluster",
     "pk": 1,
