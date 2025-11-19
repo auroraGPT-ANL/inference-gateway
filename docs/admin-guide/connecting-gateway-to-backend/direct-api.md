@@ -24,7 +24,7 @@ You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entri
 }
 ```
 
-Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names. Make sure that `endpoint_slug` has the following format: `cluster-framework-model` (with no `/` characters).
+Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names. Make sure that `endpoint_slug` has the following format: `cluster-framework-model` (with no `/` character).
 
 If you need to incorporate additional logics, you can create an extention adaptor that inherits from the `DirectAPIEndpoint` class. Make sure that you change the `endpoint_adapter` path in `endpoints.json` to point to your new adaptor class. In the function re-definitions, you can modify the input data, make additional checks, modify the API URL (via the `self.set_api_url(your_new_url)` function), ect. Below is an example of how an adaptor extention can be built:
 
