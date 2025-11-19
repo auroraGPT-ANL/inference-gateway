@@ -1,4 +1,4 @@
-# Connecting to Globus Compute Backend
+# Connecting to Globus Compute Backends
 
 This guide describes how to connect the Gateway to existing backends powered by Globus Compute single-user endpoints.
 
@@ -6,7 +6,7 @@ This guide describes how to connect the Gateway to existing backends powered by 
 
 If you adopted our Globus Compute configuration, you can simply reuse the `GlobusComputeEndpoint` endpoint adaptor and add your entries to the `endpoints.json` file. Each entry should respect the following the data structure:
 
-```dotenv
+```json
 {
     "model": "resource_server_async.endpoint",
     "pk": 1,
@@ -31,7 +31,7 @@ If you adopted our Globus Compute configuration, you can simply reuse the `Globu
 
 If you adopted our Globus Compute configuration, you can simply reuse the `GlobusComputeCluster` cluster adaptor and add your entries to the `clusters.json` file. Each entry should respect the following the data structure:
 
-```dotenv
+```json
 {
     "model": "resource_server_async.cluster",
     "pk": 1,
