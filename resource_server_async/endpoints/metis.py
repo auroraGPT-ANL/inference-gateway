@@ -1,6 +1,6 @@
 import json
 from pydantic import BaseModel, Field
-from typing import Any, Optional
+from typing import Any, Optional, List
 from resource_server_async.endpoints.endpoint import (
     BaseModelWithError,
     SubmitTaskResponse,
@@ -22,18 +22,18 @@ class ModelStatus(BaseModel):
 
 # Metis endpoint implementation of a DirectAPIEndpoint
 class MetisEndpoint(DirectAPIEndpoint):
-    """Metis endpoint implementation of BaseEndpoint."""
+    """Metis endpoint implementation of DirectAPIEndpoint."""
     
     # Class initialization
     def __init__(self,
-        id: str = None,
-        endpoint_slug: str = None,
-        cluster: str = None,
-        framework: str = None,
-        model: str = None,
-        endpoint_adapter: str = None,
-        allowed_globus_groups: str = None,
-        allowed_domains: str = None,
+        id: str,
+        endpoint_slug: str,
+        cluster: str,
+        framework: str,
+        model: str,
+        endpoint_adapter: str,
+        allowed_globus_groups: List[str] = None,
+        allowed_domains: List[str] = None,
         config: dict = None
     ):
 
