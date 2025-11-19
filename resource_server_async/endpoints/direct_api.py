@@ -38,35 +38,33 @@ class DirectAPIEndpoint(BaseEndpoint):
         config: dict = None
     ):
         # Validate and assign endpoint configuration
-        config = DirectAPIEndpointConfig(**config)
-        self.__api_url = config.api_url
-        self.__api_request_timeout = config.api_request_timeout
+        self.__config = DirectAPIEndpointConfig(**config)
 
         # Build request headers with API key from environment variable
         self.__headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {os.environ.get(config.api_key_env_name, None)}"
+            "Authorization": f"Bearer {os.environ.get(self.__config.api_key_env_name, None)}"
         }
 
         # Initialize the rest of the common attributes
         super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains)
 
 
-    # Call API
-    async def call_api(self, data: Dict) -> SubmitTaskResponse:
-        """Make a direct API call to the endpoint."""
-                
+    # Submit task
+    async def submit_task(self, data: dict) -> SubmitTaskResponse:
+        """Submits a single interactive task to the compute resource."""
+        
         # Create an async HTTPx client
         try:
-            async with httpx.AsyncClient(timeout=self.api_request_timeout) as client:
+            async with httpx.AsyncClient(timeout=self.config.api_request_timeout) as client:
                 
                 # Make a call to the API with input data
-                response = await client.post(self.api_url, json=data, headers=self.__headers)
+                response = await client.post(self.config.api_url, json=data, headers=self.__headers)
                 
                 # Return error if something went wrong
                 if response.status_code != 200:
                     return SubmitTaskResponse(
-                        error_message=f"Error: Could not send API call to {self.api_url}: {response.text.strip()}",
+                        error_message=f"Error: Could not send API call to {self.config.api_url}: {response.text.strip()}",
                         error_code=response.status_code
                     )
                 
@@ -78,12 +76,12 @@ class DirectAPIEndpoint(BaseEndpoint):
         # Errors
         except httpx.TimeoutException:
             return SubmitTaskResponse(
-                error_message=f"Error: Timeout calling API at {self.api_url} (timeout: {self.api_request_timeout})",
+                error_message=f"Error: Timeout calling API at {self.config.api_url} (timeout: {self.config.api_request_timeout})",
                 error_code=504
             )
         except httpx.HTTPError as e:
             return SubmitTaskResponse(
-                error_message=f"Error: HTTP error calling API at {self.api_url}: {e}",
+                error_message=f"Error: HTTP error calling API at {self.config.api_url}: {e}",
                 error_code=500
             )
         except Exception as e:
@@ -94,8 +92,8 @@ class DirectAPIEndpoint(BaseEndpoint):
 
 
     # Call stream API
-    async def call_stream_api(self, data: Dict, request_log_id: str) -> SubmitStreamingTaskResponse:
-        """Make a streaming API call to the endpoint."""
+    async def submit_streaming_task(self, data: dict, request_log_id: str) -> SubmitStreamingTaskResponse:
+        """Submits a single interactive task to the compute resource with streaming enabled."""
 
         # Shared state for tracking streaming (optimized - minimal memory)
         streaming_state = {
@@ -177,15 +175,15 @@ class DirectAPIEndpoint(BaseEndpoint):
 
         # Create an async HTTPx client
         try:
-            async with httpx.AsyncClient(timeout=self.api_request_timeout) as client:
+            async with httpx.AsyncClient(timeout=self.config.api_request_timeout) as client:
 
                 # Create a streaming client
-                async with client.stream("POST", self.api_url, json=data, headers=self.__headers) as response:
+                async with client.stream("POST", self.config.api_url, json=data, headers=self.__headers) as response:
 
                     # Return error if something went wrong
                     if response.status_code != 200:
                         error_text = await response.aread()
-                        raise ValueError(f"Error: Could not send stream API call to {self.api_url}: {error_text.decode().strip()}")
+                        raise ValueError(f"Error: Could not send stream API call to {self.config.api_url}: {error_text.decode().strip()}")
                     
                     # Stream the response
                     async for chunk in response.aiter_text():
@@ -194,9 +192,9 @@ class DirectAPIEndpoint(BaseEndpoint):
 
         # Errors
         except httpx.TimeoutException:
-            raise ValueError(f"Error: Timeout calling stream API at {self.api_url} (timeout: {self.api_request_timeout})")
+            raise ValueError(f"Error: Timeout calling stream API at {self.config.api_url} (timeout: {self.config.api_request_timeout})")
         except httpx.HTTPError as e:
-            raise ValueError(f"Error: HTTP error calling stream API at {self.api_url}: {e}")
+            raise ValueError(f"Error: HTTP error calling stream API at {self.config.api_url}: {e}")
         except Exception as e:
             raise ValueError(f"Error: Unexpected error calling stream API: {e}")
 
@@ -240,13 +238,7 @@ class DirectAPIEndpoint(BaseEndpoint):
             log.error(f"Error in update_streaming_log: {e}")
 
 
-    # Read-only properties
-    # --------------------
-
+    # Read-only access to the configuration
     @property
-    def api_url(self):
-        return self.__api_url
-    
-    @property
-    def api_request_timeout(self):
-        return self.__api_request_timeout
+    def config(self):
+        return self.__config
