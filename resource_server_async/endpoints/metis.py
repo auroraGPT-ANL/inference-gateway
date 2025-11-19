@@ -19,11 +19,6 @@ class ModelStatus(BaseModel):
     model_info: Any
     endpoint_id: str
 
-class MetisEndpointConfig(BaseModel):
-    api_url: str
-    api_key_env_name: str
-    api_request_timeout: Optional[int] = Field(default=120)
-
 
 # Metis endpoint implementation of a DirectAPIEndpoint
 class MetisEndpoint(DirectAPIEndpoint):
@@ -41,10 +36,9 @@ class MetisEndpoint(DirectAPIEndpoint):
         allowed_domains: str = None,
         config: dict = None
     ):
-        # Validate endpoint configuration
-        self.__config = MetisEndpointConfig(**config)
 
         # Initialize the rest of the common attributes
+        # Also pass config since it is using DirectAPIEndpoint to manage API calls
         super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains, config)
 
 
@@ -113,11 +107,8 @@ class MetisEndpoint(DirectAPIEndpoint):
         # Log model and Metis endpoint ID
         log.info(f"Making Metis API call for model {self.model} (stream=False, endpoint={model_status.endpoint_id})")
         
-        # Send request to Metis
-        response: SubmitTaskResponse = await self.call_api(api_request_data)
-        
-        # Return Metis API results or error
-        return response
+        # Send request to Metis using parent submit_task
+        return await super().submit_task(api_request_data)
             
 
     # Submit streaming task
@@ -131,10 +122,7 @@ class MetisEndpoint(DirectAPIEndpoint):
                 error_message=response.error_message,
                 error_code=response.error_code
             )
-        model_status = response.status
-
-        # Log requested model name
-        log.info(f"Metis inference request for model: {self.model}")
+        model_status: ModelStatus = response.status
         
         # Use validated request data as-is (already in OpenAI format)
         # Only update the stream parameter to match the request
@@ -148,14 +136,5 @@ class MetisEndpoint(DirectAPIEndpoint):
         # Log model and Metis endpoint ID
         log.info(f"Making Metis API call for model {self.model} (stream=True, endpoint={model_status.endpoint_id})")
 
-        # Send streaming request to Metis
-        response: SubmitStreamingTaskResponse = await self.call_stream_api(api_request_data, request_log_id)
-
-        # Return response with StreamingHttpResponse object or errors
-        return response
-
-
-    # Read-only access to the configuration
-    @property
-    def config(self):
-        return self.__config
+        # Send streaming request to Metis using parent submit_task
+        return await super().submit_streaming_task(api_request_data, request_log_id)
