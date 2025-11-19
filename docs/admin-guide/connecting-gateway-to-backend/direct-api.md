@@ -2,12 +2,6 @@
 
 This guide describes how to connect the Gateway to existing OpenAI-compatible backend APIs.
 
-## Prerequisites
-
-- Base URL of the backend API
-- API key to gain access to the backend API
-- Logics to recover the model status from the backend
-
 ## Endpoint Configuration
 
 You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entries to the `endpoints.json` file. Each entry should respect the following the data structure:
