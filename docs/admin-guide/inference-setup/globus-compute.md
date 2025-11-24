@@ -167,7 +167,7 @@ python vllm_batch_function.py
 
 Save the Function UUID.
 
-### Step 6: Configure Globus Compute Endpoint
+### Step 6: Configure Globus Compute Endpoint for Inference
 
 Create a new endpoint:
 
@@ -346,6 +346,56 @@ View logs:
 ```bash
 globus-compute-endpoint log my-inference-endpoint
 ```
+
+### Step 8: Test the Endpoint
+
+Once your endpoint is running, the following python script will test whether your endpoint can be integrated with the Gateway API. Make sure you change incorporate your Globus IDs and secret.
+```python
+from globus_compute_sdk import Client, Executor
+from globus_sdk import ClientApp
+
+# Credentials and UUIDs
+GLOBUS_SERVICE_ACCOUNT_ID="add-your-globus-service-account-uuid-here"
+GLOBUS_SERVICE_ACCOUNT_SECRET="add-your-globus-service-account-secret-here"
+GLOBUS_COMPUTE_ENDPOINT_ID="add-your-compute-endpoint-uuid-here"
+GLOBUS_COMPUTE_FUNCTION_ID="add-your-compute-function-uuid-here"
+
+# Create a Globus SDK client authenticated as your Globus service account
+client_app = ClientApp(
+    client_id=GLOBUS_SERVICE_ACCOUNT_ID,
+    client_secret=GLOBUS_SERVICE_ACCOUNT_SECRET
+)
+
+# Create a Globus Compute SDK client
+compute_client = Client(
+    app=client_app
+)
+
+# Create a Globus Compute SDK Executor for your targetted endpoint
+compute_executor = Executor(
+    client=compute_client, 
+    endpoint_id=GLOBUS_COMPUTE_ENDPOINT_ID
+)
+
+# Build a test query data for the function
+# Customize to your need (e.g. change model, api_port, and openai_endpoint if needed)
+data = {
+    "model_params": {
+        "openai_endpoint": "chat/completions",
+        "api_port": 8000,
+        "model": "facebook/opt-125m",
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "Are you working?"}]}],
+    }
+}
+
+# Submit your query to the compute endpoint
+future = compute_executor.submit_to_registered_function(GLOBUS_COMPUTE_FUNCTION_ID, args=[data])
+
+# Wait for the result and print it
+future.result()
+```
+
+The first response will take some time since your endpoint will acquire the compute resource and load the LLM weight into memory. In production, this cold-start time can be lifted if compute nodes are persistently dedicated to inference.
 
 ---
 
