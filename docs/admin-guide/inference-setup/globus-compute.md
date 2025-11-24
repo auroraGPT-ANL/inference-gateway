@@ -349,7 +349,7 @@ globus-compute-endpoint log my-inference-endpoint
 
 ### Step 8: Test the Endpoint
 
-Once your endpoint is running, the following python script will test whether your endpoint can be integrated with the Gateway API. Make sure you change incorporate your Globus IDs and secret.
+Once your endpoint is running, the following python script will test whether your endpoint can be integrated with the Gateway API. Make sure you incorporate your Globus IDs and secret.
 ```python
 from globus_compute_sdk import Client, Executor
 from globus_sdk import ClientApp
