@@ -310,7 +310,8 @@
             "endpoint_uuid": "499a85ea-c9d0-400e-a836-aef6c0f2d43b",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2"
+            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -448,7 +449,8 @@
             "endpoint_uuid": "9ce1abd4-ee0b-475b-a90a-716f79c18af4",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2"
+            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -788,7 +790,7 @@
             "model": "genslm-test/genslm-esmc-600M-contrastive-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -801,7 +803,7 @@
             "model": "genslm-test/genslm-esmc-600M-contrastive-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -814,7 +816,7 @@
             "model": "genslm-test/genslm-esmc-600M-joint-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -827,7 +829,7 @@
             "model": "genslm-test/genslm-esmc-600M-joint-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -840,7 +842,7 @@
             "model": "genslm-test/genslm-esmc-600M-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -853,7 +855,7 @@
             "model": "genslm-test/genslm-esmc-600M-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -866,7 +868,7 @@
             "model": "genslm-test/genslm-esmc-300M-contrastive-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -879,7 +881,7 @@
             "model": "genslm-test/genslm-esmc-300M-contrastive-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -892,7 +894,7 @@
             "model": "genslm-test/genslm-esmc-300M-joint-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -905,7 +907,7 @@
             "model": "genslm-test/genslm-esmc-300M-joint-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -918,7 +920,7 @@
             "model": "genslm-test/genslm-esmc-300M-aminoacid",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     },
     {
@@ -931,7 +933,7 @@
             "model": "genslm-test/genslm-esmc-300M-codon",
             "api_port": 8000,
             "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
-            "function_uuid": "a25aaf94-0db4-4249-a8d5-3326c4d8aed5"
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     }
 

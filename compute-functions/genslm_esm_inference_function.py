@@ -180,6 +180,7 @@ def compute_embeddings(
     # Load the model
     model, tokenizer, device = load_model(model_id)
 
+    print('All models started successfully.')
     # Get the settings
     settings = get_settings()
 
@@ -341,6 +342,18 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     else:
         # Fallback for backward compatibility
         model_params = parameters
+
+    # Check if this is a health check (simulating vLLM behavior)
+    # The gateway may send an 'openai_endpoint' parameter to check health.
+    openai_endpoint = model_params.get('openai_endpoint', '')
+    if 'health' in openai_endpoint.lower():
+        end_time = time.time()
+        response_time = end_time - start_time
+        return json.dumps({
+            "status": "healthy",
+            "response_time": response_time,
+            "throughput_tokens_per_second": 0.0
+        }, indent=4)
 
     # Unpack the request parameters
     sequences = model_params['input']
