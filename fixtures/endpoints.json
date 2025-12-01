@@ -766,10 +766,10 @@
         "model": "resource_server.endpoint",
         "pk": 51,
         "fields": {
-            "endpoint_slug": "model-removed-pk50",
+            "endpoint_slug": "model-removed-pk51",
             "cluster": "sophia",
             "framework": "vllm",
-            "model": "model-removed-pk50",
+            "model": "model-removed-pk51",
             "api_port": 8002,
             "endpoint_uuid": "e0ea324f-7722-4810-affe-5b7ef0994c2a",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
