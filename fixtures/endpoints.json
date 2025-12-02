@@ -310,7 +310,8 @@
             "endpoint_uuid": "499a85ea-c9d0-400e-a836-aef6c0f2d43b",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2"
+            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -448,7 +449,8 @@
             "endpoint_uuid": "9ce1abd4-ee0b-475b-a90a-716f79c18af4",
             "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
-            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2"
+            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         }
     },
     {
@@ -760,6 +762,178 @@
             "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
             "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
             "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 51,
+        "fields": {
+            "endpoint_slug": "model-removed-pk51",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "model-removed-pk51",
+            "api_port": 8002,
+            "endpoint_uuid": "e0ea324f-7722-4810-affe-5b7ef0994c2a",
+            "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+            "batch_endpoint_uuid": "177b2ebc-e126-47d5-b753-6070cdbcae81",
+            "batch_function_uuid": "94a04bdf-69a5-456c-ae8a-c3dffc9b6ec2",
+            "allowed_globus_groups": "MockGroup:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 52,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-contrastive-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-contrastive-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 53,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-contrastive-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-contrastive-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 54,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-joint-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-joint-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 55,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-joint-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-joint-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 56,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 57,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-600m-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-600M-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 58,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-contrastive-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-contrastive-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 59,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-contrastive-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-contrastive-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 60,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-joint-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-joint-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 61,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-joint-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-joint-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 62,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-aminoacid",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-aminoacid",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
+        }
+    },
+    {
+        "model": "resource_server.endpoint",
+        "pk": 63,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-genslm-testgenslm-esmc-300m-codon",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "genslm-test/genslm-esmc-300M-codon",
+            "api_port": 8000,
+            "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
+            "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
         }
     }
 
