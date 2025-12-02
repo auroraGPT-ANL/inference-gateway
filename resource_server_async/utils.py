@@ -541,74 +541,99 @@ def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
         log.error(f"Error storing batched streaming data for task {task_id}: {e}")
 
 
-# ========================================
-# Endpoint Caching
-# ========================================
+# =======
+# Caching
+# =======
+
+# Reusable functions
+# ------------------
+
+def get_item_from_cache(cache_key):
+    """Get item from cache or None if not found."""
+    try:
+        cached_item = cache.get(cache_key)
+        if cached_item:
+            log.info(f"Retrieved {cache_key} from cache.")
+            return cached_item
+    except Exception as e:
+        log.warning(f"Cache error for {cache_key}: {e}")
+    return None
+
+def cache_item(cache_key, data, ttl=3600):
+    """Cache item data (60 minutes TTL by default)."""
+    try:
+        cache.set(cache_key, data, ttl)
+        log.info(f"Cached {cache_key}.")
+    except Exception as e:
+        log.warning(f"Failed to cache {cache_key}: {e}")
+
+def remove_item_from_cache(cache_key):
+    """Remove item from cache"""
+    try:
+        cache.delete(cache_key)
+        log.info(f"Removed {cache_key} from cache.")
+    except Exception as e:
+        log.warning(f"Failed to remove {cache_key} from cache: {e}")
+
+# Endpoint database caching
+# -------------------------
 
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from cache or None if not found"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cached_endpoint = cache.get(cache_key)
-        if cached_endpoint:
-            log.info(f"Retrieved endpoint {endpoint_slug} from cache.")
-            return cached_endpoint
-    except Exception as e:
-        log.warning(f"Cache error for endpoint {endpoint_slug}: {e}")
-    return None
+    return get_item_from_cache(f"endpoint:{endpoint_slug}")
 
-def cache_endpoint(endpoint_slug, endpoint_data):
-    """Cache endpoint data (5 minute TTL)"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cache.set(cache_key, endpoint_data, 300)
-        log.info(f"Cached endpoint {endpoint_slug}.")
-    except Exception as e:
-        log.warning(f"Failed to cache endpoint {endpoint_slug}: {e}")
+def cache_endpoint(endpoint_slug, data):
+    """Cache endpoint data"""
+    cache_item(f"endpoint:{endpoint_slug}", data)
 
 def remove_endpoint_from_cache(endpoint_slug):
     """Remove endpoint from cache"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cache.delete(cache_key)
-        log.info(f"Removed endpoint {endpoint_slug} from cache.")
-    except Exception as e:
-        log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
+    remove_item_from_cache(f"endpoint:{endpoint_slug}")
 
+# Endpoint wrapper caching
+# ------------------------
 
-# ========================================
-# Cluster Caching
-# ========================================
+def get_endpoint_wrapper_from_cache(endpoint_slug):
+    """Get endpoint wrapper from cache or None if not found"""
+    return get_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
+
+def cache_endpoint_wrapper(endpoint_slug, data):
+    """Cache endpoint wrapper data"""
+    cache_item(f"endpoint_wrapper:{endpoint_slug}", data)
+
+def remove_endpoint_wrapper_from_cache(endpoint_slug):
+    """Remove endpoint wrapper from cache"""
+    remove_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
+
+# Cluster database caching
+# -------------------------
 
 def get_cluster_from_cache(cluster_name):
     """Get cluster from cache or None if not found"""
-    cache_key = f"cluster:{cluster_name}"
-    try:
-        cached_cluster = cache.get(cache_key)
-        if cached_cluster:
-            log.info(f"Retrieved cluster {cluster_name} from cache.")
-            return cached_cluster
-    except Exception as e:
-        log.warning(f"Cache error for cluster {cluster_name}: {e}")
-    return None
+    return get_item_from_cache(f"cluster:{cluster_name}")
 
-def cache_cluster(cluster_name, cluster_data):
-    """Cache cluster data (5 minute TTL)"""
-    cache_key = f"cluster:{cluster_name}"
-    try:
-        cache.set(cache_key, cluster_data, 300)
-        log.info(f"Cached cluster {cluster_name}.")
-    except Exception as e:
-        log.warning(f"Failed to cache cluster {cluster_name}: {e}")
+def cache_cluster(cluster_name, data):
+    """Cache cluster data"""
+    cache_item(f"cluster:{cluster_name}", data)
 
 def remove_cluster_from_cache(cluster_name):
     """Remove cluster from cache"""
-    cache_key = f"cluster:{cluster_name}"
-    try:
-        cache.delete(cache_key)
-        log.info(f"Removed cluster {cluster_name} from cache.")
-    except Exception as e:
-        log.warning(f"Failed to remove cluster {cluster_name} from cache: {e}")
+    remove_item_from_cache(f"cluster:{cluster_name}")
+
+# Cluster wrapper caching
+# -----------------------
+
+def get_cluster_wrapper_from_cache(cluster_name):
+    """Get cluster wrapper from cache or None if not found"""
+    return get_item_from_cache(f"cluster_wrapper:{cluster_name}")
+
+def cache_cluster_wrapper(cluster_name, data):
+    """Cache cluster wrapper data"""
+    cache_item(f"cluster_wrapper:{cluster_name}", data)
+
+def remove_cluster_wrapper_from_cache(cluster_name):
+    """Remove cluster wrapper from cache"""
+    remove_item_from_cache(f"cluster_wrapper:{cluster_name}")
 
 
 # Get HTTP response
@@ -1336,6 +1361,11 @@ class EndpointWrapperResponse(BaseModel):
 async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
     """Extract the endpoint from the database and return its underlying wrapper object."""
 
+    # Try to get endpoint wrapper from Redis cache first
+    endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
+    if endpoint_wrapper is not None:
+        return endpoint_wrapper
+
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
 
@@ -1388,14 +1418,19 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
             error_code=500
         )
     
-    # Instantiate and return the adaptor class
+    # Instantiate the adaptor class
     try:
-        return EndpointWrapperResponse(endpoint=AdapterClass(**endpoint_dictionary))
+        endpoint_wrapper = EndpointWrapperResponse(endpoint=AdapterClass(**endpoint_dictionary))
     except Exception as e:
         return EndpointWrapperResponse(
             error_message=f"Error: Could not instantiate endpoint adapter {endpoint.endpoint_adapter}: {e}",
             error_code=500
         )
+    
+    # Cache and return endpoint wrapper
+    cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
+    return endpoint_wrapper
+
 
 # Data structure for the get_cluster_wrapper() function response
 class ClusterWrapperResponse(BaseModel):
@@ -1407,6 +1442,11 @@ class ClusterWrapperResponse(BaseModel):
 # Get cluster wrapper
 async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     """Extract the cluster from the database and return its underlying wrapper object."""
+
+    # Try to get cluster wrapper from Redis cache first
+    cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
+    if cluster_wrapper is not None:
+        return cluster_wrapper
 
     # Try to get cluster from Redis cache first
     cluster = get_cluster_from_cache(cluster_name)
@@ -1460,11 +1500,15 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
             error_code=500
         )
     
-    # Instantiate and return the adaptor class
+    # Instantiate the adaptor class
     try:
-        return ClusterWrapperResponse(cluster=AdapterClass(**cluster_dictionary))
+        cluster_wrapper = ClusterWrapperResponse(cluster=AdapterClass(**cluster_dictionary))
     except Exception as e:
         return ClusterWrapperResponse(
             error_message=f"Error: Could not instantiate cluster adapter {cluster.cluster_adapter}: {e}",
             error_code=500
         )
+    
+    # Cache and return the cluster wrapper
+    cache_cluster_wrapper(cluster_name, cluster_wrapper)
+    return cluster_wrapper
