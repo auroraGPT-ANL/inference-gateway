@@ -21,6 +21,7 @@ from resource_server_async.models import (
     AccessLog as AsyncAccessLog,
     RequestLog as AsyncRequestLog,
     BatchLog as AsyncBatchLog,
+    Endpoint as AsyncEndpoint
 )
 import re
 import logging
@@ -879,7 +880,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """
     try:
         from asgiref.sync import async_to_sync
-        from resource_server_async.utils import get_qstat_details
+        from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse
+        from resource_server_async.clusters.cluster import GetJobsResponse, Jobs
 
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
@@ -887,146 +889,67 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             cached_payload = cache.get(cache_key)
             if cached_payload:
                 return JsonResponse(cached_payload)
-
-        # ===== METIS CLUSTER HANDLING =====
-        if cluster == "metis":
-            # Fetch Metis status
-            metis_status, err = async_to_sync(metis_utils.fetch_metis_status)(use_cache=True)
             
-            if err or not metis_status:
-                # Serve stale cache if available
-                cached_payload = cache.get(cache_key)
-                if cached_payload:
-                    return JsonResponse(cached_payload)
-                # Fallback: empty result
-                payload = {"items": [], "free_nodes": None}
-                cache.set(cache_key, payload, timeout=120)
-                return JsonResponse(payload)
-            
-            # Process Metis status into dashboard format
-            items = []
-            for model_key, model_info in metis_status.items():
-                status_raw = model_info.get("status", "Unknown")
-                experts = model_info.get("experts", [])
-                description = model_info.get("description", "")
-                
-                # Map Metis status to dashboard status
-                if status_raw == "Live":
-                    status = "running"
-                elif status_raw == "Stopped":
-                    status = "offline"
-                else:
-                    status = "queued"
-                
-                # Add each expert model as a separate entry
-                for expert in experts:
-                    if isinstance(expert, str) and len(expert) > 0:
-                        items.append({
-                            "model": expert,
-                            "status": status,
-                            "nodes_reserved": "",
-                            "host_name": "",
-                            "start_info": description,
-                        })
-            
-            payload = {
-                "items": items,
-                "free_nodes": None  # Metis doesn't have node info
-            }
-            # Cache for 2 minutes
-            cache.set(cache_key, payload, timeout=120)
-            return JsonResponse(payload)
+        # Get the jobs response from the cluster wrapper
+        wrapper_response: ClusterWrapperResponse = async_to_sync(get_cluster_wrapper)(cluster)
+        if wrapper_response.cluster:
+            jobs_response: GetJobsResponse = async_to_sync(wrapper_response.cluster.get_jobs)()
+            err: str = jobs_response.error_message
+            cluster_status: Jobs = jobs_response.jobs
+        else:
+            err: str = wrapper_response.error_message
+            cluster_status = None
+    
+        # Empty (or cached values) if error occured
+        if err or not cluster_status:
+            return JsonResponse({"error": str(err)}, status=500)
 
-        # ===== QSTAT-BASED CLUSTER HANDLING (Sophia, Polaris) =====
-        # Query configured models once (reused in multiple places)
-        configured_models = set(Endpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
-        
-        # Fetch qstat details via internal async util
-        qres, _, err, code = async_to_sync(get_qstat_details)(cluster)
-        # Normalize qres (may arrive as JSON string)
-        def to_dict(raw):
-            if isinstance(raw, dict):
-                return raw
-            if isinstance(raw, str):
-                try:
-                    data = json.loads(raw)
-                    if isinstance(data, str):
-                        try:
-                            data2 = json.loads(data)
-                            if isinstance(data2, dict):
-                                return data2
-                        except Exception:
-                            return {}
-                    if isinstance(data, dict):
-                        return data
-                except Exception:
-                    return {}
-            return {}
-        q = to_dict(qres)
-        
-        if err:
-            # Serve stale cache if available
-            cached_payload = cache.get(cache_key)
-            if cached_payload:
-                return JsonResponse(cached_payload)
-            # Fallback: mark configured endpoints as offline (reuse configured_models)
-            items = [{
-                "model": m,
-                "status": "offline",
-                "nodes_reserved": "",
-                "host_name": "",
-                "start_info": "",
-            } for m in sorted(configured_models)]
-            payload = {"items": items, "free_nodes": None}
-            # Cache for 2 minutes
-            cache.set(cache_key, payload, timeout=120)
-            return JsonResponse(payload)
+        # Get all models listed for the targeted cluster
+        configured_models = set(AsyncEndpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
 
-        running = q.get("running", []) or []
-        queued = q.get("queued", []) or []
-
-        def process(entries, status):
-            rows = []
-            for e in entries:
-                if not isinstance(e, dict):
-                    continue
-                models_str = str(e.get("Models", ""))
-                models = [m.strip() for m in models_str.split(",") if m.strip()]
-                for m in models:
-                    rows.append({
-                        "model": m,
-                        "status": status,
-                        "nodes_reserved": e.get("Nodes Reserved"),
-                        "host_name": e.get("Host Name"),
-                        "start_info": e.get("Job Comments"),
+        # Fill model status for what is reported in the cluster status (/jobs URL)
+        items = []
+        for block_list in [cluster_status.running, cluster_status.queued]:
+            for block in block_list:
+                block = block.model_dump()
+                model_list = [m.strip() for m in block["Models"].split(",") if m.strip()]
+                for model in model_list:
+                    items.append({
+                        "model": model,
+                        "status": block.get("Model Status"),
+                        "nodes_reserved": block.get("Nodes Reserved",""),
+                        "host_name": block.get("Host Name",""),
+                        "start_info": block.get("Job Comments","")+block.get("Description",""),
                     })
-            return rows
 
-        items = process(running, "running") + process(queued, "queued")
+        # Gather the list of models that are already present in the items list
         present_models = {i["model"] for i in items}
 
-        # Add offline models (reuse configured_models from earlier)
-        for m in sorted(configured_models - present_models):
+        # Add offline models to the list
+        for model in sorted(configured_models - present_models):
             items.append({
-                "model": m,
+                "model": model,
                 "status": "offline",
                 "nodes_reserved": "",
                 "host_name": "",
                 "start_info": "",
             })
 
+        # Build data to be displayed on the dashboard
         payload = {
             "items": items,
-            "free_nodes": (q.get("cluster_status", {}) or {}).get("free_nodes")
+            "free_nodes": cluster_status.cluster_status.get("free_nodes")
         }
-        # Update cache if changed
-        cached_payload = cache.get(cache_key)
-        if cached_payload != payload:
-            cache.set(cache_key, payload, timeout=120)
+        
+        # Cache for 2 minutes and return data
+        cache.set(cache_key, payload, timeout=120)
         return JsonResponse(payload)
+    
+    # Error if something wrong happened
     except Exception as e:
         log.error(f"Error fetching health status for cluster {cluster}: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 # ========= Additional realtime endpoints =========
 @router.get("/analytics/requests-per-user")
