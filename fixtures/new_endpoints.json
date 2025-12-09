@@ -405,7 +405,7 @@
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
                 "api_url": "https://metis.alcf.anl.gov/v1/05a5dbbe-266e-4d49-8617-e7177ee2bc71/chat/completions",
-                "api_key_env_name": "METIS_MAVERICK_17B-128E_API_KEY"
+                "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
             }
         }
     },
