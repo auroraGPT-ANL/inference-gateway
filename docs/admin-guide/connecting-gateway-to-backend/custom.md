@@ -239,11 +239,11 @@ class GetJobsResponse(BaseModel):
 
 ## Paths to Your Adaptors
 
-Once you have your adaptors ready, make sure you point to them in the `endpoints.json` and `clusters.json` files. If, for example, your endpoint and cluster adaptors are located at `my_app/custom_endpoint.py` and `my_app/custom_cluster.py`, the adaptor paths would be:
+Once you have your adaptors ready, make sure you point to them in the `fixtures/endpoints.json` and `fixtures/clusters.json` files. If, for example, your endpoint and cluster adaptors are located at `my_app/custom_endpoint.py` and `my_app/custom_cluster.py`, the adaptor paths would be:
 ```json
-# In endpoints.json
+# In fixtures/endpoints.json
 "endpoint_adapter": "my_app.custom_endpoint.CustomEndpoint"
 
-# In clusters.json
+# In fixtures/clusters.json
 "cluster_adapter": "my_app.custom_cluster.CustomCluster"
 ```

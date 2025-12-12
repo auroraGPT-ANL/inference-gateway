@@ -4,7 +4,7 @@ This guide describes how to connect the Gateway to existing OpenAI-compatible ba
 
 ## Endpoint Configuration
 
-You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entries to the `endpoints.json` file. Each entry should respect the following the data structure:
+You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entries to the `fixtures/endpoints.json` file. Each entry should respect the following the data structure:
 
 ```json
 {
@@ -24,9 +24,15 @@ You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entri
 }
 ```
 
-Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names. Make sure that `endpoint_slug` has the following format: `cluster-framework-model` (with no `/` character).
+Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names. 
 
-If you need to incorporate additional logics, you can create an extention adaptor that inherits from the `DirectAPIEndpoint` class. Make sure that you change the `endpoint_adapter` path in `endpoints.json` to point to your new adaptor class. In the function re-definitions, you can modify the input data, make additional checks, modify the API URL (via the `self.set_api_url(your_new_url)` function), ect. Below is an example of how an adaptor extention can be built:
+Make sure that `endpoint_slug` has the following format: `cluster-framework-model` (with no `/` or `.` character, all lower case). For example, the `meta-llama/Meta-Llama-3.1-70B-Instruct` model hosted on `my-cluster` and served with `my-framework` should have the following slug: `my-cluster-my-framework-meta-llamameta-llama-31-70b-instruct`. You can also use the Django `slugify` tool.
+```python
+from django.utils.text import slugify
+endpoint_slug = slugify(" ".join([cluster, framework, model.lower()]))
+```
+
+If you need to incorporate additional logics, you can create an extention adaptor that inherits from the `DirectAPIEndpoint` class. Make sure that you change the `endpoint_adapter` path in `fixtures/endpoints.json` to point to your new adaptor class. In the function re-definitions, you can modify the input data, make additional checks, modify the API URL (via the `self.set_api_url(your_new_url)` function), ect. Below is an example of how an adaptor extention can be built:
 
 ```python
 from resource_server_async.endpoints.endpoint import BaseEndpoint, SubmitTaskResponse
@@ -83,7 +89,7 @@ class CustomEndpoint(DirectAPIEndpoint):
 
 ## Cluster Configuration
 
-A cluster adaptor that inherits from the `BaseCluster` class must be created in order to add the `get_jobs` function logic, which is designed to list the state (e.g., `running`) of each model hosted in the backend. Entries in the `clusters.json` file should respect the following the data structure:
+A cluster adaptor that inherits from the `BaseCluster` class must be created in order to add the `get_jobs` function logic, which is designed to list the state (e.g., `running`) of each model hosted in the backend. Entries in the `fixtures/clusters.json` file should respect the following the data structure:
 
 ```json
 {
