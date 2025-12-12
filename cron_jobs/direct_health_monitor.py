@@ -395,7 +395,6 @@ async def check_sophia_models() -> List[HealthRecord]:
             gce,
             info.endpoint_uuid,
             info.function_uuid,
-            resources_ready=True,
             data=params,
             timeout=GLOBUS_HEALTH_TIMEOUT,
         )
