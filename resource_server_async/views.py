@@ -215,7 +215,7 @@ async def get_jobs(request, cluster:str):
 
             # Update models if some (or all) of them are still visible
             else:
-                jobs_state[i_block].Models = ", ".join(visible_models)
+                jobs_state[i_block].Models = ",".join(visible_models)
 
     # Return the cluster's jobs status
     return await get_response(jobs.model_dump(), 200, request)
