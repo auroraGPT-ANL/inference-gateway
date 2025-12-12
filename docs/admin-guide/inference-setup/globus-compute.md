@@ -26,7 +26,7 @@ graph TB
 
 ## Prerequisites
 
-- FIRST Gateway deployed with [Globus project and applications](../globus-setup/index.md) ready
+- FIRST Gateway deployed with [Globus project and applications](../gateway-setup/globus-setup.md) ready
 - Access to compute resources (HPC cluster or powerful workstation)
 - GPU resources for running models
 - Python 3.12+ (same version as gateway)
