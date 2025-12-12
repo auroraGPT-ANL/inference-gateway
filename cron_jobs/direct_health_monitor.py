@@ -31,6 +31,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
+from django.utils.text import slugify
 
 import httpx
 import requests
@@ -60,7 +61,8 @@ django.setup()
 from django.conf import settings  # noqa: E402
 
 from resource_server.models import Endpoint  # noqa: E402
-from resource_server_async.utils import get_qstat_details  # noqa: E402
+from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse # noqa: E402
+from resource_server_async.clusters.cluster import GetJobsResponse, Jobs # noqa: E402
 from utils import globus_utils, metis_utils  # noqa: E402
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
 
@@ -186,13 +188,22 @@ async def fetch_qstat_running_models(
 ) -> Tuple[Dict[str, Dict], Optional[str]]:
     """Return mapping of running model name -> qstat entry."""
 
-    raw_result, task_uuid, error_message, error_code = await get_qstat_details(
-        "sophia", gcc=gcc, gce=gce, timeout=QSTAT_TIMEOUT_SECONDS
-    )
+#    raw_result, task_uuid, error_message, error_code = await get_qstat_details(
+#        "sophia", gcc=gcc, gce=gce, timeout=QSTAT_TIMEOUT_SECONDS
+#    )
+     # Get the jobs response from the cluster wrapper
+    wrapper_response: ClusterWrapperResponse =  await get_cluster_wrapper("sophia")
+    if wrapper_response.cluster:
+        jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs()
+        error_message = jobs_response.error_message
+        error_code = jobs_response.error_code
+    else:
+        error_message = wrapper_response.error_message
+        error_code = wrapper_response.error_code
 
-    if isinstance(raw_result, list) and len(raw_result) == 4:
-        # Cached result format: [result, task_uuid, error, code]
-        raw_result, task_uuid, error_message, error_code = raw_result
+#    if isinstance(raw_result, list) and len(raw_result) == 4:
+#        # Cached result format: [result, task_uuid, error, code]
+#        raw_result, task_uuid, error_message, error_code = raw_result
 
     if error_message:
         log.error(
@@ -201,6 +212,9 @@ async def fetch_qstat_running_models(
             error_message,
         )
         return {}, error_message
+    
+    # Access the qstat jobs raw result (convert pydantic to raw dictionary)
+    raw_result = jobs_response.jobs.model_dump()
 
     try:
         if isinstance(raw_result, (bytes, str)):
@@ -381,7 +395,6 @@ async def check_sophia_models() -> List[HealthRecord]:
             gce,
             info.endpoint_uuid,
             info.function_uuid,
-            resources_ready=True,
             data=params,
             timeout=GLOBUS_HEALTH_TIMEOUT,
         )
@@ -525,7 +538,17 @@ async def check_metis_models() -> List[HealthRecord]:
             )
             continue
 
-        token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
+        # Get API key for the model
+        #token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
+        from resource_server_async.utils import get_endpoint_wrapper
+        endpoint_slug = slugify(" ".join(["metis", "api", model_name.lower()]))
+        response = await get_endpoint_wrapper(endpoint_slug)
+        try:
+            api_key_env_name = response.endpoint.config.api_key_env_name
+            token = os.environ.get(api_key_env_name, None)
+        except:
+            token = None
+
         if not token:
             records.append(
                 HealthRecord(

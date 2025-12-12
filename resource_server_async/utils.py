@@ -5,53 +5,39 @@ import redis
 import time
 import asyncio
 import re
+import ast
 import secrets
 import hmac
-from enum import Enum
+import importlib
+from typing import Optional
+from pydantic import BaseModel, Field, ConfigDict
 from django.core.cache import cache
+from django.forms.models import model_to_dict
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.conf import settings
-from ninja import FilterSchema
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
-from utils.pydantic_models.batch import BatchPydantic
+from utils.pydantic_models.batch import BatchPydantic, BatchStatusEnum
 from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
-from asyncache import cached as asynccached
 from cachetools import TTLCache
-from utils.globus_utils import (
-    submit_and_get_result,
-    get_endpoint_status,
-    get_batch_status,
-    get_compute_client_from_globus_app,
-    get_compute_executor,
-    get_endpoint_status
+from resource_server_async.models import (
+    AccessLog, 
+    RequestLog, 
+    BatchLog, 
+    RequestMetrics, 
+    BatchMetrics, 
+    Endpoint, 
+    Cluster,
 )
-from resource_server.models import ModelStatus, Endpoint
-from resource_server_async.models import (AccessLog, RequestLog, BatchLog, RequestMetrics, BatchMetrics)
+from resource_server_async.endpoints.endpoint import BaseEndpoint
+from resource_server_async.clusters.cluster import BaseCluster
 
 log = logging.getLogger(__name__) # Add logger
-
-# --- Removed Configuration Loading ---
-
-# Constants are now loaded from settings.py
-ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
-ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
-ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
-ALLOWED_QSTAT_ENDPOINTS = settings.ALLOWED_QSTAT_ENDPOINTS
-
-# Batch list filter
-class BatchStatusEnum(str, Enum):
-    pending = 'pending'
-    running = 'running'
-    failed = 'failed'
-    completed = 'completed'
-class BatchListFilter(FilterSchema):
-    status: BatchStatusEnum = None
 
 
 # Exception to raise in case of errors
@@ -80,42 +66,6 @@ def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
         return True
 
 
-# Validate cluster and framework
-def validate_cluster_framework(cluster: str, framework: str):
-
-    # Error message if cluster not available
-    if not cluster in ALLOWED_CLUSTERS:
-        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
-    
-    # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
-        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
-
-    # No error message if the inputs are valid
-    return ""
-
-
-# Validate URL inputs
-# TODO: Incorporate re-usable validate_cluster_framework function
-def validate_url_inputs(cluster: str, framework: str, openai_endpoint: str):
-    """Validate user inputs from POST requests."""
-
-    # Error message if cluster not available
-    if not cluster in ALLOWED_CLUSTERS:
-        return f"Error: {cluster} cluster not supported. Currently supporting {ALLOWED_CLUSTERS}."
-    
-    # Error message if framework not available
-    if not framework in ALLOWED_FRAMEWORKS.get(cluster, []): # Use .get for safety
-        return f"Error: {framework} framework not supported for cluster {cluster}. Currently supporting {ALLOWED_FRAMEWORKS.get(cluster, [])}."
-    
-    # Error message if openai endpoint not available
-    if not openai_endpoint in ALLOWED_OPENAI_ENDPOINTS.get(cluster, []): # Use .get for safety
-        return f"Error: {openai_endpoint} openai endpoint not supported for cluster {cluster}. Currently supporting {ALLOWED_OPENAI_ENDPOINTS.get(cluster, [])}."
-
-    # No error message if the inputs are valid
-    return ""
-
-
 # Extract user prompt
 def extract_prompt(model_params):
     """Extract the user input text from the requested model parameters."""
@@ -140,6 +90,10 @@ def extract_prompt(model_params):
 # TODO: Use validate_body to reduce code duplication
 def validate_request_body(request, openai_endpoint):
     """Build data dictionary for inference request if user inputs are valid."""
+
+    # Strip the last forward slash if needed (to be consistent with cluster's openai_endpoints)
+    if openai_endpoint[-1] == "/":
+        openai_endpoint = openai_endpoint[:-1]
         
     # Select the appropriate pydantic model for data validation
     if "chat/completions" in openai_endpoint:
@@ -208,348 +162,6 @@ def validate_body(request, pydantic_class):
 
     # Return decoded request body data if nothing wrong was caught
     return params
-
-
-# Extract group UUIDs from an allowed_globus_groups model field
-def extract_group_uuids(globus_groups):
-    """Extract group UUIDs from an allowed_globus_groups model field."""
-
-    # Make sure the globus_groups argument is a string
-    if not isinstance(globus_groups, str):
-        return [], "Error: globus_groups must be a string like 'group1-name:group1-uuid; group2-name:group2-uuid; ...' "
-
-    # Return empty list with no error message if no group restriction was provided
-    if len(globus_groups) == 0:
-        return [], ""
-
-    # Declare the list of group UUIDs
-    group_uuids = []
-
-    # Append each UUID to the list
-    try:
-        for group_name_uuid in globus_groups.split(";"):
-            group_uuids.append(group_name_uuid.split(":")[-1])
-    except Exception as e:
-        return [], f"Error: Exception while extracting Globus Group UUIDs. {e}"
-    
-    # Make sure that all UUID strings have the UUID format
-    for uuid_to_test in group_uuids:
-        try:
-            uuid_obj = uuid.UUID(uuid_to_test).version
-        except Exception as e:
-            return [], f"Error: Could not extract UUID format from the database. {e}"
-    
-    # Return the list of group UUIDs
-    return group_uuids, ""
-
-
-# Get qstat details
-async def get_qstat_details(cluster, gcc=None, gce=None, timeout=60):
-    """
-    Collect details on all jobs running/submitted on a given cluster.
-    Here return the error message instead of raising exceptions to 
-    make sure the outcome gets cached.
-    Returns result, task_uuid, error_message, error_code
-    """
-
-    # Redis cache key
-    cache_key = f"qstat_details:{cluster}"
-    
-    # Try to get qstat details from Redis
-    try:
-        cached_result = cache.get(cache_key)
-        if cached_result is not None:
-            return cached_result
-    except Exception as e:
-        log.warning(f"Redis cache error for endpoint status: {e}")
-
-    # Get Globus Compute client and executor
-    # NOTE: Do not await here, let the "first" request cache the client/executor before processing more requests
-    if gcc is None:
-        try:
-            gcc = get_compute_client_from_globus_app()
-        except Exception as e:
-            return None, None, f"Error: Could not get the Globus Compute client: {e}", 500
-    if gce is None:
-        try:
-            # NOTE: Do not include endpoint_id argument, otherwise it will cache multiple executors
-            gce = get_compute_executor(client=gcc)
-        except Exception as e:
-            return None, None, f"Error: Could not get the Globus Compute executor: {e}", 500
-    
-    # Gather the qstat endpoint info using the loaded config
-    qstat_config = ALLOWED_QSTAT_ENDPOINTS.get(cluster)
-    if not qstat_config:
-        return None, None, f"Error: no qstat endpoint configuration exists for cluster {cluster}.", 500
-
-    endpoint_slug = f"{cluster}/jobs"
-    endpoint_uuid = qstat_config["endpoint_uuid"]
-    function_uuid = qstat_config["function_uuid"]
-
-    # Get the status of the qstat endpoint
-    # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
-    endpoint_status, error_message = get_endpoint_status(
-        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-    )
-    if len(error_message) > 0:
-        return None, None, error_message, 500
-        
-    # Return error message if endpoint is not online
-    if not endpoint_status["status"] == "online":
-        return None, None, f"Error: Endpoint {endpoint_slug} is offline.", 500
-    
-    # Submit task and wait for result
-    result, task_uuid, error_message, error_code = await submit_and_get_result(
-        gce, endpoint_uuid, function_uuid, True, timeout=timeout
-    )
-    if len(error_message) > 0:
-        return None, task_uuid, error_message, error_code
-    
-    # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
-    try:
-
-        # For each running endpoint ...
-        result = json.loads(result)
-        for i, running in enumerate(result["running"]):
-
-            # If the model is in a "running" state (not "starting")
-            if running["Model Status"] == "running":
-
-                # Get compute endpoint ID from database
-                running_framework = running["Framework"]
-                running_model = running["Models"].split(",")[0]
-                running_cluster = running["Cluster"]
-                endpoint_slug = slugify(" ".join([running_cluster, running_framework, running_model]))
-                endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
-                endpoint_uuid = endpoint.endpoint_uuid
-
-                # Turn the model to "disconnected" if managers are lost
-                endpoint_status, error_message = get_endpoint_status(
-                    endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
-                )
-                if int(endpoint_status["details"].get("managers", 0)) == 0:
-                    result["running"][i]["Model Status"] = "disconnected"
-
-        # Turn the result back to a string
-        result = json.dumps(result)
-
-    except Exception as e:
-        log.warning(f"Failed to refine qstat model status: {e}")
-
-    # Cache the result for 60 seconds
-    try:
-        cache.set(cache_key, [result, task_uuid, "", 200], 60)
-    except Exception as e:
-        log.warning(f"Failed to cache endpoint status: {e}")
-
-    # Return qstat result without error_message
-    return result, task_uuid, "", 200
-
-
-# Update batch status result
-async def update_batch_status_result(batch, cross_check=False):
-    """
-    From a database Batch object, query batch status from Globus
-    if necessary, update the "status" and "result" fields in the
-    database, and return the batch details.
-
-    Arguments
-    ---------
-        batch: batch object from the Batch database model
-        cross_check: If True, will cross check Globus status with qstat function
-
-    Returns
-    -------
-        status, result, "", 200 OR "", "", error_message, error_code
-    """
-
-    # Skip all of the Globus task status check if the batch already completed or failed
-    if batch.status in ["completed", "failed"]:
-        return batch.status, batch.result, "", 200
-
-    # Get the Globus batch status response
-    status_response, error_message, code = get_batch_status(batch.globus_task_uuids)
-
-    # If there is an error when recovering Globus tasks status/results ...
-    if len(error_message) > 0:
-
-        # Mark the batch as failed if the function execution failed
-        if "TaskExecutionFailed" in error_message:
-            try:
-                batch.status = "failed"
-                batch.access_log.error = error_message
-                await update_database(db_object=batch)
-                await update_database(db_object=batch.access_log)
-                return batch.status, batch.result, "", 200
-            except Exception as e:
-                return "", "", f"Error: Could not update batch status in database: {e}", 400
-            
-        # Return error message
-        return "", "", error_message, code
-    
-    # Parse Globus batch status response
-    try:
-        status_response_values = list(status_response.values())
-        pending_list = [status["pending"] for status in status_response_values]
-        status_list = [status["status"] for status in status_response_values]
-    except Exception as e:
-        return "", "", f"Error: Could not parse get_batch_status response for status: {e}", 400
-    
-    # Collect latest batch status
-    try:
-
-        # If Globus server claims that the tasks are still pending ...
-        # TODO: We currently need to do extra checks since the AMQP server does not 
-        #       communicate node failure and endpoint restarts to the Globus server.
-        #       This means tasks can be lost and will always be flagged as "pending".
-        #       Globus has an open ticket for this issue so the below measure is temporary
-        if pending_list.count(True) > 0:
-            if cross_check:
-                batch_status = await cross_check_status(batch)
-                if batch_status == "pending" or batch_status == "running":
-                    batch.in_progress_at = timezone.now()
-                elif batch_status == "failed":
-                    batch.failed_at = timezone.now()
-                    batch.access_log.error = "Error: Globus task lost. Likely due to node failure or endpoint restart."
-            else:
-                batch_status = batch.status
-
-        # Completed
-        elif status_list.count("success") == len(status_list):
-            batch_status = "completed"
-            batch.completed_at = timezone.now()
-
-        # Failed
-        else:
-            batch_status = "failed"
-            batch.failed_at = timezone.now()
-
-    # Error if something went wrong while parsing the batch status response
-    except Exception as e:
-        return "", "", f"Error: Could not define batch status: {e}", 400
-    
-    # Update batch status in the database
-    try:
-        batch.status = batch_status
-        await update_database(db_object=batch)
-        await update_database(db_object=batch.access_log)
-    except Exception as e:
-        return "", "", f"Error: Could not update batch {batch.batch_id} status in database: {e}", 400
-    
-    # If batch result is available ...
-    if batch_status == "completed":
-
-        # Parse Globus batch status response to extract result
-        try:
-            result_list = [status["result"] for status in status_response_values]
-            batch_result = ",".join(result_list) + ","
-            batch_result = batch_result[:-1]
-
-        # Error if something went wrong while parsing the batch status response
-        except Exception as e:
-            return "", "", f"Error: Could not parse get_batch_status response for result: {e}", 400
-
-        # Update batch result in the database and upsert BatchMetrics
-        try:
-            batch.result = batch_result
-            await update_database(db_object=batch)
-            await update_database(db_object=batch.access_log)
-
-            # Try to parse metrics summary from result if available
-            total_tokens = None
-            num_responses = None
-            response_time_sec = None
-            throughput = None
-            try:
-                result_data = json.loads(batch_result)
-                if isinstance(result_data, dict) and 'metrics' in result_data:
-                    metrics = result_data.get('metrics') or {}
-                    total_tokens = metrics.get('total_tokens')
-                    num_responses = metrics.get('num_responses')
-                    response_time_sec = metrics.get('response_time_sec')
-                    throughput = metrics.get('throughput_tokens_per_sec')
-            except Exception:
-                pass
-            try:
-                await _upsert_batch_metrics(
-                    batch_obj=batch,
-                    total_tokens=total_tokens,
-                    num_responses=num_responses,
-                    response_time_sec=response_time_sec,
-                    throughput_tokens_per_sec=throughput,
-                )
-            except Exception as e:
-                log.error(f"Error upserting BatchMetrics: {e}")
-        except Exception as e:
-            return "", "", f"Error: Could not update batch {batch.batch_id} result in database: {e}", 400
-
-    # Return the new status if nothing went wrong
-    return batch.status, batch.result, "", 200
-
-
-# Cross check status
-# TODO: Remove this function once Globus status includes "task lost"
-async def cross_check_status(batch):
-    """
-    This verifies whether a Globus task is pending or lost due to an endpoint
-    restart or a compute node failure. This is not 100% accurate, but it serves
-    as a temporary improvement while Globus addresses the open ticket on improving
-    the communication between Globus and AMQP when tasks are lost.
-    Returns: status
-    """
-
-    # Get Globus Compute client and executor
-    try:
-        gcc = get_compute_client_from_globus_app()
-        gce = get_compute_executor(client=gcc)
-    except Exception as e:
-        return batch.status
-    
-    # Collect (qstat) details on the jobs running/queued on the cluster
-    qstat_result, _, error_message, _ = await get_qstat_details(batch.cluster, gcc, gce, timeout=60)
-
-    # Preserve current status if no further investigation can be done
-    if len(error_message) > 0:
-        return batch.status
-    try:
-        qstat_result = json.loads(qstat_result)
-    except Exception as e:
-        return batch.status
-    
-    # Attempt to parse qstat_result
-    try:
-
-        # Collect batch ids that are running
-        running_batch_ids = []
-        for running in qstat_result["private-batch-running"]:
-            if "Batch ID" in running:
-                running_batch_ids.append(running["Batch ID"])
-        nb_running_batches = len(qstat_result["private-batch-running"])
-
-        # Collect the number of queued batches
-        nb_queued_batches = len(qstat_result["private-batch-queued"])
-        
-        # Set status to "running" if an HPC job is running for the targetted batch
-        if str(batch.batch_id) in running_batch_ids:
-            return "running"
-            
-        # Set status to "failed" if previous status was "running", but no HPC job exists for it anymore
-        if not batch.batch_id in running_batch_ids and batch.status == "running":
-            return "failed"
-        
-        # Set status to "failed" if batch is pending, but nothing is queued or running
-        # Do not fail just because nothing is in the HPC queue. If a batch is running,
-        # it is possible that the targetted batch is in the Globus queue in the cloud.
-        if batch.status == "pending" and nb_running_batches == 0 and nb_queued_batches == 0:
-            if (timezone.now() - batch.created_at).seconds > 10:
-                return "failed"
-
-    # Preserve current status if no further investigation can be done    
-    except Exception as e:
-        return batch.status
-    
-    # Return same status if no special case was catched
-    return batch.status
 
 
 # Update database
@@ -929,39 +541,99 @@ def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
         log.error(f"Error storing batched streaming data for task {task_id}: {e}")
 
 
-# ========================================
-# Endpoint Caching
-# ========================================
+# =======
+# Caching
+# =======
+
+# Reusable functions
+# ------------------
+
+def get_item_from_cache(cache_key):
+    """Get item from cache or None if not found."""
+    try:
+        cached_item = cache.get(cache_key)
+        if cached_item:
+            log.info(f"Retrieved {cache_key} from cache.")
+            return cached_item
+    except Exception as e:
+        log.warning(f"Cache error for {cache_key}: {e}")
+    return None
+
+def cache_item(cache_key, data, ttl=3600):
+    """Cache item data (60 minutes TTL by default)."""
+    try:
+        cache.set(cache_key, data, ttl)
+        log.info(f"Cached {cache_key}.")
+    except Exception as e:
+        log.warning(f"Failed to cache {cache_key}: {e}")
+
+def remove_item_from_cache(cache_key):
+    """Remove item from cache"""
+    try:
+        cache.delete(cache_key)
+        log.info(f"Removed {cache_key} from cache.")
+    except Exception as e:
+        log.warning(f"Failed to remove {cache_key} from cache: {e}")
+
+# Endpoint database caching
+# -------------------------
 
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from cache or None if not found"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cached_endpoint = cache.get(cache_key)
-        if cached_endpoint:
-            log.info(f"Retrieved endpoint {endpoint_slug} from cache.")
-            return cached_endpoint
-    except Exception as e:
-        log.warning(f"Cache error for endpoint {endpoint_slug}: {e}")
-    return None
+    return get_item_from_cache(f"endpoint:{endpoint_slug}")
 
-def cache_endpoint(endpoint_slug, endpoint_data):
-    """Cache endpoint data (5 minute TTL)"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cache.set(cache_key, endpoint_data, 300)
-        log.info(f"Cached endpoint {endpoint_slug}.")
-    except Exception as e:
-        log.warning(f"Failed to cache endpoint {endpoint_slug}: {e}")
+def cache_endpoint(endpoint_slug, data):
+    """Cache endpoint data"""
+    cache_item(f"endpoint:{endpoint_slug}", data)
 
 def remove_endpoint_from_cache(endpoint_slug):
     """Remove endpoint from cache"""
-    cache_key = f"endpoint:{endpoint_slug}"
-    try:
-        cache.delete(cache_key)
-        log.info(f"Removed endpoint {endpoint_slug} from cache.")
-    except Exception as e:
-        log.warning(f"Failed to remove endpoint {endpoint_slug} from cache: {e}")
+    remove_item_from_cache(f"endpoint:{endpoint_slug}")
+
+# Endpoint wrapper caching
+# ------------------------
+
+def get_endpoint_wrapper_from_cache(endpoint_slug):
+    """Get endpoint wrapper from cache or None if not found"""
+    return get_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
+
+def cache_endpoint_wrapper(endpoint_slug, data):
+    """Cache endpoint wrapper data"""
+    cache_item(f"endpoint_wrapper:{endpoint_slug}", data)
+
+def remove_endpoint_wrapper_from_cache(endpoint_slug):
+    """Remove endpoint wrapper from cache"""
+    remove_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
+
+# Cluster database caching
+# -------------------------
+
+def get_cluster_from_cache(cluster_name):
+    """Get cluster from cache or None if not found"""
+    return get_item_from_cache(f"cluster:{cluster_name}")
+
+def cache_cluster(cluster_name, data):
+    """Cache cluster data"""
+    cache_item(f"cluster:{cluster_name}", data)
+
+def remove_cluster_from_cache(cluster_name):
+    """Remove cluster from cache"""
+    remove_item_from_cache(f"cluster:{cluster_name}")
+
+# Cluster wrapper caching
+# -----------------------
+
+def get_cluster_wrapper_from_cache(cluster_name):
+    """Get cluster wrapper from cache or None if not found"""
+    return get_item_from_cache(f"cluster_wrapper:{cluster_name}")
+
+def cache_cluster_wrapper(cluster_name, data):
+    """Cache cluster wrapper data"""
+    cache_item(f"cluster_wrapper:{cluster_name}", data)
+
+def remove_cluster_wrapper_from_cache(cluster_name):
+    """Remove cluster wrapper from cache"""
+    remove_item_from_cache(f"cluster_wrapper:{cluster_name}")
 
 
 # Get HTTP response
@@ -1029,25 +701,6 @@ async def get_response(content, code, request):
         except Exception:
             # Fallback: return raw
             return HttpResponse(content, status=code)
-    else:
-        log.error(content)
-        return HttpResponse(json.dumps(content), status=code)
-
-
-async def get_batch_response(db_data, content, code, db_Model):
-    """Log result or error in the current database model and return the HTTP response."""
-    
-    # Create database entry
-    try:
-        await update_database(db_Model=db_Model, db_data=db_data)
-    except Exception as e:
-        error_message = f"Error: Could not update database: {e}"
-        log.error(error_message)
-        return HttpResponse(json.dumps(error_message), status=400)
-        
-    # Return the response or the error message from previous steps
-    if code == 200:
-        return HttpResponse(content, status=code)
     else:
         log.error(content)
         return HttpResponse(json.dumps(content), status=code)
@@ -1238,6 +891,89 @@ def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
     }
     obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
     return obj
+
+
+# Data structure for the update_batch() function response
+class UpdateBatchResponse(BaseModel):
+    batch: BatchLog
+    error_message: Optional[str] = None
+    error_code: Optional[int] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable BatchLog
+
+# Update batch entry
+async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
+    """Update batch database entry and return the modified BatchLog instance data."""
+
+    # Get endpoint wrapper from database
+    endpoint_slug = slugify(" ".join([batch.cluster, batch.framework, batch.model]))
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return UpdateBatchResponse(
+            error_message=response.error_message,
+            error_code=response.error_code
+        )
+    endpoint = response.endpoint
+
+    # Get latest batch status
+    response = await endpoint.get_batch_status(batch)
+    if response.error_message:
+        return UpdateBatchResponse(
+            error_message=response.error_message,
+            error_code=response.error_code
+        )
+    status = response.status
+    result = response.result
+
+    # If status changed ...
+    if batch.status != status:
+        
+        # Update status and result
+        batch.status = status
+        batch.result = result
+
+        # Adjust timestamp
+        if batch.status == BatchStatusEnum.failed.value:
+            batch.failed_at = timezone.now()
+        elif batch.status == BatchStatusEnum.completed.value:
+            batch.completed_at = timezone.now()
+        
+        # Try to parse metrics summary from result if available
+        if result:
+            try:
+                result_data = json.loads(batch.result)
+                if isinstance(result_data, dict) and 'metrics' in result_data:
+                    metrics = result_data.get('metrics') or {}
+                    total_tokens = metrics.get('total_tokens')
+                    num_responses = metrics.get('num_responses')
+                    response_time_sec = metrics.get('response_time_sec')
+                    throughput = metrics.get('throughput_tokens_per_sec')
+            except Exception:
+                total_tokens = None
+                num_responses = None
+                response_time_sec = None
+                throughput = None
+            try:
+                await _upsert_batch_metrics(
+                    batch_obj=batch,
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
+            except Exception as e:
+                log.error(f"Error upserting BatchMetrics: {e}")
+        
+        # Update entry in the database
+        try:
+            await update_database(db_object=batch)
+        except Exception as e:
+            return UpdateBatchResponse(
+                error_message=f"Error: {str(e)}",
+                error_code=500
+            )
+
+    # Return the batch object
+    return UpdateBatchResponse(batch=batch)
 
 
 # Create batch log
@@ -1614,157 +1350,165 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             pass
 
 
-# ============================================================================
-# Metis Cluster Utilities
-# ============================================================================
+# Data structure for the get_endpoint_wrapper() function response
+class EndpointWrapperResponse(BaseModel):
+    endpoint: Optional[BaseEndpoint] = Field(default=None)
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseEndpoint
 
-async def handle_metis_streaming_inference(
-    request, 
-    model_info: dict, 
-    endpoint_id: str, 
-    api_request_data: dict, 
-    requested_model: str,
-    access_log
-):
-    """
-    Handle streaming inference for Metis cluster.
-    
-    Args:
-        request: Django request object with request_log_data
-        model_info: Model information from Metis status
-        endpoint_id: Metis endpoint UUID for token lookup
-        api_request_data: Request payload in OpenAI format
-        requested_model: Name of the requested model
-        access_log: AccessLog database object
-    
-    Returns:
-        StreamingHttpResponse with SSE content
-    """
-    from django.http import StreamingHttpResponse
-    import utils.metis_utils as metis_utils
-    
-    # Create initial log entry
-    try:
-        request.request_log_data.access_log = access_log
-        request.request_log_data.result = "streaming_response_in_progress"
-        request.request_log_data.timestamp_compute_response = timezone.now()
-        request.request_log_data.task_uuid = None  # Metis doesn't use task UUIDs
-        
-        db_log = RequestLog(**request.request_log_data.model_dump())
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-        log_id = db_log.id
-        log.info(f"Created Metis streaming log {log_id} for {requested_model}")
-    except Exception as e:
-        log.error(f"Error creating Metis streaming log: {e}")
-        log_id = None
-    
-    # Shared state for tracking streaming (optimized - minimal memory)
-    streaming_state = {
-        'chunks': [],  # Limited to 100 chunks
-        'total_chunks': 0,
-        'completed': False,
-        'error': None,
-        'start_time': time.time()
-    }
-    
-    # SSE generator
-    async def metis_sse_generator():
-        """Stream SSE chunks from Metis API"""
+# Get endpoint wrapper
+async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
+    """Extract the endpoint from the database and return its underlying wrapper object."""
+
+    # Try to get endpoint wrapper from Redis cache first
+    endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
+    if endpoint_wrapper is not None:
+        return endpoint_wrapper
+
+    # Try to get endpoint from Redis cache first
+    endpoint = get_endpoint_from_cache(endpoint_slug)
+
+    # If the endpoint is not chached ...
+    if endpoint is None:
+
+        # Extract endpoint from database
         try:
-            async for chunk in metis_utils.stream_metis_api(model_info, endpoint_id, api_request_data):
-                if chunk:
-                    streaming_state['total_chunks'] += 1
-                    yield chunk  # Pass through SSE format
-                    
-                    # Collect limited chunks for logging (optimize memory)
-                    if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
-                        if len(streaming_state['chunks']) < 100:
-                            try:
-                                streaming_state['chunks'].append(chunk[6:].strip())
-                            except:
-                                pass
-            
-            streaming_state['completed'] = True
-                    
+            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
+            cache_endpoint(endpoint_slug, endpoint)
+
+        # Raise errors if needed
+        except Endpoint.DoesNotExist:
+            return EndpointWrapperResponse(
+                error_message=f"Error: The requested endpoint {endpoint_slug} does not exist.",
+                error_code=400
+            )
         except Exception as e:
-            error_str = str(e)
-            log.error(f"Metis streaming error: {error_str}")
-            streaming_state['error'] = error_str
-            streaming_state['completed'] = True
-            
-            # Send error as OpenAI streaming chunk format (compatible with OpenAI clients)
-            error_chunk = {
-                "id": f"chatcmpl-metis-error",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": requested_model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": f"\n\n[ERROR] {error_str}"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }
-            yield f"data: {json.dumps(error_chunk)}\n\n"
-            yield "data: [DONE]\n\n"
-    
-    # Start background task to update log
-    if log_id:
-        asyncio.create_task(update_metis_streaming_log(
-            log_id, streaming_state, requested_model
-        ))
-    
-    # Create streaming response
-    response = StreamingHttpResponse(
-        streaming_content=metis_sse_generator(),
-        content_type='text/event-stream'
-    )
-    
-    # Set SSE headers
-    for key, value in create_streaming_response_headers().items():
-        response[key] = value
-    
-    return response
+            return EndpointWrapperResponse(
+                error_message=f"Error: Could not extract endpoint {endpoint_slug}: {e}",
+                error_code=500
+            )
 
-
-async def update_metis_streaming_log(log_id, streaming_state: dict, requested_model: str):
-    """
-    Background task to update RequestLog after Metis streaming completes.
-    
-    Optimized to:
-    - Wait efficiently for completion
-    - Update database once
-    - Handle errors gracefully
-    """
+    # Convert the config field into a dictionary
     try:
-        # Wait for completion (efficient polling with timeout)
-        max_wait = 600  # 10 minutes
-        waited = 0
-        poll_interval = 0.5  # 500ms
-        
-        while not streaming_state['completed'] and waited < max_wait:
-            await asyncio.sleep(poll_interval)
-            waited += poll_interval
-        
-        # Get metrics
-        duration = time.time() - streaming_state['start_time']
-        total_chunks = streaming_state['total_chunks']
-        
-        # Update database (single query)
-        db_log = await sync_to_async(RequestLog.objects.get)(id=log_id)
-        
-        if streaming_state['error']:
-            db_log.result = f"error: {streaming_state['error']}"
-            log.error(f"Metis streaming failed for {requested_model}: {streaming_state['error']}")
-        else:
-            # Store limited chunks or completion marker
-            db_log.result = "\n".join(streaming_state['chunks']) if streaming_state['chunks'] else "streaming_completed"
-            log.info(f"Metis streaming completed for {requested_model}: {total_chunks} chunks in {duration:.2f}s")
-        
-        db_log.timestamp_compute_response = timezone.now()
-        await sync_to_async(db_log.save, thread_sensitive=True)()
-        
+        endpoint_dictionary = model_to_dict(endpoint)
+        endpoint_dictionary["config"] = ast.literal_eval(endpoint.config)
     except Exception as e:
-        log.error(f"Error in update_metis_streaming_log: {e}")
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not load config field for {endpoint_slug}: {e} {endpoint_dictionary}",
+            error_code=500
+        )
+    
+    # Extract the adapter class from the endpoint's database configuration
+    try:
+        parts = endpoint.endpoint_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])    
+        AdapterClass = getattr(module, parts[1])
+    except Exception as e:
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not load endpoint adapter class {endpoint.endpoint_adapter}: {e}",
+            error_code=500
+        )        
+
+    # Make sure the adaptor inherits from the BaseEndpoint generic class
+    if not issubclass(AdapterClass, BaseEndpoint):
+        return EndpointWrapperResponse(
+            error_message=f"Error: Endpoint adapter {endpoint.endpoint_adapter} should inherit from BaseEndpoint.",
+            error_code=500
+        )
+    
+    # Instantiate the adaptor class
+    try:
+        endpoint_wrapper = EndpointWrapperResponse(endpoint=AdapterClass(**endpoint_dictionary))
+    except Exception as e:
+        return EndpointWrapperResponse(
+            error_message=f"Error: Could not instantiate endpoint adapter {endpoint.endpoint_adapter}: {e}",
+            error_code=500
+        )
+    
+    # Cache and return endpoint wrapper
+    cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
+    return endpoint_wrapper
+
+
+# Data structure for the get_cluster_wrapper() function response
+class ClusterWrapperResponse(BaseModel):
+    cluster: Optional[BaseCluster] = Field(default=None)
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseCluster
+
+# Get cluster wrapper
+async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
+    """Extract the cluster from the database and return its underlying wrapper object."""
+
+    # Try to get cluster wrapper from Redis cache first
+    cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
+    if cluster_wrapper is not None:
+        return cluster_wrapper
+
+    # Try to get cluster from Redis cache first
+    cluster = get_cluster_from_cache(cluster_name)
+
+    # If the cluster is not chached ...
+    if cluster is None:
+
+        # Extract cluster from database
+        try:
+            get_cluster_async = sync_to_async(Cluster.objects.get, thread_sensitive=True)
+            cluster = await get_cluster_async(cluster_name=cluster_name)
+            cache_cluster(cluster_name, cluster)
+
+        # Raise errors if needed
+        except Cluster.DoesNotExist:
+            return ClusterWrapperResponse(
+                error_message=f"Error: The requested cluster {cluster_name} does not exist.",
+                error_code=400
+            )
+        except Exception as e:
+            return ClusterWrapperResponse(
+                error_message=f"Error: Could not extract cluster {cluster_name}: {e}",
+                error_code=500
+            )
+
+    # Convert the config field into a dictionary
+    try:
+        cluster_dictionary = model_to_dict(cluster)
+        cluster_dictionary["config"] = ast.literal_eval(cluster.config)
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not load openai_endpoints field for {cluster_name}: {e} {cluster_dictionary}",
+            error_code=500
+        )
+
+    # Extract the adapter class from the cluster's database configuration
+    try:
+        parts = cluster.cluster_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])    
+        AdapterClass = getattr(module, parts[1])
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not load cluster adapter class {cluster.cluster_adapter}: {e}",
+            error_code=500
+        )        
+
+    # Make sure the adaptor inherits from the BaseCluster generic class
+    if not issubclass(AdapterClass, BaseCluster):
+        return ClusterWrapperResponse(
+            error_message=f"Error: Cluster adapter {cluster.cluster_adapter} should inherit from BaseCluster.",
+            error_code=500
+        )
+    
+    # Instantiate the adaptor class
+    try:
+        cluster_wrapper = ClusterWrapperResponse(cluster=AdapterClass(**cluster_dictionary))
+    except Exception as e:
+        return ClusterWrapperResponse(
+            error_message=f"Error: Could not instantiate cluster adapter {cluster.cluster_adapter}: {e}",
+            error_code=500
+        )
+    
+    # Cache and return the cluster wrapper
+    cache_cluster_wrapper(cluster_name, cluster_wrapper)
+    return cluster_wrapper

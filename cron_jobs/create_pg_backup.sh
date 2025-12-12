@@ -20,5 +20,5 @@ tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" "$(basename ${TMP_SQL})"
 # Remove the temporary SQL dump file
 rm "${TMP_SQL}"
 
-# Delete backup files older than 28 days
-find "${BACKUP_DIR}" -type f -name "${DB_NAME}_backup_*.tar.gz" -mtime +28 -exec rm {} \;
+# Delete backup files older than 14 days
+find "${BACKUP_DIR}" -type f -name "${DB_NAME}_backup_*.tar.gz" -mtime +14 -exec rm {} \;
