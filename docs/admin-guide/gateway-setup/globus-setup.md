@@ -110,7 +110,7 @@ To provide users with an easy mechanism to get access tokens for the inference s
    - Click on **Register App**
 5. You should now be able to see your application details, including your **Client UUID**. This type of client has no secret.
 
-## [Optional] Step 5: Create a Globus High-Assurance Policy
+## Step 5: Create a Globus High-Assurance Policy
 
 If you want to restrict access to your service based on institution domains, you can enforce a [Globus High Assurance](https://docs.globus.org/guides/overviews/security/high-assurance-overview/#user_authentication_and_access) Policy. This should be used if you only want to authorize specific identity providers (e.g., alcf.anl.gov, your-university.edu, etc.). To create such a policy:
 
@@ -123,6 +123,7 @@ If you want to restrict access to your service based on institution domains, you
     - Set **Description**: e.g., My policy to restrict access
     - [IMPORTANT] Check the **High Assurance** check box
     - Add list of authorized domains in **Included Domains** (one per line)
+    - Define for how long you want to allow automated token refreshes
     - Click on **Create Policy**
 6. You should now be able to see your policy details, including your **Policy ID**.
 
