@@ -133,7 +133,7 @@ class OpenAIStreamOptionsField(BaseCustomField):
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
-        if data == {"include_usage": True} or data == {"include_usage": False}:
+        if data == {} or data == {"include_usage": True} or data == {"include_usage": False}:
             return True
         return False
     
