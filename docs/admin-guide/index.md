@@ -7,7 +7,7 @@ Welcome to the FIRST Inference Gateway Administrator Guide. This guide will help
 Setting up FIRST involves two main components:
 
 1. **Globus Setup**: The applications and clients that communicate with Globus services
-2. **Gateway Setup**: The central API service that handles authentication and routing
+2. **Gateway Installation**: The central API service that handles authentication and routing
 3. **Inference Backend Setup**: The actual inference servers where models run
 
 These can be deployed independently and connected together through configuration.
@@ -26,7 +26,7 @@ Before you begin, ensure you have:
 
 Globus applications are required to operate the service and manage the authentication and authorization layer. 
 
-[Globus Guide →](globus-setup/index.md)
+[Globus Guide →](gateway-setup/globus-setup.md)
 
 ## Deployment Architecture
 
@@ -70,7 +70,7 @@ Choose your deployment approach:
 
 ## Setup Workflow
 
-### Phase 1: Gateway Setup
+### Phase 1: Gateway Installation
 
 1. Choose your deployment method (Docker or Bare Metal)
 2. Register Globus applications

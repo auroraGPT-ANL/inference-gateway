@@ -79,7 +79,7 @@ typing-extensions==4.15.0 ; python_full_version >= "3.12.6" and python_full_vers
 typing-inspection==0.4.2 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
 tzdata==2025.2 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0" and sys_platform == "win32"
 uritemplate==4.2.0 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
-urllib3==2.5.0 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
+urllib3==2.6.2 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
 uvicorn==0.30.6 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
 watchdog==6.0.0 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"
 websockets==13.1 ; python_full_version >= "3.12.6" and python_full_version < "4.0.0"

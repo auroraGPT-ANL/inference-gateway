@@ -1,14 +1,38 @@
-from pydantic import BaseModel
-from django.core.exceptions import ValidationError
-from django.conf import settings
+import uuid
 from django.db import models
 from django.utils.timezone import now
-import uuid
+from django.utils.text import slugify
+from django.core.exceptions import ValidationError
 
 
 # Supported authentication origins
 class AuthService(models.TextChoices):
     GLOBUS = "globus", "Globus"
+
+
+# Function to validate that some inputs are list of strings
+def validate_str_list(value):
+    if not isinstance(value, list):
+        raise ValidationError("Value must be a list.")
+    if not all(isinstance(v, str) for v in value):
+        raise ValidationError("All items must be strings.")
+    
+
+# JSON field specifically containing a list of strings
+class StrListJSONField(models.JSONField):
+    def get_prep_value(self, value):
+        validate_str_list(value)
+        return super().get_prep_value(value)
+    
+# OpenAI endpoint list
+class OpenAIEndpointListJSONField(models.JSONField):
+    def get_prep_value(self, value):
+        validate_str_list(value)
+        if value:
+            for endpoint in value:
+                if endpoint[-1] == "/" or endpoint[0] == "/":
+                    raise ValidationError("OpenAI endpoints cannot end or start with '/'.")
+        return super().get_prep_value(value)
 
 
 # User model
@@ -150,7 +174,7 @@ class BatchLog(models.Model):
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)
-    globus_task_uuids = models.TextField(null=True)
+    task_ids = models.TextField(null=True)
     result = models.TextField(blank=True)
 
     # What is the status of the batch?
@@ -244,3 +268,82 @@ class BatchMetrics(models.Model):
 
     def __str__(self):
         return f"<BatchMetrics - {self.batch_id}>"
+    
+
+# Details of a given inference endpoint
+class Endpoint(models.Model):
+
+    # Slug for the endpoint
+    # <cluster>-<framework>-<model> (all lower case)
+    # Example: sophia-vllm-meta-llamameta-llama-3-70b-instruct
+    endpoint_slug = models.SlugField(max_length=100, unique=True)
+
+    # HPC machine the endpoint is running on (e.g. sophia)
+    # TODO Foreign key here to point to cluster
+    # TODO add endpoint uuid if GC, URL if Metis, etc...
+    cluster = models.CharField(max_length=100)
+
+    # Framework (e.g. vllm)
+    framework = models.CharField(max_length=100)
+
+    # Model name (e.g. cpp_meta-Llama3-8b-instruct)
+    model = models.CharField(max_length=100)
+
+    # Endpoint adapter (e.g. resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint)
+    endpoint_adapter = models.CharField(max_length=250)
+
+    # Additional Globus group restrictions to access the endpoint (no restriction if empty)
+    # Example: ["group1-uuid", "group2-uuid"]
+    allowed_globus_groups = StrListJSONField(default=list, blank=True)
+
+    # Additional domains restrictions to access the endpoint (no restriction if empty)
+    # Example: ["anl.gov", "alcf.anl.gov"]
+    allowed_domains = StrListJSONField(default=list, blank=True)
+
+    # Extra configuration needed to instantiate the endpoint class
+    # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
+    config = models.TextField(blank=True)
+
+    # String function
+    def __str__(self):
+        return f"<Endpoint {self.endpoint_slug}>"
+
+    # Automatically generate slug if not provided
+    def save(self, *args, **kwargs):
+        if self.endpoint_slug is None or self.endpoint_slug == "":
+            self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
+        super(Endpoint, self).save(*args, **kwargs)
+
+
+# Details of a given inference cluster
+class Cluster(models.Model):
+
+    # Cluster name
+    cluster_name = models.CharField(max_length=100, unique=True)
+
+    # Inference serving framework
+    # e.g. ["vllm"]
+    frameworks = StrListJSONField(null=False)
+
+    # OpenAI endpoints
+    # e.g. ["/v1/completions", "/v1/chat/completions"], cannot end with '/'
+    openai_endpoints = OpenAIEndpointListJSONField(null=False)
+
+    # Cluster adapter (e.g. resource_server_async.clusters.globus_compute.GlobusComputeCluster)
+    cluster_adapter = models.CharField(max_length=250)
+
+    # Additional Globus group restrictions to access the cluster (no restriction if empty)
+    # Example: ["group1-uuid", "group2-uuid"]
+    allowed_globus_groups = StrListJSONField(default=list, blank=True)
+
+    # Additional domains restrictions to access the cluster (no restriction if empty)
+    # Example: ["anl.gov", "alcf.anl.gov"]
+    allowed_domains = StrListJSONField(default=list, blank=True)
+
+    # Extra configuration needed to instantiate the cluster class
+    # Should be json.dumps string. Will be converted into a python dictionaty within the cluster object
+    config = models.TextField(blank=True)
+
+    # String function
+    def __str__(self):
+        return f"<Cluster {self.cluster_name}>"

@@ -136,7 +136,7 @@ nav:
   - Home: index.md
   - Administrator Guide:
       - Overview: admin-guide/index.md
-      - Gateway Setup:
+      - Gateway Installation:
           - Docker: admin-guide/gateway-setup/docker.md
 ```
 

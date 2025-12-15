@@ -23,7 +23,7 @@ Create a `.env` file from the [example environment file](https://github.com/auro
 cp env.example .env
 ```
 
-Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](../globus-setup/index.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
+Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](globus-setup.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```

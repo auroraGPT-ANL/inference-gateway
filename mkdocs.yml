@@ -71,8 +71,8 @@ nav:
   - Home: index.md
   - Administrator Guide:
       - Overview: admin-guide/index.md
-      - Globus Setup: admin-guide/globus-setup/index.md
-      - Gateway Setup:
+      - Gateway Installation:
+          - Globus Setup: admin-guide/gateway-setup/globus-setup.md
           - Docker Deployment: admin-guide/gateway-setup/docker.md
           - Bare Metal Setup: admin-guide/gateway-setup/bare-metal.md
           - Configuration Reference: admin-guide/gateway-setup/configuration.md
@@ -81,6 +81,11 @@ nav:
           - Globus Compute + vLLM: admin-guide/inference-setup/globus-compute.md
           - Local vLLM Setup: admin-guide/inference-setup/local-vllm.md
           - Direct API Connection: admin-guide/inference-setup/direct-api.md
+      - Connecting Gateway to Backends:
+          - Overview: admin-guide/connecting-gateway-to-backend/index.md
+          - Globus Compute Adaptors: admin-guide/connecting-gateway-to-backend/globus-compute.md
+          - Direct API Adaptors: admin-guide/connecting-gateway-to-backend/direct-api.md
+          - Custom Adaptors: admin-guide/connecting-gateway-to-backend/custom.md
       - Deployment:
           - Kubernetes: admin-guide/deployment/kubernetes.md
           - Production Best Practices: admin-guide/deployment/production.md
