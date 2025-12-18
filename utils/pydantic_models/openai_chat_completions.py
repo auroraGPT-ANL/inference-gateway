@@ -283,6 +283,10 @@ class WebSearchOptions(BaseModelExtraForbid):
     search_context_size: Optional[WebSearchOptionsSearchContextSize] = Field(default=WebSearchOptionsSearchContextSize.medium.value)
     user_location: Optional[WebSearchOptionsUserLocation] = Field(default=None)
 
+# Stream_options
+class StreamOptions(BaseModelExtraForbid):
+    include_usage: Optional[bool] = Field(default=None)
+
 # User_message - content - text_content
 class MessageTextContent(BaseModelExtraForbid):
     text: str
@@ -516,6 +520,7 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     service_tier: Optional[ServiceTier] = Field(default=ServiceTier.auto.value)
     stop: Optional[Union[str, List[str]]] = Field(default=None)
     stream: Optional[bool] = Field(default=False)
+    stream_options: Optional[StreamOptions] = Field(default=None)
     store: Optional[bool] = Field(default=False)
     temperature: Optional[float] = Field(default=1, ge=0, le=2)
     tool_choice: Optional[Union[ToolChoice, ToolChoiceObject]] = Field(default=None)
