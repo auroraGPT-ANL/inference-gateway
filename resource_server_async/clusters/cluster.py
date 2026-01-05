@@ -1,14 +1,17 @@
-import uuid
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict
 from resource_server_async.models import User
 from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.auth_utils import CheckPermissionResponse
+from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
 
 class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
+
+class CheckMaintenanceResponse(BaseModelWithError):
+    is_under_maintenance: bool
 
 class JobInfo(BaseModel):
     Models:    str
@@ -50,6 +53,35 @@ class BaseCluster(ABC):
         self.__openai_endpoints = openai_endpoints
         self.__allowed_globus_groups = allowed_globus_groups
         self.__allowed_domains = allowed_domains
+
+    # Check maintenance
+    def check_maintenance(self) -> CheckMaintenanceResponse:
+        """Verify is the cluster is currently under maintenance."""
+        
+        # Try to check for maintenance
+        try:
+
+            # If the cluster is under maintenance ...
+            if self.cluster_name in MAINTENANCE_ERROR_NOTICES:
+                return CheckMaintenanceResponse(
+                    is_under_maintenance=True,
+                    error_message=f"Error: {MAINTENANCE_ERROR_NOTICES[self.cluster_name]}",
+                    error_code=503
+                )
+
+            # If the cluster is not under maintenance ...
+            else:
+                return CheckMaintenanceResponse(
+                    is_under_maintenance=False
+                )
+
+        # Error if something went wrong
+        except Exception as e:
+            return CheckMaintenanceResponse(
+                is_under_maintenance=False,
+                error_message=f"Error: Could not check maintenance for {self.cluster_name}: {e}",
+                error_code=500
+            )
 
     # Check permission
     def check_permission(self, auth: User, user_group_uuids: List[str]) -> CheckPermissionResponse:

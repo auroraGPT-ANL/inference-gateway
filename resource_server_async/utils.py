@@ -1512,3 +1512,88 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     # Cache and return the cluster wrapper
     cache_cluster_wrapper(cluster_name, cluster_wrapper)
     return cluster_wrapper
+
+
+# Data structure for the get_list_endpoints_data() function response
+class GetListEndpointsDataResponse(BaseModel):
+    all_endpoints: Optional[dict] = Field(default=None)
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+
+# Get list endpoints data
+async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
+    """Prepare and return data for the list of available frameworks and models."""
+
+    # Get list of all clusters
+    try:
+        db_clusters = await sync_to_async(list)(Cluster.objects.all())
+    except Exception as e:
+        return GetListEndpointsDataResponse(
+            error_message=f"Error: Could not access Cluster database entries: {e}",
+            error_code=500
+        )
+    
+    # For each cluster ...
+    all_endpoints = {"clusters": {}}
+    for db_cluster in db_clusters:
+        try:
+
+            # Get cluster wrapper from database
+            response = await get_cluster_wrapper(db_cluster.cluster_name)
+            if response.error_message:
+                return GetListEndpointsDataResponse(
+                    error_message=response.error_message,
+                    error_code=response.error_code
+                )
+            cluster = response.cluster
+
+            # If the user is allowed to see the cluster ...
+            if cluster.check_permission(request.auth, request.user_group_uuids).is_authorized:
+
+                # For each endpoint related to this cluster ...
+                frameworks = {}
+                async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
+
+                    # Get endpoint wrapper from database
+                    response = await get_endpoint_wrapper(endpoint.endpoint_slug)
+                    if response.error_message:
+                        return GetListEndpointsDataResponse(
+                            error_message=response.error_message,
+                            error_code=response.error_code
+                        )
+                    endpoint = response.endpoint
+
+                    # If the user is allowed to see this endpoint ...
+                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
+
+                        # Add framework if needed
+                        if endpoint.framework not in frameworks:
+                            frameworks[endpoint.framework] = {
+                                "models": [],
+                                "endpoints": [f"/v1/{e}" for e in cluster.openai_endpoints]
+                            }
+
+                        # Add model to the framework
+                        frameworks[endpoint.framework]["models"].append(endpoint.model) 
+                    
+                # Sort models alphabetically
+                for fw in frameworks:
+                    frameworks[fw]["models"] = sorted(frameworks[fw]["models"])
+
+                # Add endpoint list to the response
+                all_endpoints["clusters"][cluster.cluster_name] = {
+                    "base_url": f"/resource_server/{cluster.cluster_name}",
+                    "frameworks": frameworks
+                }
+
+        # Error message if something went wrong while building the endpoint list
+        except Exception as e:
+            return GetListEndpointsDataResponse(
+                error_message=f"Error: Could not generate list of frameworks and models from database: {e}",
+                error_code=500
+            )
+        
+    # Return the endpoint list data
+    return GetListEndpointsDataResponse(
+        all_endpoints=all_endpoints
+    )
