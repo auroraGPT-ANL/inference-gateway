@@ -114,9 +114,10 @@ def find_metis_model(status_data: Dict, requested_model: str) -> Tuple[Optional[
         if model_info.get("status") != "Live":
             continue
         
-        # Check if requested model is in the experts list
-        experts = model_info.get("experts", [])
-        if requested_model in experts:
+        # Check if this is the requested model
+        #experts = model_info.get("experts", [])
+        #if requested_model in experts:
+        if requested_model == model_info.get("model", ""):
             endpoint_id = model_info.get("endpoint_id", "")
             log.info(f"Found matching Metis model: {model_key} for requested model {requested_model} (endpoint: {endpoint_id})")
             return model_info, endpoint_id, ""
@@ -125,8 +126,10 @@ def find_metis_model(status_data: Dict, requested_model: str) -> Tuple[Optional[
     available_models = []
     for model_key, model_info in status_data.items():
         if model_info.get("status") == "Live":
-            experts = model_info.get("experts", [])
-            available_models.extend(experts)
+            #experts = model_info.get("experts", [])
+            #available_models.extend(experts)
+            models = model_info.get("model", [])
+            available_models.extend(models)
     
     if available_models:
         error_msg = f"Error: Model '{requested_model}' not available on Metis. Available models: {', '.join(available_models)}"

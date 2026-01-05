@@ -383,10 +383,10 @@
         "model": "resource_server_async.endpoint",
         "pk": 22,
         "fields": {
-            "endpoint_slug": "metis-api-gpt-oss-120b-128k",
+            "endpoint_slug": "metis-api-gpt-oss-120b",
             "cluster": "metis",
             "framework": "api",
-            "model": "gpt-oss-120b-128k",
+            "model": "gpt-oss-120b",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
                 "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
@@ -605,45 +605,54 @@
         "model": "resource_server_async.endpoint",
         "pk": 36,
         "fields": {
-            "endpoint_slug": "metis-api-gpt-oss-120b-32k",
+            "endpoint_slug": "metis-api-model-removed-pk36",
             "cluster": "metis",
             "framework": "api",
-            "model": "gpt-oss-120b-32k",
+            "model": "model-removed-pk36",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
                 "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
                 "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
-            }
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
         }
     },
     {
         "model": "resource_server_async.endpoint",
         "pk": 37,
         "fields": {
-            "endpoint_slug": "metis-api-gpt-oss-120b-64k",
+            "endpoint_slug": "metis-api-model-removed-pk37",
             "cluster": "metis",
             "framework": "api",
-            "model": "gpt-oss-120b-64k",
+            "model": "model-removed-pk37",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
                 "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
                 "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
-            }
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
         }
     },
     {
         "model": "resource_server_async.endpoint",
         "pk": 38,
         "fields": {
-            "endpoint_slug": "metis-api-gpt-oss-120b-8k",
+            "endpoint_slug": "metis-api-model-removed-pk38",
             "cluster": "metis",
             "framework": "api",
-            "model": "gpt-oss-120b-8k",
+            "model": "model-removed-pk38",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
                 "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
                 "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
-            }
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
         }
     },
     {

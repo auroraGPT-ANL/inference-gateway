@@ -59,20 +59,16 @@ class MetisCluster(BaseCluster):
         try:
             for model_key, model_info in metis_status.items():
                 status = model_info.get("status", "Unknown")
-                experts = model_info.get("experts", [])
                 
-                # Format models list consistently with other clusters
-                models_str = ",".join(experts) if isinstance(experts, list) else str(experts)
-                
-                # Build description from model name and description
+                # Extract model name and description
                 model_name = model_info.get("model", "")
                 description = model_info.get("description", "")
-                full_description = f"{model_name} - {description}" if model_name and description else (model_name or description)
+                full_description = f"{model_name} - {description}"
                 
                 # Do not expose sensitive fields like model_key, endpoint_id, or url to users
                 # Format consistently with Sophia/Polaris jobs output
                 job_entry = {
-                    "Models": models_str,
+                    "Models": model_name,
                     "Framework": "api",
                     "Cluster": "metis",
                     "Model Status": "running" if status == "Live" else status.lower(),
