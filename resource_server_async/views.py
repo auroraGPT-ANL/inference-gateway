@@ -19,7 +19,7 @@ logging.config.dictConfig(LOGGING_CONFIG)
 # Local utils
 from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
-from resource_server_async.clusters.cluster import Jobs, BaseCluster
+from resource_server_async.clusters.cluster import Jobs, JobInfo, BaseCluster
 from resource_server_async.utils import (
     extract_prompt, 
     validate_request_body,
@@ -38,7 +38,9 @@ from resource_server_async.utils import (
     create_request_log,
     # Wrapper function
     get_endpoint_wrapper,
-    get_cluster_wrapper
+    get_cluster_wrapper,
+    get_list_endpoints_data,
+    GetListEndpointsDataResponse
 )
 log.info("Utils functions loaded.")
 
@@ -92,62 +94,11 @@ async def whoami(request):
 async def get_list_endpoints(request):
     """GET request to list the available frameworks and models."""
 
-    # Get list of all clusters
-    try:
-        db_clusters = await sync_to_async(list)(Cluster.objects.all())
-    except Exception as e:
-        return await get_response(f"Error: Could not access Cluster database entries: {e}", 500, request)
-    
-    # For each cluster ...
-    all_endpoints = {"clusters": {}}
-    for db_cluster in db_clusters:
-        try:
-
-            # Get cluster wrapper from database
-            response = await get_cluster_wrapper(db_cluster.cluster_name)
-            if response.error_message:
-                return await get_response(response.error_message, response.error_code, request)
-            cluster = response.cluster
-
-            # If the user is allowed to see the cluster ...
-            if cluster.check_permission(request.auth, request.user_group_uuids).is_authorized:
-
-                # For each endpoint related to this cluster ...
-                frameworks = {}
-                async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
-
-                    # Get endpoint wrapper from database
-                    response = await get_endpoint_wrapper(endpoint.endpoint_slug)
-                    if response.error_message:
-                        return await get_response(response.error_message, response.error_code, request)
-                    endpoint = response.endpoint
-
-                    # If the user is allowed to see this endpoint ...
-                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
-
-                        # Add framework if needed
-                        if endpoint.framework not in frameworks:
-                            frameworks[endpoint.framework] = {
-                                "models": [],
-                                "endpoints": [f"/v1/{e}" for e in cluster.openai_endpoints]
-                            }
-
-                        # Add model to the framework
-                        frameworks[endpoint.framework]["models"].append(endpoint.model) 
-                    
-                # Sort models alphabetically
-                for fw in frameworks:
-                    frameworks[fw]["models"] = sorted(frameworks[fw]["models"])
-
-                # Add endpoint list to the response
-                all_endpoints["clusters"][cluster.cluster_name] = {
-                    "base_url": f"/resource_server/{cluster.cluster_name}",
-                    "frameworks": frameworks
-                }
-
-        # Error message if something went wrong while building the endpoint list
-        except Exception as e:
-            return await get_response(f"Error: Could not generate list of frameworks and models from database: {e}", 500, request)
+    # Extract the list of all endpoints from the database
+    response = await get_list_endpoints_data(request)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    all_endpoints = response.all_endpoints
 
     # Return list of frameworks and models
     return await get_response(json.dumps(all_endpoints), 200, request)
@@ -168,54 +119,86 @@ async def get_jobs(request, cluster:str):
     response = cluster.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
-
-    # Get jobs from the targetted cluster
-    response = await cluster.get_jobs()
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    jobs: Jobs = response.jobs
     
-    # For each job state listed in the jobs response ...
-    for jobs_state in [
-        jobs.running,
-        jobs.queued,
-        jobs.stopped,
-        jobs.others,
-        jobs.private_batch_running,
-        jobs.private_batch_queued
-    ]:
-        # For each block (set of models) in this state
-        # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
-        for i_block in range(len(jobs_state) - 1, -1, -1):
-            block = jobs_state[i_block]
+    # If the cluster is under maintenance ...
+    response = cluster.check_maintenance()
+    if response.is_under_maintenance:
+
+        # Create initial empty Jobs response
+        jobs = Jobs()
+
+        # Extract the list of all endpoints from the database
+        response = await get_list_endpoints_data(request)
+        if response.error_message:
+            return await get_response(response.error_message, response.error_code, request)
+        all_endpoints = response.all_endpoints
+
+        # Try to add each model listed for this cluster in the "stopped" section
+        try: 
+            for framework in all_endpoints["clusters"][cluster.cluster_name]["frameworks"]:
+                for model in all_endpoints["clusters"][cluster.cluster_name]["frameworks"][framework]["models"]:
+                    jobs.stopped.append(
+                        JobInfo(
+                            Models=model,
+                            Framework=framework,
+                            Cluster=cluster.cluster_name,
+                        )
+                    )
+
+        # Error if the model parsing did not work
+        except Exception as e:
+            return await get_response(f"Error: Cluster {cluster.cluster_name} under maintenance. Could not recover list of models: {e}", 500, request)
+
+    # If the cluster is operational and not under maintenance ...
+    else:
+
+        # Get jobs from the targetted cluster
+        response = await cluster.get_jobs()
+        if response.error_message:
+            return await get_response(response.error_message, response.error_code, request)
+        jobs: Jobs = response.jobs
         
-            # Collect the list of models
-            models = [m.strip() for m in block.Models.split(",") if m.strip()]
+        # For each job state listed in the jobs response ...
+        for jobs_state in [
+            jobs.running,
+            jobs.queued,
+            jobs.stopped,
+            jobs.others,
+            jobs.private_batch_running,
+            jobs.private_batch_queued
+        ]:
+            # For each block (set of models) in this state
+            # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
+            for i_block in range(len(jobs_state) - 1, -1, -1):
+                block = jobs_state[i_block]
+            
+                # Collect the list of models
+                models = [m.strip() for m in block.Models.split(",") if m.strip()]
 
-            # Define list of models that the user is allowed to see within that block
-            visible_models = []
+                # Define list of models that the user is allowed to see within that block
+                visible_models = []
 
-            # For each model ...
-            for model in models:
+                # For each model ...
+                for model in models:
 
-                # Extract the underlying endpoint wrapper for this model
-                endpoint_slug = slugify(" ".join([block.Cluster, block.Framework, model.lower()]))
-                response = await get_endpoint_wrapper(endpoint_slug)
-                if response.error_message:
-                    return await get_response(response.error_message, response.error_code, request)
-                endpoint = response.endpoint
+                    # Extract the underlying endpoint wrapper for this model
+                    endpoint_slug = slugify(" ".join([block.Cluster, block.Framework, model.lower()]))
+                    response = await get_endpoint_wrapper(endpoint_slug)
+                    if response.error_message:
+                        return await get_response(response.error_message, response.error_code, request)
+                    endpoint = response.endpoint
 
-                # Flag the model as "visible" if the user is authorized to see it ...
-                if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
-                    visible_models.append(model)
+                    # Flag the model as "visible" if the user is authorized to see it ...
+                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
+                        visible_models.append(model)
 
-            # Remove block if no model should be visible
-            if len(visible_models) == 0:
-                del jobs_state[i_block]
+                # Remove block if no model should be visible
+                if len(visible_models) == 0:
+                    del jobs_state[i_block]
 
-            # Update models if some (or all) of them are still visible
-            else:
-                jobs_state[i_block].Models = ",".join(visible_models)
+                # Update models if some (or all) of them are still visible
+                else:
+                    jobs_state[i_block].Models = ",".join(visible_models)
 
     # Return the cluster's jobs status
     return await get_response(jobs.model_dump(), 200, request)
@@ -236,6 +219,11 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     cluster: BaseCluster = response.cluster
+
+    # Error if the cluster is under maintenance
+    response = cluster.check_maintenance()
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
 
     # Verify that the framework is enabled by the cluster
     if framework not in cluster.frameworks:
@@ -471,6 +459,11 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     cluster: BaseCluster = response.cluster
+
+    # Error if the cluster is under maintenance
+    response = cluster.check_maintenance()
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
 
     # Verify that the framework is available by the cluster
     if framework not in cluster.frameworks:
