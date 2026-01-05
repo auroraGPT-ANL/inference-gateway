@@ -119,6 +119,9 @@ else:
     domains_string = [domain for domain in AUTHORIZED_IDP_DOMAINS if not domain in AUTHORIZED_GROUPS_PER_IDP]
     AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(domains_string) + ", or providers with approved projects"
 
+# Load maintenance notices to be displayed for individual clusters
+MAINTENANCE_ERROR_NOTICES = json.loads(os.getenv("MAINTENANCE_ERROR_NOTICES", "{}"))
+
 # Allowed hosts
 ALLOWED_HOSTS = textfield_to_strlist(os.getenv("ALLOWED_HOSTS", "*"))
 
