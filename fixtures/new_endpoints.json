@@ -383,13 +383,13 @@
         "model": "resource_server_async.endpoint",
         "pk": 22,
         "fields": {
-            "endpoint_slug": "metis-api-gpt-oss-120b-131072",
+            "endpoint_slug": "metis-api-gpt-oss-120b-128k",
             "cluster": "metis",
             "framework": "api",
-            "model": "gpt-oss-120b-131072",
+            "model": "gpt-oss-120b-128k",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
-                "api_url": "https://metis.alcf.anl.gov/v1/f718ae96-5330-4523-8cde-51c846447f45/chat/completions",
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
                 "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
             }
         }
@@ -404,7 +404,7 @@
             "model": "Llama-4-Maverick-17B-128E-Instruct",
             "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
             "config": {
-                "api_url": "https://metis.alcf.anl.gov/v1/05a5dbbe-266e-4d49-8617-e7177ee2bc71/chat/completions",
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
                 "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
             }
         }
@@ -599,6 +599,123 @@
                 "endpoint_uuid": "5674c36b-3996-4521-92fd-37f72b6c6d97",
                 "function_uuid": "0d7e3ab2-96ce-4fa1-bc48-7c5fd4a403c1"
             }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 36,
+        "fields": {
+            "endpoint_slug": "metis-api-gpt-oss-120b-32k",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "gpt-oss-120b-32k",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
+            }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 37,
+        "fields": {
+            "endpoint_slug": "metis-api-gpt-oss-120b-64k",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "gpt-oss-120b-64k",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
+            }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 38,
+        "fields": {
+            "endpoint_slug": "metis-api-gpt-oss-120b-8k",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "gpt-oss-120b-8k",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_GPT_OSS_120B_API_KEY"
+            }
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 39,
+        "fields": {
+            "endpoint_slug": "metis-api-model-removed-pk39",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "model-removed-pk39",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 40,
+        "fields": {
+            "endpoint_slug": "metis-api-model-removed-pk40",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "model-removed-pk40",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 41,
+        "fields": {
+            "endpoint_slug": "metis-api-model-removed-pk41",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "model-removed-pk41",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
+        }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 42,
+        "fields": {
+            "endpoint_slug": "metis-api-model-removed-pk42",
+            "cluster": "metis",
+            "framework": "api",
+            "model": "model-removed-pk42",
+            "endpoint_adapter": "resource_server_async.endpoints.metis.MetisEndpoint",
+            "config": {
+                "api_url": "https://metis.alcf.anl.gov/v1/chat/completions",
+                "api_key_env_name": "METIS_MAVERICK_17B_128E_API_KEY"
+            },
+            "allowed_globus_groups": [
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            ]
         }
     }
 ]
