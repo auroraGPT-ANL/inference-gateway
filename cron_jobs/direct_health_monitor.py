@@ -471,18 +471,27 @@ def extract_metis_models(status_data: Dict) -> List[Dict]:
     for model_key, model_info in status_data.items():
         if model_info.get("status") != "Live":
             continue
-        experts = model_info.get("experts", [])
+        #experts = model_info.get("experts", [])
         endpoint_id = model_info.get("endpoint_id", "")
+        model_name = model_info.get("model", "")
         health_path = model_info.get("health_path", "health")
-        for expert in experts or []:
-            models.append(
-                {
-                    "model": normalize_model_name(expert),
-                    "endpoint_id": endpoint_id,
-                    "model_info": model_info,
-                    "health_path": health_path,
-                }
-            )
+        #for expert in experts or []:
+        #    models.append(
+        #        {
+        #            "model": normalize_model_name(expert),
+        #            "endpoint_id": endpoint_id,
+        #            "model_info": model_info,
+        #            "health_path": health_path,
+        #        }
+        #    )
+        models.append(
+            {
+                "model": normalize_model_name(model_name),
+                "endpoint_id": endpoint_id,
+                "model_info": model_info,
+                "health_path": health_path,
+            }
+        )
     return models
 
 
@@ -560,7 +569,8 @@ async def check_metis_models() -> List[HealthRecord]:
             )
             continue
 
-        url = f"{api_url.rstrip('/')}/{health_path.lstrip('/')}"
+        #url = f"{api_url.rstrip('/')}/{health_path.lstrip('/')}"
+        url = "https://metis.alcf.anl.gov/v1/health"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
