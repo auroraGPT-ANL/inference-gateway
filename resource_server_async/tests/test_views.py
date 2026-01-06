@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.management import call_command
-from resource_server.models import Endpoint
+from resource_server_async.models import Endpoint, Cluster
+import ast
 import json
 import uuid
 import logging
@@ -36,15 +37,6 @@ settings.MAX_BATCHES_PER_USER = 1000
 # Overwrite authorized IdPs for testing
 settings.AUTHORIZED_IDP_DOMAINS=["mock_domain.com"]
 
-# Settings variables
-ALLOWED_FRAMEWORKS = settings.ALLOWED_FRAMEWORKS
-ALLOWED_OPENAI_ENDPOINTS = settings.ALLOWED_OPENAI_ENDPOINTS
-ALLOWED_CLUSTERS = settings.ALLOWED_CLUSTERS
-
-# Define OpenAI endpoints to be removed
-for cluster, endpoints in ALLOWED_OPENAI_ENDPOINTS.items():
-    ALLOWED_OPENAI_ENDPOINTS[cluster] = [e for e in endpoints if e not in ["health", "metrics"]]
-
 # Test views.py
 class ResourceServerViewTestCase(TestCase):
 
@@ -56,7 +48,8 @@ class ResourceServerViewTestCase(TestCase):
         """
 
         # Fill Django test database
-        call_command("loaddata", "fixtures/endpoints.json")
+        call_command("loaddata", "fixtures/new_endpoints.json")
+        call_command("loaddata", "fixtures/clusters.json")
 
         # Create mock access tokens
         self.active_token = mock_utils.get_mock_access_token(active=True, expired=False, has_premium_access=False)
@@ -105,6 +98,20 @@ class ResourceServerViewTestCase(TestCase):
         self.invalid_params["health"] = {}
         self.invalid_params["metrics"] = {}
 
+        # Collect available clusters from database
+        db_clusters = Cluster.objects.all()
+        self.ALLOWED_CLUSTERS = [c.cluster_name for c in db_clusters]
+
+        # Collect available frameworks for each cluster
+        self.ALLOWED_FRAMEWORKS = {}
+        for cluster in db_clusters:
+            self.ALLOWED_FRAMEWORKS[cluster.cluster_name] = cluster.frameworks
+
+        # Collect available openAI endpoint for each cluster
+        self.ALLOWED_OPENAI_ENDPOINTS = {}
+        for cluster in db_clusters:
+            self.ALLOWED_OPENAI_ENDPOINTS[cluster.cluster_name] = [e for e in cluster.openai_endpoints if e not in ["health", "metrics"]]
+
 
     # Test get_list_endpoints (GET) 
     async def test_get_list_endpoints_view(self):
@@ -123,10 +130,10 @@ class ResourceServerViewTestCase(TestCase):
         # Extract number of public and premium Globus Compute endpoint objects from the database
         # TODO: Re work this to test number of models with clusters that have direct API access
         db_endpoints_public = 0
-        async for _ in Endpoint.objects.filter(allowed_globus_groups=""):
+        async for _ in Endpoint.objects.filter(allowed_globus_groups=[]):
             db_endpoints_public += 1
         db_endpoints_premium = 0
-        async for _ in Endpoint.objects.filter(allowed_globus_groups=mock_utils.MOCK_ALLOWED_GROUP):
+        async for _ in Endpoint.objects.filter(allowed_globus_groups=[mock_utils.MOCK_GROUP_UUID]):
             db_endpoints_premium += 1
 
         # For valid tokens with and without premium access ...
@@ -145,10 +152,8 @@ class ResourceServerViewTestCase(TestCase):
             # Make sure the GET request returns the correct number of endpoints
             nb_endpoints = 0
             for cluster in response_data["clusters"]:
-                # TODO: Generalize this to account for Non-Globus-Compute clusters
-                if cluster in ["sophia", "polaris"]:
-                    for framework in response_data["clusters"][cluster]["frameworks"]:
-                        nb_endpoints += len(response_data["clusters"][cluster]["frameworks"][framework]["models"])
+                for framework in response_data["clusters"][cluster]["frameworks"]:
+                    nb_endpoints += len(response_data["clusters"][cluster]["frameworks"][framework]["models"])
             self.assertEqual(nb_endpoints_expected, nb_endpoints)
 
     # Test post_inference view (POST)
@@ -178,7 +183,7 @@ class ResourceServerViewTestCase(TestCase):
                     self.assertEqual(response.status_code, 405)
 
                 # If the endpoint can be accessed by the mock access token ...
-                if endpoint.allowed_globus_groups in ["", mock_utils.MOCK_ALLOWED_GROUP]:
+                if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
                     headers = self.premium_headers
 
                     # For each valid set of input parameters ...
@@ -209,7 +214,7 @@ class ResourceServerViewTestCase(TestCase):
                         self.assertEqual(response.status_code, 400)
 
                 # Make sure users can't access private endpoint if not in allowed groups
-                if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
+                if endpoint.allowed_globus_groups == [mock_utils.MOCK_GROUP_UUID]:
                     response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=self.headers, **self.kwargs)
                     self.assertEqual(response.status_code, 401)
 
@@ -225,7 +230,7 @@ class ResourceServerViewTestCase(TestCase):
         # For each endpoint that support batch in the database ...
         async for endpoint in Endpoint.objects.all():
           if "model-removed" not in endpoint.endpoint_slug:
-            if len(endpoint.batch_endpoint_uuid) > 0:
+            if len(ast.literal_eval(endpoint.config).get("batch_endpoint_uuid", "")) > 0:
             
                 # Build the targeted Django URL
                 url = f"/{endpoint.cluster}/{endpoint.framework}/v1/batches"
@@ -239,7 +244,7 @@ class ResourceServerViewTestCase(TestCase):
                     self.assertEqual(response.status_code, 405)
 
                 # If the endpoint can be accessed by the mock access token ...
-                if endpoint.allowed_globus_groups in ["", mock_utils.MOCK_ALLOWED_GROUP]:
+                if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
                     headers = self.premium_headers
 
                     # For each valid set of input parameters ...
@@ -265,7 +270,7 @@ class ResourceServerViewTestCase(TestCase):
                         self.assertEqual(response.status_code, 400)
 
                 # Make sure users can't access private endpoint if not in allowed groups
-                if endpoint.allowed_globus_groups == mock_utils.MOCK_ALLOWED_GROUP:
+                if endpoint.allowed_globus_groups == [mock_utils.MOCK_GROUP_UUID]:
                     response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=self.headers, **self.kwargs)
                     self.assertEqual(response.status_code, 401)
 
@@ -287,11 +292,11 @@ class ResourceServerViewTestCase(TestCase):
             url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
             
             # Skip if this cluster doesn't support chat/completions
-            if "chat/completions" not in ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
+            if "chat/completions" not in self.ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
                 continue
             
             # If the endpoint can be accessed by the mock access token ...
-            if endpoint.allowed_globus_groups in ["", mock_utils.MOCK_ALLOWED_GROUP]:
+            if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
                 headers = self.premium_headers
                 
                 # Test each streaming test case from the JSON data
@@ -341,11 +346,11 @@ class ResourceServerViewTestCase(TestCase):
             url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
             
             # Skip if this cluster doesn't support chat/completions
-            if "chat/completions" not in ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
+            if "chat/completions" not in self.ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
                 continue
             
             # If the endpoint can be accessed by the mock access token ...
-            if endpoint.allowed_globus_groups in ["", mock_utils.MOCK_ALLOWED_GROUP]:
+            if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
                 headers = self.premium_headers
                 
                 # Test invalid stream parameter (should be boolean)
@@ -471,7 +476,7 @@ class ResourceServerViewTestCase(TestCase):
     # Get endpoint URL
     def __get_endpoint_urls(self, endpoint):
         urls = {}
-        for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]:
+        for openai_endpoint in self.ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]:
              urls[openai_endpoint] = f"/{endpoint.cluster}/{endpoint.framework}/v1/{openai_endpoint}/"
         return urls
 
@@ -484,19 +489,19 @@ class ResourceServerViewTestCase(TestCase):
 
         # Unsupported cluster
         cluster = "unsupported-cluster"
-        framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
-        endpoint = ALLOWED_OPENAI_ENDPOINTS[ALLOWED_CLUSTERS[0]][0]
+        framework = self.ALLOWED_FRAMEWORKS[self.ALLOWED_CLUSTERS[0]][0]
+        endpoint = self.ALLOWED_OPENAI_ENDPOINTS[self.ALLOWED_CLUSTERS[0]][0]
         wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
         # Unsupported framework
-        cluster = ALLOWED_CLUSTERS[0]
+        cluster = self.ALLOWED_CLUSTERS[0]
         framework = "unsupported-framework"
-        endpoint = ALLOWED_OPENAI_ENDPOINTS[ALLOWED_CLUSTERS[0]][0]
+        endpoint = self.ALLOWED_OPENAI_ENDPOINTS[self.ALLOWED_CLUSTERS[0]][0]
         wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
         # Unsupported openai endpoint
-        cluster = ALLOWED_CLUSTERS[0]
-        framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
+        cluster = self.ALLOWED_CLUSTERS[0]
+        framework = self.ALLOWED_FRAMEWORKS[self.ALLOWED_CLUSTERS[0]][0]
         endpoint = "unsupported-endpoint"
         wrong_urls.append(f"/{cluster}/{framework}/v1/{endpoint}/",)
 
@@ -512,11 +517,11 @@ class ResourceServerViewTestCase(TestCase):
 
         # Unsupported cluster
         cluster = "unsupported-cluster"
-        framework = ALLOWED_FRAMEWORKS[ALLOWED_CLUSTERS[0]][0]
+        framework = self.ALLOWED_FRAMEWORKS[self.ALLOWED_CLUSTERS[0]][0]
         wrong_urls.append(f"/{cluster}/{framework}/v1/batches",)
 
         # Unsupported framework
-        cluster = ALLOWED_CLUSTERS[0]
+        cluster = self.ALLOWED_CLUSTERS[0]
         framework = "unsupported-framework"
         wrong_urls.append(f"/{cluster}/{framework}/v1/batches",)
 

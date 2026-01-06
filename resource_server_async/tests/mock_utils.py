@@ -18,9 +18,7 @@ HAS_PREMIUM_ACCESS = "-HAS-PREMIUM-ACCESS"
 MOCK_RESPONSE = "mock response"
 
 # Globus Group UUID for premium access test
-MOCK_GROUP = "MockGroup"
 MOCK_GROUP_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-MOCK_ALLOWED_GROUP = f"{MOCK_GROUP}:{MOCK_GROUP_UUID}"
 
 # Get mock access token
 def get_mock_access_token(active=True, expired=False, has_premium_access=False):
