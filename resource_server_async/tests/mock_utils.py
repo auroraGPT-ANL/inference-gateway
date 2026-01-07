@@ -5,8 +5,9 @@ import uuid
 from django.utils import timezone
 from concurrent.futures import Future
 from utils.pydantic_models.db_models import UserPydantic, AccessLogPydantic
-from resource_server_async.models import AuthService
+from resource_server_async.models import AuthService, Endpoint
 from django.http import StreamingHttpResponse
+from resource_server_async.endpoints.endpoint import SubmitTaskResponse, SubmitStreamingTaskResponse
 
 
 # Constants flags within mock access tokens
@@ -219,3 +220,19 @@ def mock_initialize_access_log_data(self, request):
         api_route="/mock/route",
         origin_ip="127.0.0.1",
     )
+
+# Mock endpoint/direct_api.py submit_task function
+async def mock_submit_task(self, data) -> SubmitTaskResponse:
+    return SubmitTaskResponse(result=MOCK_RESPONSE, task_id=str(uuid.uuid4()))
+
+# Mock endpoint/direct_api.py submit_streaming_task function
+async def mock_submit_streaming_task(self, data) -> SubmitStreamingTaskResponse:
+    return SubmitStreamingTaskResponse(response=StreamingHttpResponse(content=MOCK_RESPONSE), task_id=str(uuid.uuid4()))
+    #return None
+
+# Mock utils.metis_utils.fetch_metis_status function
+db_endpoints = Endpoint.objects.all()
+metis_models = [e.model for e in db_endpoints if e.cluster == "metis"]
+metis_status = {m: {"model": m, "status": "Live", "endpoint_id": str(uuid.uuid4())} for m in metis_models}
+async def mock_fetch_metis_status(use_cache):
+    return metis_status, ""
