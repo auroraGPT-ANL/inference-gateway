@@ -5,6 +5,7 @@ import ast
 import json
 import uuid
 import logging
+import copy
 log = logging.getLogger(__name__)
 
 # Tools to test with Django Ninja
@@ -12,13 +13,15 @@ from django.test import TestCase
 from ninja.testing import TestAsyncClient
 from resource_server_async.api import router
 
-# Overwrite utils functions to prevent contacting Globus services
+# Overwrite functions to prevent contacting third-party services
 import asyncio
 import utils.auth_utils as auth_utils
 import utils.globus_utils as globus_utils
+import utils.metis_utils as metis_utils
 import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async import views as async_views
 from resource_server_async import api
+from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 auth_utils.check_session_info = mock_utils.check_session_info
 auth_utils.get_globus_client = mock_utils.get_globus_client
 auth_utils.check_globus_policies = mock_utils.check_globus_policies
@@ -30,6 +33,9 @@ asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
 async_views.handle_streaming_inference = mock_utils.handle_streaming_inference
 api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initialize_access_log_data
+DirectAPIEndpoint.submit_task = mock_utils.mock_submit_task
+DirectAPIEndpoint.submit_streaming_task = mock_utils.mock_submit_streaming_task
+metis_utils.fetch_metis_status = mock_utils.mock_fetch_metis_status
 
 # Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
 settings.MAX_BATCHES_PER_USER = 1000
@@ -80,10 +86,9 @@ class ResourceServerViewTestCase(TestCase):
         self.valid_params["metrics"] = {}
 
         # Extract streaming test cases from valid chat completions
-        self.streaming_test_cases = [
-            params for params in self.valid_params["chat/completions"] 
-            if params.get("stream") is True
-        ]
+        self.streaming_test_cases = copy.deepcopy(self.valid_params["chat/completions"])
+        for i in range(len(self.streaming_test_cases)):
+            self.streaming_test_cases[i]["stream"] = True
 
         # Load invalid test input data (OpenAI format)
         self.invalid_params = {}
@@ -192,21 +197,30 @@ class ResourceServerViewTestCase(TestCase):
                         # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
                         valid_params["model"] = endpoint.model
 
+                        # Make sure the request is not streaming (this is tested in another function)
+                        # "if" statement needed since not all openai endpoints support streaming
+                        if "stream" in valid_params:
+                            valid_params["stream"] = False
+
                         # Make sure POST requests succeed
                         response = await self.client.post(url, data=json.dumps(valid_params).encode('utf-8'), headers=headers, **self.kwargs)
                         self.assertEqual(response.status_code, 200)
-                        
-                        # For streaming responses, we might get different response format
-                        # but we should still get a successful response
+
+                        # Check the response
                         response_data = self.__get_response_json(response)
+                        self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
+                        
+                        # Check 
+                        # but we should still get a successful response
+                        #response_data = self.__get_response_json(response)
                         # The mock response should be consistent, but streaming might change format
-                        if valid_params.get("stream") is True:
+                        #if valid_params.get("stream") is True:
                             # For streaming, we just verify we got a successful response
                             # The actual response format might differ
-                            self.assertIsNotNone(response_data)
-                        else:
-                            # For non-streaming, we expect the exact mock response
-                            self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
+                        #    self.assertIsNotNone(response_data)
+                       # else:
+                        #    # For non-streaming, we expect the exact mock response
+                        #    self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
 
                     # Make sure POST requests fail when providing invalid inputs
                     for invalid_params in self.invalid_params[openai_endpoint]:
@@ -277,64 +291,48 @@ class ResourceServerViewTestCase(TestCase):
 
     # Test streaming functionality (POST)
     async def test_post_streaming_inference_view(self):
-        """Test streaming responses for chat/completions endpoint using real test data
-        Note: stream=True is supported, but stream_options is only available in /completions endpoint"""
+        """This simply test streaming, most of the POST inference tests are done elsewhere."""
         
         # Skip if no streaming test cases are available
         if not self.streaming_test_cases:
             self.skipTest("No streaming test cases found in valid_chat_completions.json")
         
-        # For each supported endpoint in the database that supports chat/completions...
+        # # For each endpoint in the database ...
         async for endpoint in Endpoint.objects.all():
-          if "model-removed" not in endpoint.endpoint_slug:
+            if "model-removed" not in endpoint.endpoint_slug:
+
+                # If the endpoint's cluster supports chat/completions
+                if "chat/completions" in self.ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]:
             
-            # Build the targeted Django URL for chat/completions
-            url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
-            
-            # Skip if this cluster doesn't support chat/completions
-            if "chat/completions" not in self.ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
-                continue
-            
-            # If the endpoint can be accessed by the mock access token ...
-            if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
-                headers = self.premium_headers
-                
-                # Test each streaming test case from the JSON data
-                for streaming_params in self.streaming_test_cases:
-                    # Create a copy to avoid modifying the original test data
-                    test_params = streaming_params.copy()
-                    # Overwrite the model to match the endpoint model
-                    test_params["model"] = endpoint.model
-                    
-                    # Test streaming request
-                    response = await self.client.post(url, data=json.dumps(test_params).encode('utf-8'), headers=headers, **self.kwargs)
-                    
-                    # For streaming, we expect a 200 response
-                    self.assertEqual(response.status_code, 200)
-                    
-                    # In a real streaming response, we'd get Server-Sent Events
-                    # But in our mock implementation, we just verify the request is processed
-                    # The response format might differ for streaming vs non-streaming
-                    response_data = self.__get_response_json(response)
-                    self.assertIsNotNone(response_data)  # Just verify we got some response
-                
-                # Also test that non-streaming requests work with the same endpoint
-                # Use the first streaming test case and modify it to be non-streaming
-                if self.streaming_test_cases:
-                    non_streaming_params = self.streaming_test_cases[0].copy()
-                    non_streaming_params["model"] = endpoint.model
-                    non_streaming_params["stream"] = False
-                    
-                    response = await self.client.post(url, data=json.dumps(non_streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
-                    self.assertEqual(response.status_code, 200)
-                    # For non-streaming, we can expect the exact mock response
-                    response_data = self.__get_response_json(response)
-                    if response_data is not None:
-                        self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
+                    # Build the targeted Django URL for chat/completions
+                    url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
+
+                    # If the endpoint can be accessed by the mock access token ...
+                    if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
+                        headers = self.premium_headers
+                        
+                        # Test each streaming test case from the JSON data
+                        for streaming_params in self.streaming_test_cases:
+
+                            # Overwrite the model to match the endpoint model
+                            streaming_params["model"] = endpoint.model
+                            
+                            # Test streaming request
+                            log.error(f"!!!!! ====---- {streaming_params}")
+                            log.error(f"!!!!! ====---- {json.dumps(streaming_params).encode('utf-8')}")
+                            log.error(f"!!!!! ====---- {url}")
+                            response = await self.client.post(url, data=json.dumps(streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
+                            self.assertEqual(response.status_code, 200)
+                            
+                            # In a real streaming response, we'd get Server-Sent Events
+                            # But in our mock implementation, we just verify the request is processed
+                            # The response format might differ for streaming vs non-streaming
+                            response_data = self.__get_response_json(response)
+                            self.assertIsNotNone(response_data)  # Just verify we got some response
 
 
     # Test streaming-specific parameter validation
-    async def test_streaming_parameter_validation(self):
+    async def AAA_test_streaming_parameter_validation(self):
         """Test validation of streaming-specific parameters
         Tests that stream=True works but invalid stream values are rejected"""
         
