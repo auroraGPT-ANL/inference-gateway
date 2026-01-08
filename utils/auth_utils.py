@@ -209,10 +209,6 @@ def check_session_info(introspection, user_groups):
     # Try to check if an authentication came from authorized provider
     try:
 
-        # Define the list of IdP providers present in the session_info field
-        # This array is used to log un-authorized attempts
-        session_info_idp_ids = []
-
         # For each active authentication session ...
         session_info_identities = []
         for session_idp in [auth["idp"] for auth in introspection["session_info"]["authentications"].values()]:
