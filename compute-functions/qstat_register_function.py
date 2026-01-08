@@ -144,7 +144,7 @@ def qstat_inference_function():
             raise RuntimeError("USER environment variable not set.")
 
         # Get extended info for *only* this user's jobs
-        qstat_cmd = f"TZ='America/Chicago' qstat -xf $(qselect -u {user})"
+        qstat_cmd = f"TZ='America/Chicago' qselect -u {user} | xargs -r qstat -xf"
         try:
             full_output = run_command(qstat_cmd)
         except RuntimeError:
