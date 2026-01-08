@@ -1,6 +1,15 @@
 from django.conf import settings
 from django.core.management import call_command
+import django.http as django_http 
 from resource_server_async.models import Endpoint, Cluster
+import asyncio
+import utils.auth_utils as auth_utils
+import utils.globus_utils as globus_utils
+import utils.metis_utils as metis_utils
+import resource_server_async.tests.mock_utils as mock_utils
+import httpx
+from resource_server_async import api
+from resource_server_async.endpoints import globus_compute, direct_api
 import ast
 import json
 import uuid
@@ -13,35 +22,37 @@ from django.test import TestCase
 from ninja.testing import TestAsyncClient
 from resource_server_async.api import router
 
-# Overwrite functions to prevent contacting third-party services
-import asyncio
-import utils.auth_utils as auth_utils
-import utils.globus_utils as globus_utils
-import utils.metis_utils as metis_utils
-import resource_server_async.tests.mock_utils as mock_utils
-from resource_server_async import views as async_views
-from resource_server_async import api
-from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
-auth_utils.check_session_info = mock_utils.check_session_info
+# Overwrite log data initialization
+api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initialize_access_log_data
+
+# Overwrite Globus SDK classes and functions
 auth_utils.get_globus_client = mock_utils.get_globus_client
-auth_utils.check_globus_policies = mock_utils.check_globus_policies
-auth_utils.check_globus_groups = mock_utils.check_globus_groups
-auth_utils.introspect_token = mock_utils.introspect_token
 globus_utils.get_compute_client_from_globus_app = mock_utils.get_compute_client_from_globus_app
 globus_utils.get_compute_executor = mock_utils.get_compute_executor
+auth_utils.introspect_token = mock_utils.introspect_token
+
+# Overwrite future
 asyncio.wrap_future = mock_utils.wrap_future
 asyncio.wait_for = mock_utils.wait_for
-async_views.handle_streaming_inference = mock_utils.handle_streaming_inference
-api.GlobalAuth._GlobalAuth__initialize_access_log_data = mock_utils.mock_initialize_access_log_data
-DirectAPIEndpoint.submit_task = mock_utils.mock_submit_task
-DirectAPIEndpoint.submit_streaming_task = mock_utils.mock_submit_streaming_task
+
+# Overwrite httpx client
+httpx.AsyncClient = mock_utils.MockAsyncClient
 metis_utils.fetch_metis_status = mock_utils.mock_fetch_metis_status
 
-# Overwrite the maximum number of batches user can send (in order to go through all of the json test entries)
-settings.MAX_BATCHES_PER_USER = 1000
+# Overwrite streaming utilities
+# Below does not work, you need to overwrite in the module that actually imports the StreamingHttpResponse
+#django_http.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
 
-# Overwrite authorized IdPs for testing
-settings.AUTHORIZED_IDP_DOMAINS=["mock_domain.com"]
+# Patch StreamingHttpResponse in endpoint modules where it's actually imported
+globus_compute.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
+direct_api.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
+
+# Overwrite settings variables
+settings.MAX_BATCHES_PER_USER = 1000
+settings.AUTHORIZED_IDP_DOMAINS=[mock_utils.MOCK_DOMAIN]
+settings.NUMBER_OF_GLOBUS_POLICIES = 1
+settings.GLOBUS_POLICIES = mock_utils.MOCK_POLICY_UUID
+
 
 # Test views.py
 class ResourceServerViewTestCase(TestCase):
@@ -209,18 +220,6 @@ class ResourceServerViewTestCase(TestCase):
                         # Check the response
                         response_data = self.__get_response_json(response)
                         self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
-                        
-                        # Check 
-                        # but we should still get a successful response
-                        #response_data = self.__get_response_json(response)
-                        # The mock response should be consistent, but streaming might change format
-                        #if valid_params.get("stream") is True:
-                            # For streaming, we just verify we got a successful response
-                            # The actual response format might differ
-                        #    self.assertIsNotNone(response_data)
-                       # else:
-                        #    # For non-streaming, we expect the exact mock response
-                        #    self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
 
                     # Make sure POST requests fail when providing invalid inputs
                     for invalid_params in self.invalid_params[openai_endpoint]:
@@ -318,9 +317,6 @@ class ResourceServerViewTestCase(TestCase):
                             streaming_params["model"] = endpoint.model
                             
                             # Test streaming request
-                            log.error(f"!!!!! ====---- {streaming_params}")
-                            log.error(f"!!!!! ====---- {json.dumps(streaming_params).encode('utf-8')}")
-                            log.error(f"!!!!! ====---- {url}")
                             response = await self.client.post(url, data=json.dumps(streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
                             self.assertEqual(response.status_code, 200)
                             
@@ -329,53 +325,6 @@ class ResourceServerViewTestCase(TestCase):
                             # The response format might differ for streaming vs non-streaming
                             response_data = self.__get_response_json(response)
                             self.assertIsNotNone(response_data)  # Just verify we got some response
-
-
-    # Test streaming-specific parameter validation
-    async def AAA_test_streaming_parameter_validation(self):
-        """Test validation of streaming-specific parameters
-        Tests that stream=True works but invalid stream values are rejected"""
-        
-        # For each supported endpoint that allows streaming...
-        async for endpoint in Endpoint.objects.all():
-          if "model-removed" not in endpoint.endpoint_slug:
-            
-            # Build the targeted Django URL for chat/completions
-            url = f"/{endpoint.cluster}/{endpoint.framework}/v1/chat/completions/"
-            
-            # Skip if this cluster doesn't support chat/completions
-            if "chat/completions" not in self.ALLOWED_OPENAI_ENDPOINTS.get(endpoint.cluster, []):
-                continue
-            
-            # If the endpoint can be accessed by the mock access token ...
-            if endpoint.allowed_globus_groups in [[], [mock_utils.MOCK_GROUP_UUID]]:
-                headers = self.premium_headers
-                
-                # Test invalid stream parameter (should be boolean)
-                invalid_stream_params = {
-                    "model": endpoint.model,
-                    "messages": [{"role": "user", "content": "Test message"}],
-                    "stream": "invalid_string"  # Should be boolean
-                }
-                
-                response = await self.client.post(url, data=json.dumps(invalid_stream_params).encode('utf-8'), headers=headers, **self.kwargs)
-                # This should result in a 400 error due to pydantic validation failure
-                self.assertEqual(response.status_code, 400)
-                
-                # Test valid streaming request with various parameters
-                valid_streaming_params = {
-                    "model": endpoint.model,
-                    "messages": [{"role": "user", "content": "Test message"}],
-                    "stream": True,
-                    "max_tokens": 50
-                }
-                
-                response = await self.client.post(url, data=json.dumps(valid_streaming_params).encode('utf-8'), headers=headers, **self.kwargs)
-                # Should work correctly
-                self.assertEqual(response.status_code, 200)
-                # Verify we get some response content
-                response_data = self.__get_response_json(response)
-                self.assertIsNotNone(response_data)
 
 
     # Verify headers failures
