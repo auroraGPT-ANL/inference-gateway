@@ -184,11 +184,16 @@ async def get_jobs(request, cluster:str):
                     # Extract the underlying endpoint wrapper for this model
                     endpoint_slug = slugify(" ".join([block.Cluster, block.Framework, model.lower()]))
                     response = await get_endpoint_wrapper(endpoint_slug)
+
+                    # Continue if the endpoint does not exist to ignore test/dev running jobs
                     if response.error_message:
-                        return await get_response(response.error_message, response.error_code, request)
-                    endpoint = response.endpoint
+                        if "does not exist" in response.error_message:
+                            continue
+                        else:
+                            return await get_response(response.error_message, response.error_code, request)
 
                     # Flag the model as "visible" if the user is authorized to see it ...
+                    endpoint = response.endpoint
                     if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
                         visible_models.append(model)
 
