@@ -9,7 +9,7 @@ import utils.metis_utils as metis_utils
 import resource_server_async.tests.mock_utils as mock_utils
 import httpx
 from resource_server_async import api
-from resource_server_async.endpoints import globus_compute, direct_api
+from resource_server_async.endpoints import globus_compute, direct_api, metis
 import ast
 import json
 import uuid
@@ -37,15 +37,18 @@ asyncio.wait_for = mock_utils.wait_for
 
 # Overwrite httpx client
 httpx.AsyncClient = mock_utils.MockAsyncClient
-metis_utils.fetch_metis_status = mock_utils.mock_fetch_metis_status
 
 # Overwrite streaming utilities
 # Below does not work, you need to overwrite in the module that actually imports the StreamingHttpResponse
 #django_http.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
 
-# Patch StreamingHttpResponse in endpoint modules where it's actually imported
+# Overwrite StreamingHttpResponse in endpoint modules where it's actually imported
 globus_compute.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
 direct_api.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
+
+# Overwrite metis fetch status call
+# Need to overwrite in metis module where it's actually imported
+metis.fetch_metis_status = mock_utils.mock_fetch_metis_status
 
 # Overwrite settings variables
 settings.MAX_BATCHES_PER_USER = 1000

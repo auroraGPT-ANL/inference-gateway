@@ -7,7 +7,7 @@ from resource_server_async.endpoints.endpoint import (
     SubmitStreamingTaskResponse
 )
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
-from utils import metis_utils
+from utils.metis_utils import fetch_metis_status, find_metis_model
 import logging
 log = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class MetisEndpoint(DirectAPIEndpoint):
         """Return endpoint status or an error is the endpoint cannot receive requests."""
         
         # Check external API status to see if it can accept request
-        metis_status, error_message = await metis_utils.fetch_metis_status(use_cache=True)
+        metis_status, error_message = await fetch_metis_status(use_cache=True)
         if error_message:
             return GetEndpointStatusResponse(
                 error_message=error_message,
@@ -58,7 +58,7 @@ class MetisEndpoint(DirectAPIEndpoint):
         log.info(f"Metis inference request for model: {self.model}")
         
         # Find matching model in Metis status (returns endpoint_id for API token lookup)
-        model_info, endpoint_id, error_message = metis_utils.find_metis_model(metis_status, self.model)
+        model_info, endpoint_id, error_message = find_metis_model(metis_status, self.model)
         if error_message:
             return GetEndpointStatusResponse(error_code=404, error_message=error_message)
         
