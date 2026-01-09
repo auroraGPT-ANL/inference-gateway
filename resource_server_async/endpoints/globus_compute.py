@@ -64,6 +64,9 @@ class GlobusComputeEndpoint(BaseEndpoint):
         # Validate endpoint configuration
         self.__config = GlobusComputeEndpointConfig(**config)
 
+        # Force to check managers for readiness with a single-user endpoint
+        self.check_managers = True
+
         # Initialize the rest of the common attributes
         super().__init__(id, endpoint_slug, cluster, framework, model, endpoint_adapter, allowed_globus_groups, allowed_domains)
 
@@ -155,7 +158,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             )
 
         # Check endpoint status
-        response = await self.get_endpoint_status(gcc=gcc, check_managers=True)
+        response = await self.get_endpoint_status(gcc=gcc, check_managers=self.check_managers)
         if response.error_message:
             return SubmitTaskResponse(
                 error_code=response.error_code,
@@ -173,9 +176,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             )
 
         # Submit Globus Compute task and wait for the result
-        result, task_id, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, self.config.endpoint_uuid, self.config.function_uuid, data=data, endpoint_slug=self.endpoint_slug
-        )
+        result, task_id, error_message, error_code = await self._submit_and_get_result(gce, data)
         if len(error_message) > 0:
             return SubmitTaskResponse(
                 error_message=error_message,
@@ -186,6 +187,19 @@ class GlobusComputeEndpoint(BaseEndpoint):
         return SubmitTaskResponse(
             result=result,
             task_id=task_id
+        )
+    
+
+    # Call to Globus Utils submit_and_get_result function
+    # This is a self-contained function that can be re-defined by the Globus multi-user endpoint class
+    async def _submit_and_get_result(self, gce, data):
+
+        # Remove any residual multi-user endpoint configuration from cache
+        gce.user_endpoint_config = {}
+
+        # Submit task and wait for result
+        return await globus_utils.submit_and_get_result(
+            gce, self.config.endpoint_uuid, self.config.function_uuid, data=data, endpoint_slug=self.endpoint_slug
         )
     
 
@@ -225,7 +239,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             gce.endpoint_id = self.config.endpoint_uuid
 
             # Check endpoint status
-            response = await self.get_endpoint_status(gcc=gcc)
+            response = await self.get_endpoint_status(gcc=gcc, check_managers=self.check_managers)
             if response.error_message:
                 return SubmitStreamingTaskResponse(
                     error_message=response.error_message,
@@ -417,7 +431,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             )
 
         # Check endpoint status
-        response = await self.get_endpoint_status(gcc=gcc, check_managers=True, for_batch=True)
+        response = await self.get_endpoint_status(gcc=gcc, check_managers=self.check_managers, for_batch=True)
         if response.error_message:
             return SubmitBatchResponse(
                 error_message=response.error_message,
