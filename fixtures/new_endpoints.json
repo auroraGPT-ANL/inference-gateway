@@ -726,5 +726,32 @@
                 "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
             ]
         }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 43,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-openaigpt-oss-20b-mep-dev",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "openai/gpt-oss-20b-mep-dev",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute_mep.GlobusComputeMEP",
+            "config": {
+                "api_port": 8001,
+                "endpoint_uuid": "fad4d968-8c9a-45ce-9fb4-60a9ab90be60",
+                "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea",
+                "account": "inference_service",
+                "queue": "infer-svc-test",
+                "walltime": "960:00:00",
+                "select_options": "ngpus=8",
+                "max_retries_on_system_failure": 2,
+                "max_workers_per_node": 100,
+                "max_idletime": 3456000,
+                "max_blocks": 2,
+                "min_blocks": 1,
+                "nodes_per_block": 1,
+                "worker_init": "source /home/openinference_svc/sophia_common_scripts.sh"
+            }
+        }
     }
 ]
