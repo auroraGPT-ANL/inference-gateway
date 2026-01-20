@@ -21,6 +21,7 @@ The script exits after a single run; the cron scheduler is responsible for
 periodic execution.
 """
 
+import ast
 import asyncio
 import json
 import logging
@@ -60,7 +61,7 @@ django.setup()
 # ---------------------------------------------------------------------------
 from django.conf import settings  # noqa: E402
 
-from resource_server.models import Endpoint  # noqa: E402
+from resource_server_async.models import Endpoint  # noqa: E402
 from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse # noqa: E402
 from resource_server_async.clusters.cluster import GetJobsResponse, Jobs # noqa: E402
 from utils import globus_utils, metis_utils  # noqa: E402
@@ -167,17 +168,30 @@ async def gather_endpoints() -> Dict[str, EndpointInfo]:
     def _load() -> Dict[str, EndpointInfo]:  # synchronous helper
         result: Dict[str, EndpointInfo] = {}
         for endpoint in Endpoint.objects.filter(cluster="sophia"):
-            info = EndpointInfo(
-                model=endpoint.model,
-                endpoint_uuid=endpoint.endpoint_uuid,
-                function_uuid=endpoint.function_uuid,
-                api_port=endpoint.api_port,
-                endpoint_slug=endpoint.endpoint_slug,
-                allowed_globus_groups=endpoint.allowed_globus_groups,
-            )
-            if info.has_mock_group:
+
+            # Extract config parameters
+            endpoint_config = ast.literal_eval(endpoint.config)
+            endpoint_uuid=endpoint_config.get("endpoint_uuid",None)
+            function_uuid=endpoint_config.get("function_uuid", None)
+            api_port=endpoint_config.get("api_port", None)
+
+            # Skip if not in production
+            if "removed" in endpoint.model or "aaaaaaaa" in endpoint_uuid or "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" in endpoint.allowed_globus_groups:
                 continue
-            result[normalize_model_name(info.model)] = info
+
+            # Add endpoint if in production
+            else:
+                info = EndpointInfo(
+                    model=endpoint.model,
+                    endpoint_uuid=endpoint_uuid,
+                    function_uuid=function_uuid,
+                    api_port=api_port,
+                    endpoint_slug=endpoint.endpoint_slug,
+                    allowed_globus_groups=endpoint.allowed_globus_groups,
+                )
+                if info.has_mock_group:
+                    continue
+                result[normalize_model_name(info.model)] = info
         return result
 
     return await sync_to_async(_load)()
