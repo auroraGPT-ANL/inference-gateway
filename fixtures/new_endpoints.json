@@ -726,5 +726,21 @@
                 "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
             ]
         }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 43,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-mistralaidevstral-2-123b-instruct-2512",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "mistralai/Devstral-2-123B-Instruct-2512",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
+            "config": {
+                "api_port": 8000,
+                "endpoint_uuid": "9184dc8b-139a-4c75-bc75-2da8c223e513",
+                "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
+            }
+        }
     }
 ]
