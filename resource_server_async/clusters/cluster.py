@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict
@@ -5,6 +6,8 @@ from resource_server_async.models import User
 from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.auth_utils import CheckPermissionResponse
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
+import logging
+log = logging.getLogger(__name__)
 
 class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
@@ -57,8 +60,35 @@ class BaseCluster(ABC):
     # Check maintenance
     def check_maintenance(self) -> CheckMaintenanceResponse:
         """Verify is the cluster is currently under maintenance."""
+
+        try:
+            # Check Redis cache for cluster status from ALCF facility API
+            cache_key = f"cluster_status:{self.cluster_name}"
+            cluster_status = cache.get(cache_key)
+            
+            # If there is a cached status ...
+            if cluster_status is not None:
+                status = cluster_status.get("status", "unknown")
+                
+                # If the cluster is reported as down
+                if status == "down":
+                    error_msg = cluster_status.get("message", f"Cluster {self.cluster_name} is currently down.")
+                    return CheckMaintenanceResponse(
+                        is_under_maintenance=True,
+                        error_message=f"Error: {error_msg}",
+                        error_code=503
+                    )
+                
+                # If there was an error fetching the status
+                elif status == "error":
+                    log.warning(f"Cluster status check error for {self.cluster_name}: {cluster_status.get('error')}")
+                    # Continue to parent check even on error
+            
+        except Exception as e:
+            log.warning(f"Failed to check cluster status from cache for {self.cluster_name}: {e}")
+            # Continue to parent check even on exception
         
-        # Try to check for maintenance
+        # Try to check for maintenance from environment variables
         try:
 
             # If the cluster is under maintenance ...

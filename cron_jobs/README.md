@@ -98,6 +98,24 @@ Make sure you set execution permission:
 chmod u+x /home/webportal/inference-gateway/cron_jobs/query_model_status.sh
 ```
 
+### Check Cluster Maintenance Status
+
+This is to periodically check ALCF cluster status and cache the results in Redis for consumption by the Django Ninja API. It queries the ALCF facility API and stores cluster status (up/down/error) with a 10-minute TTL.
+
+On the VM, as the `webportal` user, add a crontab with the following command:
+```bash
+crontab -e
+```
+and include the following line to execute the update command every 10 minutes:
+```bash
+*/10 * * * * /home/webportal/inference-gateway/cron_jobs/check_maintenances.sh >> /home/webportal/inference-gateway/cron_jobs/check_maintenances.log 2>&1
+```
+
+Make sure you set execution permission:
+```bash
+chmod u+x /home/webportal/inference-gateway/cron_jobs/check_maintenances.sh
+```
+
 ### Direct Health Monitor (Sophia + Metis)
 
 Runs internal health checks against the active Sophia Globus Compute models and Metis API models. The script bypasses the public API, calls the underlying endpoints directly, and posts a summary to Slack.
