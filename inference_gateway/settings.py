@@ -134,7 +134,9 @@ else:
     )
 
 # Authorized Globus service account identities
-AUTHORIZED_GLOBUS_SERVICE_USERNAMES = json.loads(os.getenv("AUTHORIZED_GLOBUS_SERVICE_USERNAMES", "[]"))
+AUTHORIZED_GLOBUS_SERVICE_USERNAMES = json.loads(
+    os.getenv("AUTHORIZED_GLOBUS_SERVICE_USERNAMES", "[]")
+)
 
 # Load maintenance notices to be displayed for individual clusters
 MAINTENANCE_ERROR_NOTICES = json.loads(os.getenv("MAINTENANCE_ERROR_NOTICES", "{}"))
@@ -210,29 +212,29 @@ WSGI_APPLICATION = "inference_gateway.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/3.2/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("PGDATABASE", "postgres"),
-        "USER": os.getenv("PGUSER", "postgres"),
-        "PASSWORD": os.getenv("PGPASSWORD", "postgres"),
-        "HOST": os.getenv("PGHOST", "pgbouncer"),  # Connect to the pgbouncer service
-        "PORT": os.getenv("PGPORT", "6432"),  # Default PgBouncer port
-        "OPTIONS": {
-            "connect_timeout": 10,
-        },
-        "CONN_MAX_AGE": 0,
-        "ATOMIC_REQUESTS": False,
-        "CONN_HEALTH_CHECKS": False,
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('PGDATABASE', 'postgres'),
+#         'USER': os.getenv('PGUSER', 'postgres'),
+#         'PASSWORD': os.getenv('PGPASSWORD', 'postgres'),
+#         'HOST': os.getenv('PGHOST', 'pgbouncer'),  # Connect to the pgbouncer service
+#         'PORT': os.getenv('PGPORT', '6432'),       # Default PgBouncer port
+#         "OPTIONS": {
+#             "connect_timeout": 10,
+#         },
+#         "CONN_MAX_AGE": 0,
+#         "ATOMIC_REQUESTS": False,
+#         "CONN_HEALTH_CHECKS": False,
+#     }
+# }
 
 
 # Password validation
