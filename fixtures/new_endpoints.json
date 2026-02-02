@@ -742,5 +742,21 @@
                 "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
             }
         }
+    },
+    {
+        "model": "resource_server_async.endpoint",
+        "pk": 44,
+        "fields": {
+            "endpoint_slug": "sophia-vllm-astromlabastrosage-70b-20251009",
+            "cluster": "sophia",
+            "framework": "vllm",
+            "model": "AstroMLab/AstroSage-70B-20251009",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
+            "config": {
+                "api_port": 8000,
+                "endpoint_uuid": "64bc699e-8837-4336-8525-2556f25bf10f",
+                "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
+            }
+        }
     }
 ]
