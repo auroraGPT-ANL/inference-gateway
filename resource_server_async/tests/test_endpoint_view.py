@@ -1,5 +1,11 @@
 from resource_server_async.tests import ResourceServerTestCase
 
+from resource_server_async.models import Endpoint
+import resource_server_async.tests.mock_utils as mock_utils
+import logging
+
+log = logging.getLogger(__name__)
+
 
 class EndpointsViewTestCase(ResourceServerTestCase):
     # Define the targeted Django URL
@@ -42,7 +48,11 @@ class EndpointsViewTestCase(ResourceServerTestCase):
             nb_endpoints = 0
             for cluster in response_data["clusters"]:
                 for framework in response_data["clusters"][cluster]["frameworks"]:
-                    nb_endpoints += len(response_data["clusters"][cluster]["frameworks"][framework]["models"])
+                    nb_endpoints += len(
+                        response_data["clusters"][cluster]["frameworks"][framework][
+                            "models"
+                        ]
+                    )
             self.assertEqual(nb_endpoints_expected, nb_endpoints)
 
     async def __get_endpoint_object_counts(self):
@@ -54,7 +64,9 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         async for _ in Endpoint.objects.filter(allowed_globus_groups=[]):
             db_endpoints_public += 1
         db_endpoints_premium = 0
-        async for _ in Endpoint.objects.filter(allowed_globus_groups=[mock_utils.MOCK_GROUP_UUID]):
+        async for _ in Endpoint.objects.filter(
+            allowed_globus_groups=[mock_utils.MOCK_GROUP_UUID]
+        ):
             db_endpoints_premium += 1
 
         return (db_endpoints_public, db_endpoints_premium)
