@@ -41,19 +41,13 @@ docs/
 ### Install Dependencies
 
 ```bash
-pip install -r requirements-docs.txt
-```
-
-Or:
-
-```bash
-pip install mkdocs-material mkdocs-minify-plugin
+uv sync
 ```
 
 ### Build Documentation
 
 ```bash
-mkdocs build
+uv run -- mkdocs build
 ```
 
 This creates the `site/` directory with static HTML files.
