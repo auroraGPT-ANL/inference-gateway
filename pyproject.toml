@@ -45,11 +45,10 @@ mkdocs-minify-plugin = "^0.8.0"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ["py312"]
-include = '\.pyi?$'
-exclude = '\.git|\.venv|build|_build|dist'
-
-[tool.isort]
-profile = "black"
+target-version = "py312"
+extend-exclude = [
+    "resource_server/migrations/*",
+    "resource_server_async/migrations/*"
+]
