@@ -15,14 +15,14 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         """
         Make sure GET requests fail if something is wrong with the authentication
         """
-        await self._verify_headers_failures(url=url, method=self.client.get)
+        await self._verify_headers_failures(url=self.url, method=self.client.get)
 
     async def test_non_get(self):
         """
         Make sure non-GET requests are not allowed
         """
         for method in [self.client.post, self.client.put, self.client.delete]:
-            response = await method(url)
+            response = await method(self.url)
             self.assertEqual(response.status_code, 405)
 
     async def test_get_list_endpoints(self):
@@ -38,7 +38,7 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         # TODO: Factor these tests out as individual units (setattr?)
         for headers in [self.headers, self.premium_headers]:
             # Make sure GET requests succeed when providing a valid access token
-            response = await self.client.get(url, headers=headers)
+            response = await self.client.get(self.url, headers=headers)
             response_data = self._get_response_json(response)
             self.assertEqual(response.status_code, 200)
 
