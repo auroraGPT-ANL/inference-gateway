@@ -58,7 +58,7 @@ class StreamInferenceViewTestCase(ResourceServerTestCase):
                             # In a real streaming response, we'd get Server-Sent Events
                             # But in our mock implementation, we just verify the request is processed
                             # The response format might differ for streaming vs non-streaming
-                            response_data = self.__get_response_json(response)
+                            response_data = self._get_response_json(response)
                             self.assertIsNotNone(
                                 response_data
                             )  # Just verify we got some response

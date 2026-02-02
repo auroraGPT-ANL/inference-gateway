@@ -16,7 +16,7 @@ class BatchInferenceViewTestCase(ResourceServerTestCase):
         Test post_batch_inference view (POST)
         """
         # Make sure POST requests fail when targetting an unsupported cluster or framework
-        for wrong_url in self.__get_wrong_batch_urls():
+        for wrong_url in self._get_wrong_batch_urls():
             response = await self.client.post(wrong_url, headers=self.headers)
             self.assertEqual(response.status_code, 400)
 
@@ -33,7 +33,7 @@ class BatchInferenceViewTestCase(ResourceServerTestCase):
                     url = f"/{endpoint.cluster}/{endpoint.framework}/v1/batches"
 
                     # Make sure POST requests fail if something is wrong with the authentication
-                    await self.__verify_headers_failures(
+                    await self._verify_headers_failures(
                         url=url, method=self.client.post
                     )
 
@@ -71,7 +71,7 @@ class BatchInferenceViewTestCase(ResourceServerTestCase):
                             self.assertEqual(response.status_code, 200)
 
                             # Check whether the response makes sense (do not check batch_id, it's randomly generated in the view)
-                            response_json = self.__get_response_json(response)
+                            response_json = self._get_response_json(response)
                             self.assertEqual(
                                 response_json["input_file"], valid_params["input_file"]
                             )

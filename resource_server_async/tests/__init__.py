@@ -145,7 +145,7 @@ class ResourceServerTestCase(TestCase):
             ]
 
     # Verify headers failures
-    async def __verify_headers_failures(self, url=None, method=None):
+    async def _verify_headers_failures(self, url=None, method=None):
         # Should fail (not authenticated, missing token)
         headers = mock_utils.get_mock_headers(access_token="")
         response = await method(url, headers=headers)
@@ -174,7 +174,7 @@ class ResourceServerTestCase(TestCase):
 
     # Convert bytes response to dictionary
     # This is because Django Ninja client does not take content-type json for some reason...
-    def __get_response_json(self, response):
+    def _get_response_json(self, response):
         # First check if this is a StreamingHttpResponse
         is_streaming = hasattr(response, "streaming_content")
 
@@ -241,7 +241,7 @@ class ResourceServerTestCase(TestCase):
                 return str(response)
 
     # Get endpoint URL
-    def __get_endpoint_urls(self, endpoint):
+    def _get_endpoint_urls(self, endpoint):
         urls = {}
         for openai_endpoint in self.ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]:
             urls[openai_endpoint] = (
@@ -250,7 +250,7 @@ class ResourceServerTestCase(TestCase):
         return urls
 
     # Get wrong endpoint URLs
-    def __get_wrong_endpoint_urls(self):
+    def _get_wrong_endpoint_urls(self):
         # Declare list of URLS with unsupported cluster, framework, and openai endpoint
         wrong_urls = []
 
@@ -282,7 +282,7 @@ class ResourceServerTestCase(TestCase):
         return wrong_urls
 
     # Get wrong batch URLs
-    def __get_wrong_batch_urls(self):
+    def _get_wrong_batch_urls(self):
         # Declare list of URLS with unsupported cluster and framework
         wrong_urls = []
 

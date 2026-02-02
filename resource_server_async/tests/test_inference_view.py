@@ -14,7 +14,7 @@ class InferenceViewTestCase(ResourceServerTestCase):
         Test post_inference view (POST)
         """
         # Make sure POST requests fail when targetting an unsupported cluster, framework, or openai endpoint
-        for wrong_url in self.__get_wrong_endpoint_urls():
+        for wrong_url in self._get_wrong_endpoint_urls():
             response = await self.client.post(wrong_url, headers=self.headers)
             self.assertEqual(response.status_code, 400)
 
@@ -22,12 +22,12 @@ class InferenceViewTestCase(ResourceServerTestCase):
         async for endpoint in Endpoint.objects.all():
             if "model-removed" not in endpoint.endpoint_slug:
                 # Build the targeted Django URLs
-                url_dict = self.__get_endpoint_urls(endpoint)
+                url_dict = self._get_endpoint_urls(endpoint)
 
                 # For each URL (openai endpoint) ...
                 for openai_endpoint, url in url_dict.items():
                     # Make sure POST requests fail if something is wrong with the authentication
-                    await self.__verify_headers_failures(
+                    await self._verify_headers_failures(
                         url=url, method=self.client.post
                     )
 
@@ -67,7 +67,7 @@ class InferenceViewTestCase(ResourceServerTestCase):
                             self.assertEqual(response.status_code, 200)
 
                             # Check the response
-                            response_data = self.__get_response_json(response)
+                            response_data = self._get_response_json(response)
                             self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
 
                         # Make sure POST requests fail when providing invalid inputs

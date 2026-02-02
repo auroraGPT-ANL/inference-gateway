@@ -15,7 +15,7 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         """
         Make sure GET requests fail if something is wrong with the authentication
         """
-        await self.__verify_headers_failures(url=url, method=self.client.get)
+        await self._verify_headers_failures(url=url, method=self.client.get)
 
     async def test_non_get(self):
         """
@@ -36,7 +36,7 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         for headers in [self.headers, self.premium_headers]:
             # Make sure GET requests succeed when providing a valid access token
             response = await self.client.get(url, headers=headers)
-            response_data = self.__get_response_json(response)
+            response_data = self._get_response_json(response)
             self.assertEqual(response.status_code, 200)
 
             # Define the total number of expected endpoints
