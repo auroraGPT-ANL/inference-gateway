@@ -21,7 +21,7 @@ from resource_server_async.models import (
     AccessLog as AsyncAccessLog,
     RequestLog as AsyncRequestLog,
     BatchLog as AsyncBatchLog,
-    Endpoint as AsyncEndpoint
+    Endpoint as AsyncEndpoint,
 )
 import re
 import logging
@@ -33,36 +33,38 @@ log = logging.getLogger(__name__)
 # Custom authentication for Django Ninja that uses Globus session authentication
 class DjangoSessionAuth(SessionAuth):
     """Use Globus session authentication for API endpoints."""
-    
+
     def authenticate(self, request: HttpRequest, key):
         from dashboard_async.globus_auth import validate_dashboard_token
         import time
-        
+
         # Check for Globus tokens in session
-        if 'globus_tokens' not in request.session:
+        if "globus_tokens" not in request.session:
             return None
-        
+
         try:
-            tokens = request.session['globus_tokens']
-            auth_tokens = tokens.get('auth.globus.org', {})
-            access_token = auth_tokens.get('access_token')
-            expires_at = auth_tokens.get('expires_at_seconds', 0)
-            
+            tokens = request.session["globus_tokens"]
+            auth_tokens = tokens.get("auth.globus.org", {})
+            access_token = auth_tokens.get("access_token")
+            expires_at = auth_tokens.get("expires_at_seconds", 0)
+
             # Check if token is still valid (not expired)
             if time.time() >= expires_at:
                 return None
-            
+
             # Validate token with groups check
-            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
-            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
-            
+            groups_token = tokens.get("groups.api.globus.org", {}).get("access_token")
+            is_valid, user_data, error = validate_dashboard_token(
+                access_token, groups_token
+            )
+
             if is_valid:
                 # Return user data for use in API views
                 return user_data
-            
+
         except Exception as e:
             log.warning(f"API auth error: {e}")
-        
+
         return None
 
 
@@ -75,130 +77,142 @@ api.add_router("/", router)
 
 # ========================= Authentication Views =========================
 
+
 def dashboard_login_view(request):
     """Initiate Globus OAuth2 login flow."""
     from dashboard_async.globus_auth import validate_dashboard_token
-    
+
     # Check if already authenticated via Globus
-    if 'globus_tokens' in request.session:
-        tokens = request.session['globus_tokens']
-        access_token = tokens['auth.globus.org']['access_token']
-        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
-        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
-        
+    if "globus_tokens" in request.session:
+        tokens = request.session["globus_tokens"]
+        access_token = tokens["auth.globus.org"]["access_token"]
+        groups_token = tokens.get("groups.api.globus.org", {}).get("access_token")
+        is_valid, user_data, error = validate_dashboard_token(
+            access_token, groups_token
+        )
+
         if is_valid:
-            return redirect('dashboard_analytics')
+            return redirect("dashboard_analytics")
         else:
             # Clear invalid session to prevent loops
             request.session.flush()
-    
+
     # Clear any stale OAuth state from previous failed attempts
     # This prevents reusing OAuth state after errors
-    request.session.pop('oauth_state', None)
-    request.session.pop('next_url', None)
-    
+    request.session.pop("oauth_state", None)
+    request.session.pop("next_url", None)
+
     # Generate new state for CSRF protection
     import secrets
+
     state = secrets.token_urlsafe(32)
-    request.session['oauth_state'] = state
-    request.session['next_url'] = request.GET.get('next', 'dashboard_analytics')
-    
+    request.session["oauth_state"] = state
+    request.session["next_url"] = request.GET.get("next", "dashboard_analytics")
+
     # Force session save before redirect
     request.session.modified = True
     request.session.save()
-    
+
     # Get Globus authorization URL
     from dashboard_async.globus_auth import get_authorization_url
+
     auth_url = get_authorization_url(state=state)
-    
+
     return redirect(auth_url)
 
 
 def dashboard_callback_view(request):
     """Handle Globus OAuth2 callback."""
-    from dashboard_async.globus_auth import exchange_code_for_tokens, validate_dashboard_token
-    
+    from dashboard_async.globus_auth import (
+        exchange_code_for_tokens,
+        validate_dashboard_token,
+    )
+
     # Check for errors from Globus
-    error = request.GET.get('error')
+    error = request.GET.get("error")
     if error:
-        error_description = request.GET.get('error_description', error)
+        error_description = request.GET.get("error_description", error)
         log.error(f"Globus OAuth error: {error} - {error_description}")
-        
-        request.session.pop('oauth_state', None)
-        request.session.pop('next_url', None)
-        
-        if error == 'unauthorized_client':
-            messages.error(request, 
-                f'OAuth Configuration Error: The redirect URI is not registered with Globus. '
-                f'Error: {error_description}')
+
+        request.session.pop("oauth_state", None)
+        request.session.pop("next_url", None)
+
+        if error == "unauthorized_client":
+            messages.error(
+                request,
+                f"OAuth Configuration Error: The redirect URI is not registered with Globus. "
+                f"Error: {error_description}",
+            )
         else:
-            messages.error(request, f'Authentication failed: {error_description}')
-        
-        return render(request, 'login.html', {'form': None})
-    
+            messages.error(request, f"Authentication failed: {error_description}")
+
+        return render(request, "login.html", {"form": None})
+
     # Verify CSRF state
-    state = request.GET.get('state')
-    saved_state = request.session.get('oauth_state')
-    
+    state = request.GET.get("state")
+    saved_state = request.session.get("oauth_state")
+
     if not state or state != saved_state:
         log.warning(f"CSRF state mismatch")
-        messages.error(request, 'Invalid authentication state. Please try again.')
-        request.session.pop('oauth_state', None)
-        return render(request, 'login.html', {'form': None})
-    
+        messages.error(request, "Invalid authentication state. Please try again.")
+        request.session.pop("oauth_state", None)
+        return render(request, "login.html", {"form": None})
+
     # Exchange authorization code for tokens
-    auth_code = request.GET.get('code')
+    auth_code = request.GET.get("code")
     if not auth_code:
         log.error("No authorization code in callback")
-        messages.error(request, 'No authorization code received from Globus.')
-        return render(request, 'login.html', {'form': None})
-    
+        messages.error(request, "No authorization code received from Globus.")
+        return render(request, "login.html", {"form": None})
+
     try:
         # Get tokens from Globus
         tokens = exchange_code_for_tokens(auth_code)
-        request.session['globus_tokens'] = tokens
-        
+        request.session["globus_tokens"] = tokens
+
         # Validate token and get user info
-        access_token = tokens['auth.globus.org']['access_token']
-        groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
-        is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
-        
+        access_token = tokens["auth.globus.org"]["access_token"]
+        groups_token = tokens.get("groups.api.globus.org", {}).get("access_token")
+        is_valid, user_data, error = validate_dashboard_token(
+            access_token, groups_token
+        )
+
         if not is_valid:
             log.error(f"Token validation failed: {error}")
-            
+
             # Clear all OAuth-related session data
-            request.session.pop('globus_tokens', None)
-            request.session.pop('oauth_state', None)
-            request.session.pop('next_url', None)
-            
+            request.session.pop("globus_tokens", None)
+            request.session.pop("oauth_state", None)
+            request.session.pop("next_url", None)
+
             # Render error page directly (don't redirect to avoid loop)
             messages.error(request, error)
-            return render(request, 'login.html', {'form': None})
-        
+            return render(request, "login.html", {"form": None})
+
         # Store user info in session
-        request.session['globus_user'] = {
-            'id': user_data.id,
-            'name': user_data.name,
-            'username': user_data.username,
-            'idp_id': user_data.idp_id,
-            'idp_name': user_data.idp_name,
+        request.session["globus_user"] = {
+            "id": user_data.id,
+            "name": user_data.name,
+            "username": user_data.username,
+            "idp_id": user_data.idp_id,
+            "idp_name": user_data.idp_name,
         }
-        
+
         request.session.modified = True
         request.session.save()
-        
+
         log.info(f"Dashboard login successful: {user_data.name} ({user_data.username})")
-        
+
         # Redirect to original destination
-        next_url = request.session.pop('next_url', 'dashboard_analytics')
-        request.session.pop('oauth_state', None)
-        
+        next_url = request.session.pop("next_url", "dashboard_analytics")
+        request.session.pop("oauth_state", None)
+
         return redirect(next_url)
-        
+
     except Exception as e:
         log.error(f"OAuth callback error: {e}")
-        messages.error(request, f'Authentication error: {str(e)}')
-        return redirect('dashboard_login')
+        messages.error(request, f"Authentication error: {str(e)}")
+        return redirect("dashboard_login")
 
 
 def dashboard_logout_view(request):
@@ -206,25 +220,27 @@ def dashboard_logout_view(request):
     from dashboard_async.globus_auth import revoke_token
     from django.conf import settings
     from urllib.parse import urlencode
-    
+
     # Revoke Globus tokens if present
-    if 'globus_tokens' in request.session:
+    if "globus_tokens" in request.session:
         try:
-            access_token = request.session['globus_tokens']['auth.globus.org']['access_token']
+            access_token = request.session["globus_tokens"]["auth.globus.org"][
+                "access_token"
+            ]
             revoke_token(access_token)
         except Exception as e:
             log.warning(f"Token revocation error during logout: {e}")
-    
+
     # Clear local session
     request.session.flush()
-    
+
     # Build Globus logout URL with redirect back to login
     # This ensures the Globus session is also cleared
-    logout_redirect = request.build_absolute_uri('/dashboard/login')
+    logout_redirect = request.build_absolute_uri("/dashboard/login")
     globus_logout_url = f"https://auth.globus.org/v2/web/logout?{urlencode({'redirect_uri': logout_redirect})}"
-    
+
     log.info("Logging out and clearing Globus session")
-    
+
     # Redirect to Globus logout, which will then redirect back to our login
     return redirect(globus_logout_url)
 
@@ -234,68 +250,80 @@ def dashboard_logout_view(request):
 
 # ========================= Globus Authentication Decorator =========================
 
+
 def globus_login_required(view_func):
     """
     Decorator to require Globus authentication for dashboard views.
     Validates Globus token from session and refreshes if needed.
     """
     from functools import wraps
-    from dashboard_async.globus_auth import validate_dashboard_token, refresh_access_token
+    from dashboard_async.globus_auth import (
+        validate_dashboard_token,
+        refresh_access_token,
+    )
     import time
-    
+
     @wraps(view_func)
     def wrapped_view(request, *args, **kwargs):
         # Check if Globus tokens exist in session
-        if 'globus_tokens' not in request.session:
-            messages.warning(request, 'Please log in to access the dashboard.')
+        if "globus_tokens" not in request.session:
+            messages.warning(request, "Please log in to access the dashboard.")
             return redirect(f"/dashboard/login?next={request.path}")
-        
+
         try:
-            tokens = request.session['globus_tokens']
-            auth_tokens = tokens.get('auth.globus.org', {})
-            access_token = auth_tokens.get('access_token')
-            expires_at = auth_tokens.get('expires_at_seconds', 0)
-            
+            tokens = request.session["globus_tokens"]
+            auth_tokens = tokens.get("auth.globus.org", {})
+            access_token = auth_tokens.get("access_token")
+            expires_at = auth_tokens.get("expires_at_seconds", 0)
+
             # Check if token is expired or about to expire (within 5 minutes)
             if time.time() >= (expires_at - 300):
                 # Try to refresh token
-                refresh_token = auth_tokens.get('refresh_token')
+                refresh_token = auth_tokens.get("refresh_token")
                 if refresh_token:
                     try:
                         new_tokens = refresh_access_token(refresh_token)
                         # Update session with new tokens
-                        request.session['globus_tokens']['auth.globus.org'].update(new_tokens)
-                        access_token = new_tokens['access_token']
+                        request.session["globus_tokens"]["auth.globus.org"].update(
+                            new_tokens
+                        )
+                        access_token = new_tokens["access_token"]
                     except Exception as e:
                         log.warning(f"Token refresh failed: {e}")
-                        messages.error(request, 'Your session has expired. Please log in again.')
-                        return redirect('dashboard_login')
+                        messages.error(
+                            request, "Your session has expired. Please log in again."
+                        )
+                        return redirect("dashboard_login")
                 else:
-                    messages.error(request, 'Your session has expired. Please log in again.')
-                    return redirect('dashboard_login')
-            
+                    messages.error(
+                        request, "Your session has expired. Please log in again."
+                    )
+                    return redirect("dashboard_login")
+
             # Validate token
-            groups_token = tokens.get('groups.api.globus.org', {}).get('access_token')
-            is_valid, user_data, error = validate_dashboard_token(access_token, groups_token)
-            
+            groups_token = tokens.get("groups.api.globus.org", {}).get("access_token")
+            is_valid, user_data, error = validate_dashboard_token(
+                access_token, groups_token
+            )
+
             if not is_valid:
                 log.warning(f"Token validation failed: {error}")
-                messages.error(request, f'Authentication failed: {error}')
+                messages.error(request, f"Authentication failed: {error}")
                 # Clear invalid session
                 request.session.flush()
-                return redirect('dashboard_login')
-            
+                return redirect("dashboard_login")
+
             # Store user info in request for use in view
             request.globus_user = user_data
-            
+
             return view_func(request, *args, **kwargs)
-            
+
         except Exception as e:
             log.error(f"Authentication error: {e}")
-            messages.error(request, 'Authentication error. Please log in again.')
+            messages.error(request, "Authentication error. Please log in again.")
             request.session.flush()
-            return redirect('dashboard_login')
-    
+            return redirect("dashboard_login")
+
     return wrapped_view
 
 
@@ -306,10 +334,9 @@ def globus_login_required(view_func):
 def analytics_realtime_view(request):
     """Main dashboard view - regular Django view (not API endpoint)."""
     # Access Globus user info via request.globus_user
-    context = {
-        'user': request.globus_user
-    }
+    context = {"user": request.globus_user}
     return render(request, "realtime.html", context)
+
 
 @router.get("/analytics/metrics")
 def get_realtime_metrics(request, cluster: str = "all"):
@@ -320,9 +347,9 @@ def get_realtime_metrics(request, cluster: str = "all"):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         from django.db import connection
-        
+
         # Build cluster filter condition
         cluster_filter = ""
         cluster_params = []
@@ -355,7 +382,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
                     INNER JOIN resource_server_async_requestlog rl 
                         ON rl.access_log_id = al.id AND rl.cluster = %s
                     """,
-                    [cluster.lower(), cluster.lower()]
+                    [cluster.lower(), cluster.lower()],
                 )
             else:
                 # Non-filtered query using LEFT JOIN - much faster than correlated subqueries
@@ -383,23 +410,37 @@ def get_realtime_metrics(request, cluster: str = "all"):
                     """
                 )
             row = cursor.fetchone()
-            total_all_requests, successful_requests, auth_failures, failed_inference, total_tokens = row
-        
+            (
+                total_all_requests,
+                successful_requests,
+                auth_failures,
+                failed_inference,
+                total_tokens,
+            ) = row
+
         # Success rate calculation:
         # - Numerator: Successful requests (AccessLog with 200-299)
         # - Denominator: All requests that reached inference (successful + failed_inference)
         # - Excludes: Auth failures (never reached inference)
         total_inference_requests = successful_requests + failed_inference
-        
+
         # Success rate based on real request/response (not auth failures)
-        success_rate = (successful_requests / total_inference_requests) if total_inference_requests and total_inference_requests > 0 else 0.0
-        
+        success_rate = (
+            (successful_requests / total_inference_requests)
+            if total_inference_requests and total_inference_requests > 0
+            else 0.0
+        )
+
         # Unique users: count users who have requests in this cluster
         try:
             if cluster and cluster.lower() != "all":
-                unique_users = AsyncUser.objects.filter(
-                    access_logs__request_log__cluster=cluster.lower()
-                ).distinct().count()
+                unique_users = (
+                    AsyncUser.objects.filter(
+                        access_logs__request_log__cluster=cluster.lower()
+                    )
+                    .distinct()
+                    .count()
+                )
             else:
                 unique_users = AsyncUser.objects.count()
         except Exception:
@@ -421,7 +462,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
                     GROUP BY model
                     ORDER BY total_requests DESC
                     """,
-                    [cluster.lower()]
+                    [cluster.lower()],
                 )
             else:
                 cursor.execute(
@@ -461,7 +502,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
             "per_model": per_model,
             "time_bounds": None,
         }
-        
+
         # Cache for 30 seconds
         cache.set(cache_key, result, timeout=30)
         return result
@@ -469,8 +510,11 @@ def get_realtime_metrics(request, cluster: str = "all"):
         log.error(f"Error fetching realtime metrics: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
+
 @router.get("/analytics/logs")
-def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str = "all"):
+def get_realtime_logs(
+    request, page: int = 0, per_page: int = 500, cluster: str = "all"
+):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
     try:
         start_index = page * per_page
@@ -479,25 +523,39 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str 
         # OPTIMIZED: LEFT JOIN semantics with metrics for pre-calculated latency
         # Utilize DB indexes: order by indexed timestamp_request desc, then status_code
         qs = (
-            AsyncAccessLog.objects
-            .select_related("user", "request_log", "request_log__metrics")  # Add metrics
+            AsyncAccessLog.objects.select_related(
+                "user", "request_log", "request_log__metrics"
+            )  # Add metrics
             .only(  # only pull these fields, defer everything else
-                "id", "timestamp_request", "status_code", "api_route", "error",
-                "user__id", "user__name", "user__username", "user__idp_id", "user__idp_name", "user__auth_service",
-                "request_log__id", "request_log__cluster", "request_log__model",
-                "request_log__openai_endpoint", "request_log__timestamp_compute_request",
-                "request_log__timestamp_compute_response", "request_log__task_uuid",
-                "request_log__metrics__response_time_sec"  # Pre-calculated latency
+                "id",
+                "timestamp_request",
+                "status_code",
+                "api_route",
+                "error",
+                "user__id",
+                "user__name",
+                "user__username",
+                "user__idp_id",
+                "user__idp_name",
+                "user__auth_service",
+                "request_log__id",
+                "request_log__cluster",
+                "request_log__model",
+                "request_log__openai_endpoint",
+                "request_log__timestamp_compute_request",
+                "request_log__timestamp_compute_response",
+                "request_log__task_uuid",
+                "request_log__metrics__response_time_sec",  # Pre-calculated latency
             )
             .defer(  # explicitly defer heavy text fields
                 "request_log__prompt", "request_log__result"
             )
         )
-        
+
         # Filter by cluster if specified
         if cluster and cluster.lower() != "all":
             qs = qs.filter(request_log__cluster=cluster.lower())
-        
+
         qs = qs.order_by("-timestamp_request", "-status_code")
 
         sliced = qs[start_index:end_index]
@@ -517,10 +575,16 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str 
                         latency_secs = metrics.response_time_sec
                 except Exception:
                     pass
-                
+
                 # Fallback: Calculate if metrics not available (e.g., not processed yet)
-                if latency_secs is None and rl.timestamp_compute_response and rl.timestamp_compute_request:
-                    latency_secs = (rl.timestamp_compute_response - rl.timestamp_compute_request).total_seconds()
+                if (
+                    latency_secs is None
+                    and rl.timestamp_compute_response
+                    and rl.timestamp_compute_request
+                ):
+                    latency_secs = (
+                        rl.timestamp_compute_response - rl.timestamp_compute_request
+                    ).total_seconds()
 
             # Truncated prompt and result from request_log when available
             def _truncate(val: str, limit: int = 500) -> str:
@@ -534,28 +598,32 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str 
                     return text[:limit] + "…"
                 return text
 
-            results.append({
-                "request_id": str(rl.id) if rl else None,
-                "cluster": rl.cluster if rl else None,
-                "model": rl.model if rl else None,
-                "openai_endpoint": rl.openai_endpoint if rl else None,
-                "timestamp_request": al.timestamp_request.isoformat() if al and al.timestamp_request else None,
-                "latency_seconds": latency_secs,
-                "task_uuid": rl.task_uuid if rl else None,
-                "accesslog_id": str(al.id),
-                "status_code": al.status_code,
-                "error_message": al.error,
-                "error_snippet": _truncate(al.error) if al and al.error else "",
-                "api_route": al.api_route,
-                "prompt_snippet": _truncate(getattr(rl, "prompt", "")),
-                "result_snippet": _truncate(getattr(rl, "result", "")),
-                "user_id": str(user.id) if user else None,
-                "user_name": user.name if user else None,
-                "user_username": user.username if user else None,
-                "idp_id": user.idp_id if user else None,
-                "idp_name": user.idp_name if user else None,
-                "auth_service": user.auth_service if user else None,
-            })
+            results.append(
+                {
+                    "request_id": str(rl.id) if rl else None,
+                    "cluster": rl.cluster if rl else None,
+                    "model": rl.model if rl else None,
+                    "openai_endpoint": rl.openai_endpoint if rl else None,
+                    "timestamp_request": al.timestamp_request.isoformat()
+                    if al and al.timestamp_request
+                    else None,
+                    "latency_seconds": latency_secs,
+                    "task_uuid": rl.task_uuid if rl else None,
+                    "accesslog_id": str(al.id),
+                    "status_code": al.status_code,
+                    "error_message": al.error,
+                    "error_snippet": _truncate(al.error) if al and al.error else "",
+                    "api_route": al.api_route,
+                    "prompt_snippet": _truncate(getattr(rl, "prompt", "")),
+                    "result_snippet": _truncate(getattr(rl, "result", "")),
+                    "user_id": str(user.id) if user else None,
+                    "user_name": user.name if user else None,
+                    "user_username": user.username if user else None,
+                    "idp_id": user.idp_id if user else None,
+                    "idp_name": user.idp_name if user else None,
+                    "auth_service": user.auth_service if user else None,
+                }
+            )
 
         return results
     except Exception as e:
@@ -564,6 +632,7 @@ def get_realtime_logs(request, page: int = 0, per_page: int = 500, cluster: str 
 
 
 # ===== Additional realtime endpoints from RequestMetrics =====
+
 
 def _parse_series_window(window: str):
     """Map UI window to a time delta and Postgres date_trunc unit.
@@ -581,9 +650,10 @@ def _parse_series_window(window: str):
     if window in ("1y", "12m"):
         return timedelta(days=365), "month"
     if window in ("3y", "36m"):
-        return timedelta(days=365*3), "month"
+        return timedelta(days=365 * 3), "month"
     # default
     return timedelta(days=1), "hour"
+
 
 @router.get("/analytics/users-per-model")
 def get_users_per_model(request, cluster: str = "all"):
@@ -594,8 +664,9 @@ def get_users_per_model(request, cluster: str = "all"):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         from django.db import connection
+
         with connection.cursor() as cursor:
             if cluster and cluster.lower() != "all":
                 cursor.execute(
@@ -607,7 +678,7 @@ def get_users_per_model(request, cluster: str = "all"):
                     GROUP BY rl.model
                     ORDER BY user_count DESC
                     """,
-                    [cluster.lower()]
+                    [cluster.lower()],
                 )
             else:
                 cursor.execute(
@@ -622,13 +693,14 @@ def get_users_per_model(request, cluster: str = "all"):
                 )
             rows = cursor.fetchall()
         result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
-        
+
         # Cache for 30 seconds
         cache.set(cache_key, result, timeout=30)
         return result
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/users-table")
 def get_users_table(request, cluster: str = "all"):
@@ -639,8 +711,9 @@ def get_users_table(request, cluster: str = "all"):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         from django.db import connection
+
         with connection.cursor() as cursor:
             if cluster and cluster.lower() != "all":
                 cursor.execute(
@@ -660,7 +733,7 @@ def get_users_table(request, cluster: str = "all"):
                     HAVING COUNT(rl.id) > 0 OR COUNT(al.id) = 0
                     ORDER BY last_access DESC NULLS LAST, u.username
                     """,
-                    [cluster.lower()]
+                    [cluster.lower()],
                 )
             else:
                 cursor.execute(
@@ -685,16 +758,18 @@ def get_users_table(request, cluster: str = "all"):
             name, username, last_access, successful, failed, last_failure = r
             total = int((successful or 0)) + int((failed or 0))
             success_rate = (float(successful) / total) if total > 0 else 0.0
-            results.append({
-                "name": name,
-                "username": username,
-                "last_access": last_access.isoformat() if last_access else None,
-                "successful": int(successful or 0),
-                "failed": int(failed or 0),
-                "success_rate": success_rate,
-                "last_failure": last_failure.isoformat() if last_failure else None,
-            })
-        
+            results.append(
+                {
+                    "name": name,
+                    "username": username,
+                    "last_access": last_access.isoformat() if last_access else None,
+                    "successful": int(successful or 0),
+                    "failed": int(failed or 0),
+                    "success_rate": success_rate,
+                    "last_failure": last_failure.isoformat() if last_failure else None,
+                }
+            )
+
         # Cache for 60 seconds
         cache.set(cache_key, results, timeout=60)
         return results
@@ -702,23 +777,27 @@ def get_users_table(request, cluster: str = "all"):
         log.error(f"Error fetching users table: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
+
 @router.get("/analytics/series")
 def get_overall_series(request, window: str = "24h", cluster: str = "all"):
     try:
         from django.db import connection
+
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
-        
+
         # Build cluster filter condition
         cluster_join = ""
         cluster_filter = ""
         cluster_params = []
         if cluster and cluster.lower() != "all":
-            cluster_join = "JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id"
+            cluster_join = (
+                "JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id"
+            )
             cluster_filter = "AND rl.cluster = %s"
             cluster_params = [cluster.lower()]
-        
+
         with connection.cursor() as cursor:
             if cluster and cluster.lower() != "all":
                 cursor.execute(
@@ -751,7 +830,17 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
                     ) a ON a.bucket = s.bucket
                     ORDER BY s.bucket
                     """,
-                    [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts] + cluster_params
+                    [
+                        trunc_unit,
+                        start_ts,
+                        trunc_unit,
+                        end_ts,
+                        trunc_unit,
+                        trunc_unit,
+                        start_ts,
+                        end_ts,
+                    ]
+                    + cluster_params,
                 )
             else:
                 cursor.execute(
@@ -783,23 +872,39 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
                     ) a ON a.bucket = s.bucket
                     ORDER BY s.bucket
                     """,
-                    [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, start_ts, end_ts]
+                    [
+                        trunc_unit,
+                        start_ts,
+                        trunc_unit,
+                        end_ts,
+                        trunc_unit,
+                        trunc_unit,
+                        start_ts,
+                        end_ts,
+                    ],
                 )
             rows = cursor.fetchall()
         # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
-        return [{"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)} for r in rows]
+        return [
+            {"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)}
+            for r in rows
+        ]
     except Exception as e:
         log.error(f"Error fetching overall series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/model/series")
 def get_model_series(request, model: str, window: str = "24h"):
     try:
         from django.db import connection
+
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
-        log.debug(f"model_series: model={model} window={window} trunc={trunc_unit} start={start_ts.isoformat()} end={end_ts.isoformat()}")
+        log.debug(
+            f"model_series: model={model} window={window} trunc={trunc_unit} start={start_ts.isoformat()} end={end_ts.isoformat()}"
+        )
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -830,21 +935,38 @@ def get_model_series(request, model: str, window: str = "24h"):
                 ) a ON a.bucket = s.bucket
                 ORDER BY s.bucket
                 """,
-                [trunc_unit, start_ts, trunc_unit, end_ts, trunc_unit, trunc_unit, model, start_ts, end_ts]
+                [
+                    trunc_unit,
+                    start_ts,
+                    trunc_unit,
+                    end_ts,
+                    trunc_unit,
+                    trunc_unit,
+                    model,
+                    start_ts,
+                    end_ts,
+                ],
             )
             rows = cursor.fetchall()
         total_ok = sum(int(r[1] or 0) for r in rows)
         total_fail = sum(int(r[2] or 0) for r in rows)
-        log.debug(f"model_series: model={model} points={len(rows)} total_ok={total_ok} total_fail={total_fail}")
-        return [{"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)} for r in rows]
+        log.debug(
+            f"model_series: model={model} points={len(rows)} total_ok={total_ok} total_fail={total_fail}"
+        )
+        return [
+            {"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)}
+            for r in rows
+        ]
     except Exception as e:
         log.error(f"Error fetching model series: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/model/box")
 def get_model_box(request, model: str, window: str = "24h"):
     try:
         from django.db import connection
+
         delta, _ = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
@@ -862,16 +984,25 @@ def get_model_box(request, model: str, window: str = "24h"):
                 WHERE model = %s AND timestamp_compute_request >= %s AND timestamp_compute_request <= %s
                   AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
                 """,
-                [model, start_ts, end_ts]
+                [model, start_ts, end_ts],
             )
             row = cursor.fetchone()
         return {
-            "throughput": {"mean": float(row[0] or 0.0), "p50": float(row[1] or 0.0), "p99": float(row[2] or 0.0)},
-            "latency": {"mean": float(row[3] or 0.0), "p50": float(row[4] or 0.0), "p99": float(row[5] or 0.0)}
+            "throughput": {
+                "mean": float(row[0] or 0.0),
+                "p50": float(row[1] or 0.0),
+                "p99": float(row[2] or 0.0),
+            },
+            "latency": {
+                "mean": float(row[3] or 0.0),
+                "p50": float(row[4] or 0.0),
+                "p99": float(row[5] or 0.0),
+            },
         }
     except Exception as e:
         log.error(f"Error fetching model box: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/health")
 def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
@@ -880,7 +1011,10 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """
     try:
         from asgiref.sync import async_to_sync
-        from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse
+        from resource_server_async.utils import (
+            get_cluster_wrapper,
+            ClusterWrapperResponse,
+        )
         from resource_server_async.clusters.cluster import GetJobsResponse, Jobs
 
         # Try cache first unless refresh requested
@@ -889,62 +1023,77 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             cached_payload = cache.get(cache_key)
             if cached_payload:
                 return JsonResponse(cached_payload)
-            
+
         # Get the jobs response from the cluster wrapper
-        wrapper_response: ClusterWrapperResponse = async_to_sync(get_cluster_wrapper)(cluster)
+        wrapper_response: ClusterWrapperResponse = async_to_sync(get_cluster_wrapper)(
+            cluster
+        )
         if wrapper_response.cluster:
-            jobs_response: GetJobsResponse = async_to_sync(wrapper_response.cluster.get_jobs)()
+            jobs_response: GetJobsResponse = async_to_sync(
+                wrapper_response.cluster.get_jobs
+            )()
             err: str = jobs_response.error_message
             cluster_status: Jobs = jobs_response.jobs
         else:
             err: str = wrapper_response.error_message
             cluster_status = None
-    
+
         # Empty (or cached values) if error occured
         if err or not cluster_status:
             return JsonResponse({"error": str(err)}, status=500)
 
         # Get all models listed for the targeted cluster
-        configured_models = set(AsyncEndpoint.objects.filter(cluster=cluster).values_list("model", flat=True))
+        configured_models = set(
+            AsyncEndpoint.objects.filter(cluster=cluster).values_list(
+                "model", flat=True
+            )
+        )
 
         # Fill model status for what is reported in the cluster status (/jobs URL)
         items = []
         for block_list in [cluster_status.running, cluster_status.queued]:
             for block in block_list:
                 block = block.model_dump()
-                model_list = [m.strip() for m in block["Models"].split(",") if m.strip()]
+                model_list = [
+                    m.strip() for m in block["Models"].split(",") if m.strip()
+                ]
                 for model in model_list:
-                    items.append({
-                        "model": model,
-                        "status": block.get("Model Status"),
-                        "nodes_reserved": block.get("Nodes Reserved",""),
-                        "host_name": block.get("Host Name",""),
-                        "start_info": block.get("Job Comments","")+block.get("Description",""),
-                    })
+                    items.append(
+                        {
+                            "model": model,
+                            "status": block.get("Model Status"),
+                            "nodes_reserved": block.get("Nodes Reserved", ""),
+                            "host_name": block.get("Host Name", ""),
+                            "start_info": block.get("Job Comments", "")
+                            + block.get("Description", ""),
+                        }
+                    )
 
         # Gather the list of models that are already present in the items list
         present_models = {i["model"] for i in items}
 
         # Add offline models to the list
         for model in sorted(configured_models - present_models):
-            items.append({
-                "model": model,
-                "status": "offline",
-                "nodes_reserved": "",
-                "host_name": "",
-                "start_info": "",
-            })
+            items.append(
+                {
+                    "model": model,
+                    "status": "offline",
+                    "nodes_reserved": "",
+                    "host_name": "",
+                    "start_info": "",
+                }
+            )
 
         # Build data to be displayed on the dashboard
         payload = {
             "items": items,
-            "free_nodes": cluster_status.cluster_status.get("free_nodes")
+            "free_nodes": cluster_status.cluster_status.get("free_nodes"),
         }
-        
+
         # Cache for 2 minutes and return data
         cache.set(cache_key, payload, timeout=120)
         return JsonResponse(payload)
-    
+
     # Error if something wrong happened
     except Exception as e:
         log.error(f"Error fetching health status for cluster {cluster}: {e}")
@@ -961,8 +1110,9 @@ def get_requests_per_user(request, cluster: str = "all"):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         from django.db import connection
+
         with connection.cursor() as cursor:
             if cluster and cluster.lower() != "all":
                 cursor.execute(
@@ -978,7 +1128,7 @@ def get_requests_per_user(request, cluster: str = "all"):
                     GROUP BY u.name, u.username
                     ORDER BY total DESC
                     """,
-                    [cluster.lower()]
+                    [cluster.lower()],
                 )
             else:
                 cursor.execute(
@@ -994,18 +1144,25 @@ def get_requests_per_user(request, cluster: str = "all"):
                     """
                 )
             rows = cursor.fetchall()
-        
+
         result = [
-            {"name": r[0], "username": r[1], "total": int(r[2] or 0), "successful": int(r[3] or 0), "failed": int(r[4] or 0)}
+            {
+                "name": r[0],
+                "username": r[1],
+                "total": int(r[2] or 0),
+                "successful": int(r[3] or 0),
+                "failed": int(r[4] or 0),
+            }
             for r in rows
         ]
-        
+
         # Cache for 60 seconds
         cache.set(cache_key, result, timeout=60)
         return result
     except Exception as e:
         log.error(f"Error fetching requests per user: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/batch/overview")
 def get_batch_overview(request):
@@ -1016,8 +1173,9 @@ def get_batch_overview(request):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         from django.db import connection
+
         # Try BatchMetrics
         try:
             with connection.cursor() as cursor:
@@ -1036,7 +1194,9 @@ def get_batch_overview(request):
                     total_requests = int(row[1] or 0)
                     total_jobs = int(row[2] or 0)
                     completed_jobs = int(row[3] or 0)
-                    success_rate = (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
+                    success_rate = (
+                        (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
+                    )
                     result = {
                         "total_tokens": total_tokens,
                         "total_requests": total_requests,
@@ -1084,11 +1244,13 @@ def get_batch_overview(request):
         log.error(f"Error fetching batch overview: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
+
 @router.get("/analytics/batch/model-summary")
 def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
     try:
         from django.db import connection
+
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -1103,16 +1265,25 @@ def get_batch_model_summary(request, model: str):
                 WHERE model = %s
                   AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
                 """,
-                [model]
+                [model],
             )
             row = cursor.fetchone()
         return {
-            "throughput": {"mean": float(row[0] or 0.0), "p50": float(row[1] or 0.0), "p99": float(row[2] or 0.0)},
-            "latency": {"mean": float(row[3] or 0.0), "p50": float(row[4] or 0.0), "p99": float(row[5] or 0.0)}
+            "throughput": {
+                "mean": float(row[0] or 0.0),
+                "p50": float(row[1] or 0.0),
+                "p99": float(row[2] or 0.0),
+            },
+            "latency": {
+                "mean": float(row[3] or 0.0),
+                "p50": float(row[4] or 0.0),
+                "p99": float(row[5] or 0.0),
+            },
         }
     except Exception as e:
         log.error(f"Error fetching batch model summary: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @router.get("/analytics/batch-logs")
 def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
@@ -1120,9 +1291,9 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     try:
         start_index = page * per_page
         end_index = start_index + per_page
-        qs = (AsyncBatchLog.objects
-              .select_related("access_log__user")
-              .order_by("-completed_at", "-in_progress_at"))
+        qs = AsyncBatchLog.objects.select_related("access_log__user").order_by(
+            "-completed_at", "-in_progress_at"
+        )
         sliced = qs[start_index:end_index]
         results = []
         for bl in sliced:
@@ -1131,15 +1302,19 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
             duration = None
             if bl.completed_at and bl.in_progress_at:
                 duration = (bl.completed_at - bl.in_progress_at).total_seconds()
-            results.append({
-                "time": (bl.completed_at or bl.in_progress_at).isoformat() if (bl.completed_at or bl.in_progress_at) else None,
-                "name": user.name if user else None,
-                "username": user.username if user else None,
-                "model": bl.model,
-                "cluster": bl.cluster,
-                "status": bl.status,
-                "latency": duration,
-            })
+            results.append(
+                {
+                    "time": (bl.completed_at or bl.in_progress_at).isoformat()
+                    if (bl.completed_at or bl.in_progress_at)
+                    else None,
+                    "name": user.name if user else None,
+                    "username": user.username if user else None,
+                    "model": bl.model,
+                    "cluster": bl.cluster,
+                    "status": bl.status,
+                    "latency": duration,
+                }
+            )
         return results
     except Exception as e:
         log.error(f"Error fetching batch logs rt: {e}")
@@ -1152,66 +1327,66 @@ def query_logs_custom(request):
     try:
         from django.db import connection
         import re as regex_module
-        
+
         # Parse query parameters
-        rows = int(request.GET.get('rows', 10))
+        rows = int(request.GET.get("rows", 10))
         rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
-        
-        status_op = request.GET.get('status_op', '')
-        status_val = request.GET.get('status_val', '')
-        name_filter = request.GET.get('name', '')
-        prompt_filter = request.GET.get('prompt', '')
-        api_filter = request.GET.get('api', '')
-        cluster_filter = request.GET.get('cluster', '')
-        from_ts = request.GET.get('from_ts', '')
-        to_ts = request.GET.get('to_ts', '')
-        tzname = 'America/Chicago'  # Fixed timezone
-        
+
+        status_op = request.GET.get("status_op", "")
+        status_val = request.GET.get("status_val", "")
+        name_filter = request.GET.get("name", "")
+        prompt_filter = request.GET.get("prompt", "")
+        api_filter = request.GET.get("api", "")
+        cluster_filter = request.GET.get("cluster", "")
+        from_ts = request.GET.get("from_ts", "")
+        to_ts = request.GET.get("to_ts", "")
+        tzname = "America/Chicago"  # Fixed timezone
+
         # Build WHERE clauses
         conditions = ["1=1"]
         params = []
-        
+
         # Status filter
         if status_op and status_val:
-            allowed_ops = ['=', '!=', '>', '<', '>=', '<=']
+            allowed_ops = ["=", "!=", ">", "<", ">=", "<="]
             if status_op in allowed_ops:
                 conditions.append(f"a.status_code {status_op} %s")
                 params.append(int(status_val))
-        
+
         # Name filter (ILIKE)
         if name_filter:
             conditions.append("u.name ILIKE %s")
             params.append(name_filter)
-        
+
         # Prompt filter (ILIKE)
         if prompt_filter:
             conditions.append("r.prompt ILIKE %s")
             params.append(prompt_filter)
-        
+
         # API route filter (ILIKE)
         if api_filter:
             conditions.append("a.api_route ILIKE %s")
             params.append(api_filter)
-        
+
         # Cluster filter
         if cluster_filter:
             conditions.append("r.cluster = %s")
             params.append(cluster_filter.lower())
-        
+
         # Timestamp expression
         ts_expr = "COALESCE(r.timestamp_compute_request, a.timestamp_request)"
-        
+
         # Date filters
         if from_ts:
             conditions.append(f"{ts_expr} >= %s::timestamptz")
             params.append(from_ts)
-        
+
         if to_ts:
             conditions.append(f"{ts_expr} <= %s::timestamptz")
             params.append(to_ts)
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         # Build final query
         query = f"""
         SELECT json_agg(row_to_json(t))
@@ -1250,7 +1425,7 @@ def query_logs_custom(request):
             LIMIT %s
         ) t
         """
-        
+
         # Execute query
         with connection.cursor() as cursor:
             # Set timezone first
@@ -1258,11 +1433,13 @@ def query_logs_custom(request):
             # Then execute the main query
             cursor.execute(query, params + [rows])
             result = cursor.fetchone()
-            
+
         # Return JSON array or empty array if no results
         data = result[0] if result and result[0] else []
-        return JsonResponse({"results": data, "count": len(data) if data else 0}, safe=False)
-        
+        return JsonResponse(
+            {"results": data, "count": len(data) if data else 0}, safe=False
+        )
+
     except Exception as e:
         log.error(f"Error in custom log query: {e}")
         return JsonResponse({"error": str(e)}, status=500)

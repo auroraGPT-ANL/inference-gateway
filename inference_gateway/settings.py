@@ -29,7 +29,9 @@ load_dotenv(override=True)
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # Define whether we are in the automated test suite mode
-RUNNING_AUTOMATED_TEST_SUITE = os.getenv("RUNNING_AUTOMATED_TEST_SUITE", "False").lower() in ("true", "1", "t")
+RUNNING_AUTOMATED_TEST_SUITE = os.getenv(
+    "RUNNING_AUTOMATED_TEST_SUITE", "False"
+).lower() in ("true", "1", "t")
 
 # Globus App credentials
 GLOBUS_APPLICATION_ID = os.getenv("GLOBUS_APPLICATION_ID")
@@ -47,7 +49,7 @@ GLOBUS_DASHBOARD_APPLICATION_SECRET = os.getenv("GLOBUS_DASHBOARD_APPLICATION_SE
 # Dashboard Globus OAuth settings
 GLOBUS_DASHBOARD_REDIRECT_URI = os.getenv(
     "GLOBUS_DASHBOARD_REDIRECT_URI",
-    "http://localhost:8000/dashboard/callback"  # Update for production
+    "http://localhost:8000/dashboard/callback",  # Update for production
 )
 
 # Scopes needed for dashboard access
@@ -55,7 +57,7 @@ GLOBUS_DASHBOARD_SCOPES = [
     "openid",
     "profile",
     "email",
-    "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
+    "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships",
 ]
 
 # Dashboard-specific Globus Group requirement
@@ -66,15 +68,19 @@ DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
 
 GLOBUS_DASHBOARD_POLICY_ID = os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
 # Extract Globus policies that will determine which domains get access
-GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_DASHBOARD_POLICY_ID", ""))
+GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(
+    os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
+)
 NUMBER_OF_GLOBUS_DASHBOARD_POLICIES = len(GLOBUS_DASHBOARD_POLICIES)
 GLOBUS_DASHBOARD_POLICIES = ",".join(GLOBUS_DASHBOARD_POLICIES)
 
 # Flag to turn on the Debug logging for the Globus Compute executor
-GLOBUS_COMPUTE_EXECUTOR_DEBUG = os.getenv("GLOBUS_COMPUTE_EXECUTOR_DEBUG", "False").lower() in ("true", "1", "t")
+GLOBUS_COMPUTE_EXECUTOR_DEBUG = os.getenv(
+    "GLOBUS_COMPUTE_EXECUTOR_DEBUG", "False"
+).lower() in ("true", "1", "t")
 
 # Batch processing feature flag
-ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == 'True'
+ENABLE_BATCHES = os.getenv("ENABLE_BATCHES", False) == "True"
 MAX_BATCHES_PER_USER = int(os.getenv("MAX_BATCHES_PER_USER", 1))
 
 # Rate limit (req/s) per user accross the board
@@ -98,7 +104,9 @@ NUMBER_OF_GLOBUS_GROUPS = len(GLOBUS_GROUPS)
 # Parameters for the Globus Compute executor
 GLOBUS_EXECUTOR_BATCH_SIZE = int(os.getenv("GLOBUS_EXECUTOR_BATCH_SIZE", 128))
 GLOBUS_EXECUTOR_API_BURST_LIMIT = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_LIMIT", 4))
-GLOBUS_EXECUTOR_API_BURST_WINDOW_S = int(os.getenv("GLOBUS_EXECUTOR_API_BURST_WINDOW_S", 16))
+GLOBUS_EXECUTOR_API_BURST_WINDOW_S = int(
+    os.getenv("GLOBUS_EXECUTOR_API_BURST_WINDOW_S", 16)
+)
 
 # Globus Compute task group ID for the management commands
 GLOBUS_MANAGEMENT_TASK_GROUP_ID = os.getenv("GLOBUS_MANAGEMENT_TASK_GROUP_ID", None)
@@ -116,8 +124,14 @@ idp_overlap = set(AUTHORIZED_IDP_DOMAINS) & set(AUTHORIZED_GROUPS_PER_IDP.keys()
 if len(idp_overlap) == 0:
     AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(AUTHORIZED_IDP_DOMAINS)
 else:
-    domains_string = [domain for domain in AUTHORIZED_IDP_DOMAINS if not domain in AUTHORIZED_GROUPS_PER_IDP]
-    AUTHORIZED_IDP_DOMAINS_STRING = ", ".join(domains_string) + ", or providers with approved projects"
+    domains_string = [
+        domain
+        for domain in AUTHORIZED_IDP_DOMAINS
+        if not domain in AUTHORIZED_GROUPS_PER_IDP
+    ]
+    AUTHORIZED_IDP_DOMAINS_STRING = (
+        ", ".join(domains_string) + ", or providers with approved projects"
+    )
 
 # Load maintenance notices to be displayed for individual clusters
 MAINTENANCE_ERROR_NOTICES = json.loads(os.getenv("MAINTENANCE_ERROR_NOTICES", "{}"))
@@ -130,64 +144,64 @@ APPEND_SLASH = False
 
 # Application definition
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'resource_server',
-    'resource_server_async',
-    'drf_spectacular',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "resource_server",
+    "resource_server_async",
+    "drf_spectacular",
     # 'dashboard',
-    'dashboard_async',
+    "dashboard_async",
     # Configuration checks (mostly for making sure auth guards are in place)
-    'inference_gateway.apps.AuthCheckConfig'
+    "inference_gateway.apps.AuthCheckConfig",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 REST_FRAMEWORK = {
     # YOUR SETTINGS
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Inference Gateway API',
-    'DESCRIPTION': 'Inference Gateway',
-    'VERSION': '0.0.1',
-    'SERVE_INCLUDE_SCHEMA': False,
+    "TITLE": "Inference Gateway API",
+    "DESCRIPTION": "Inference Gateway",
+    "VERSION": "0.0.1",
+    "SERVE_INCLUDE_SCHEMA": False,
     # OTHER SETTINGS
 }
 
-ROOT_URLCONF = 'inference_gateway.urls'
+ROOT_URLCONF = "inference_gateway.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'inference_gateway.wsgi.application'
+WSGI_APPLICATION = "inference_gateway.wsgi.application"
 
 
 # Database
@@ -201,13 +215,13 @@ WSGI_APPLICATION = 'inference_gateway.wsgi.application'
 # }
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('PGDATABASE', 'postgres'),
-        'USER': os.getenv('PGUSER', 'postgres'),
-        'PASSWORD': os.getenv('PGPASSWORD', 'postgres'),
-        'HOST': os.getenv('PGHOST', 'pgbouncer'),  # Connect to the pgbouncer service
-        'PORT': os.getenv('PGPORT', '6432'),       # Default PgBouncer port
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("PGDATABASE", "postgres"),
+        "USER": os.getenv("PGUSER", "postgres"),
+        "PASSWORD": os.getenv("PGPASSWORD", "postgres"),
+        "HOST": os.getenv("PGHOST", "pgbouncer"),  # Connect to the pgbouncer service
+        "PORT": os.getenv("PGPORT", "6432"),  # Default PgBouncer port
         "OPTIONS": {
             "connect_timeout": 10,
         },
@@ -223,16 +237,16 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -240,9 +254,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/3.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -254,106 +268,114 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'info.log',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": "info.log",
         },
     },
-    'loggers': {
-        'django': {
-            'handlers': ['file'],
-            'level': 'INFO',
-            'propagate': True,
+    "loggers": {
+        "django": {
+            "handlers": ["file"],
+            "level": "INFO",
+            "propagate": True,
         },
     },
 }
 
 # Static files directory for deployment
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 
 # Cache configuration - Redis with fallback to local memory for development
-if os.environ.get('USE_REDIS_CACHE', 'false').lower() == 'true':
+if os.environ.get("USE_REDIS_CACHE", "false").lower() == "true":
     # Redis cache configuration for production
     CACHES = {
-        'default': {
-            'BACKEND': 'django_redis.cache.RedisCache',
-            'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
-            'OPTIONS': {
-                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-                'CONNECTION_POOL_KWARGS': {
-                    'max_connections': 50,
-                    'retry_on_timeout': True,
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1"),
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "CONNECTION_POOL_KWARGS": {
+                    "max_connections": 50,
+                    "retry_on_timeout": True,
                 },
-                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-                'IGNORE_EXCEPTIONS': True,  # Fallback to database if Redis fails
+                "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
+                "IGNORE_EXCEPTIONS": True,  # Fallback to database if Redis fails
             },
-            'TIMEOUT': 3600,  # 1 hour default timeout
-            'KEY_PREFIX': 'inference_gateway',
+            "TIMEOUT": 3600,  # 1 hour default timeout
+            "KEY_PREFIX": "inference_gateway",
         }
     }
 else:
     # Local memory cache for development (not shared across workers)
     CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'inference_gateway_cache',
-            'TIMEOUT': 3600,  # 1 hour default timeout
-            'OPTIONS': {
-                'MAX_ENTRIES': 10000,
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "inference_gateway_cache",
+            "TIMEOUT": 3600,  # 1 hour default timeout
+            "OPTIONS": {
+                "MAX_ENTRIES": 10000,
             },
         }
     }
 
 # Session engine - use cached_db for speed + reliability (perfect for OAuth)
 # This gives you Redis speed with DB persistence as fallback
-SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
 # Session cookie settings for OAuth flow
-SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cookies on redirects from same site (required for OAuth)
-SESSION_COOKIE_HTTPONLY = True   # Prevent JavaScript access (security)
-SESSION_COOKIE_NAME = 'dashboard_sessionid'  # Unique name to avoid conflicts
+SESSION_COOKIE_SAMESITE = (
+    "Lax"  # Allow cookies on redirects from same site (required for OAuth)
+)
+SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
+SESSION_COOKIE_NAME = "dashboard_sessionid"  # Unique name to avoid conflicts
 SESSION_COOKIE_AGE = 86400  # 24 hours (matches typical OAuth token lifetime)
 SESSION_SAVE_EVERY_REQUEST = False  # Don't save on every request (performance)
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close (better UX)
 
 # CSRF cookie settings for production security
 CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
-CSRF_COOKIE_SAMESITE = 'Lax'  # Match session cookie
+CSRF_COOKIE_SAMESITE = "Lax"  # Match session cookie
 
 # Authentication settings for dashboard
-LOGIN_URL = '/dashboard/login/'
-LOGIN_REDIRECT_URL = '/dashboard/analytics'
-LOGOUT_REDIRECT_URL = '/dashboard/login/'
+LOGIN_URL = "/dashboard/login/"
+LOGIN_REDIRECT_URL = "/dashboard/analytics"
+LOGOUT_REDIRECT_URL = "/dashboard/login/"
 
 # Streaming server configuration
-STREAMING_SERVER_HOST = os.environ.get('STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
-STREAMING_SERVER_PORT = int(os.environ.get('STREAMING_SERVER_PORT', 443))  # HTTPS port
-STREAMING_SERVER_PROTOCOL = os.environ.get('STREAMING_SERVER_PROTOCOL', 'https')
+STREAMING_SERVER_HOST = os.environ.get(
+    "STREAMING_SERVER_HOST", "data-portal-dev.cels.anl.gov"
+)
+STREAMING_SERVER_PORT = int(os.environ.get("STREAMING_SERVER_PORT", 443))  # HTTPS port
+STREAMING_SERVER_PROTOCOL = os.environ.get("STREAMING_SERVER_PROTOCOL", "https")
 
 # Internal streaming secret for authentication between remote function and Django
-INTERNAL_STREAMING_SECRET = os.environ.get('INTERNAL_STREAMING_SECRET', 'default-secret-change-me')
+INTERNAL_STREAMING_SECRET = os.environ.get(
+    "INTERNAL_STREAMING_SECRET", "default-secret-change-me"
+)
 
 # Metis cluster configuration
 # Metis models are already deployed behind an API (different from Globus Compute paradigm)
-METIS_STATUS_URL = os.environ.get('METIS_STATUS_URL', 'https://metis.alcf.anl.gov/status')
+METIS_STATUS_URL = os.environ.get(
+    "METIS_STATUS_URL", "https://metis.alcf.anl.gov/status"
+)
 
 # Metis API tokens - JSON mapping of endpoint UUID to API token
 # Format: {"endpoint-uuid-1": "token1", "endpoint-uuid-2": "token2"}
 # Each endpoint UUID in Metis status maps to its own API key
-METIS_API_TOKENS = os.environ.get('METIS_API_TOKENS', '{}')
+METIS_API_TOKENS = os.environ.get("METIS_API_TOKENS", "{}")
 
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---

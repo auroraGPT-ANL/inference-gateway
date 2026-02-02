@@ -7,13 +7,15 @@ from rest_framework.exceptions import ValidationError
 # TODO: This does not always prevent extra arguments
 class BaseSerializers(serializers.Serializer):
     def is_valid(self, raise_exception=False):
-        if hasattr(self, 'initial_data'):
+        if hasattr(self, "initial_data"):
             payload_fields = self.initial_data.keys()
             serializer_fields = self.fields.keys()
             extra_fields = set(payload_fields) - set(serializer_fields)
             if len(extra_fields) > 0:
                 if raise_exception:
-                    raise ValidationError(f"Unexpected input field(s) ({str(extra_fields)})")
+                    raise ValidationError(
+                        f"Unexpected input field(s) ({str(extra_fields)})"
+                    )
                 else:
                     return False
         return super(BaseSerializers, self).is_valid(raise_exception=raise_exception)
@@ -21,26 +23,26 @@ class BaseSerializers(serializers.Serializer):
 
 # True string field that rejects non-string inputs
 class TrueCharField(serializers.CharField):
-
     # Overwrite to_representation function with no edits to the value
     def to_representation(self, value):
         return value
-    
+
     # Overwrite to_internal_value to raise errors if the data has the wrong types
     def to_internal_value(self, data):
         if isinstance(data, str):
             return data
         else:
-            raise ValidationError("Value not a string.") # TODO: Should make sure to give more details to users
+            raise ValidationError(
+                "Value not a string."
+            )  # TODO: Should make sure to give more details to users
 
 
 # Reusable custom serializer field with multiple allowed types
 class BaseCustomField(serializers.Field):
-
     # Overwrite to_representation function with no edits to the value
     def to_representation(self, value):
         return value
-    
+
     # Overwrite to_internal_value to raise errors if the data has the wrong types
     def to_internal_value(self, data):
         if self.has_valid_types(data):
@@ -51,7 +53,6 @@ class BaseCustomField(serializers.Field):
 
 # OpenAI Legacy prompt field
 class OpenAIPromptField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIPromptField, self).__init__(*args, **kwargs)
@@ -59,36 +60,33 @@ class OpenAIPromptField(BaseCustomField):
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
-
         # Single string
         if isinstance(data, str):
             return True
-        
+
         # List
         if isinstance(data, list):
-
             # List of strings
             if all(isinstance(x, str) for x in data):
                 return True
-            
+
             # List of integers (tokens)
             if all(isinstance(x, int) for x in data):
                 return True
-            
+
             # List of integer lists (list of tokens)
             if all(isinstance(x, list) for x in data):
                 for data_list in data:
                     if not all(isinstance(x, int) for x in data_list):
-                        return False # wrong format
+                        return False  # wrong format
                 return True
-        
+
         # Wrong format
         return False
 
 
 # OpenAI logit_bias field
 class OpenAILogitBiasField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAILogitBiasField, self).__init__(*args, **kwargs)
@@ -99,19 +97,20 @@ class OpenAILogitBiasField(BaseCustomField):
         if isinstance(data, dict):
             if all(isinstance(x, str) for x in data.keys()):
                 values = data.values()
-                if all(isinstance(x, (float,int)) for x in values):
+                if all(isinstance(x, (float, int)) for x in values):
                     if (-100) <= min(values) and max(values) <= 100:
                         return True
         return False
-    
+
 
 # OpenAI stop field
 class OpenAIStopField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIStopField, self).__init__(*args, **kwargs)
-        self.custom_error_message = "'stop' must a string or a list of strings with no more than 4 sequences."
+        self.custom_error_message = (
+            "'stop' must a string or a list of strings with no more than 4 sequences."
+        )
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
@@ -121,11 +120,10 @@ class OpenAIStopField(BaseCustomField):
             if all(isinstance(x, str) for x in data) and len(data) <= 4:
                 return True
         return False
-    
+
 
 # OpenAI stream_options field
 class OpenAIStreamOptionsField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIStreamOptionsField, self).__init__(*args, **kwargs)
@@ -133,14 +131,17 @@ class OpenAIStreamOptionsField(BaseCustomField):
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
-        if data == {} or data == {"include_usage": True} or data == {"include_usage": False}:
+        if (
+            data == {}
+            or data == {"include_usage": True}
+            or data == {"include_usage": False}
+        ):
             return True
         return False
-    
+
 
 # OpenAI response_format field
 class OpenAIResponseFormatField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIResponseFormatField, self).__init__(*args, **kwargs)
@@ -173,50 +174,52 @@ class OpenAITextSerializer(BaseSerializers):
 
 # OpenAI user content field
 class OpenAIUserContentField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIUserContentField, self).__init__(*args, **kwargs)
-        self.custom_error_message = "'content' with user role must be a string or an Array content."
+        self.custom_error_message = (
+            "'content' with user role must be a string or an Array content."
+        )
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
-
         # Simple string
         if isinstance(data, str):
             return True
-        
+
         # List of content parts
         if isinstance(data, list):
             for content in data:
                 if "type" not in content:
-                    raise ValidationError("'type' must be present for each Array content part of a user message content.")
+                    raise ValidationError(
+                        "'type' must be present for each Array content part of a user message content."
+                    )
                 else:
-
                     # Text content (raises exception if something is wrong)
                     if content["type"] == "text":
                         text_serializer = OpenAITextSerializer(data=content)
                         text_serializer.is_valid(raise_exception=True)
-                    
+
                     # Image URL content (raises exception if something is wrong)
                     elif content["type"] == "image_url":
                         image_url_serializer = OpenAIImageSerializer(data=content)
                         image_url_serializer.is_valid(raise_exception=True)
-                        
+
                     # Wrong type
                     else:
-                        raise ValidationError("'type' can either be equal to 'text' or 'image_url'.")
-            
+                        raise ValidationError(
+                            "'type' can either be equal to 'text' or 'image_url'."
+                        )
+
             # Return True if nothing wrong was spotted in the list of content
             return True
-                
+
         # Wrong format
         return False
 
 
 # OpenAI function name field
 class OpenAIFunctionNameField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIFunctionNameField, self).__init__(*args, **kwargs)
@@ -226,7 +229,7 @@ class OpenAIFunctionNameField(BaseCustomField):
     def has_valid_types(self, data):
         if isinstance(data, str):
             if len(data) <= 64:
-                test_data = data.replace("-","").replace("_","")
+                test_data = data.replace("-", "").replace("_", "")
                 if test_data.isalnum():
                     return True
         return False
@@ -236,7 +239,9 @@ class OpenAIFunctionNameField(BaseCustomField):
 class OpenAIToolFunctionSerializer(BaseSerializers):
     description = TrueCharField(required=False)
     name = OpenAIFunctionNameField(required=True)
-    parameters = serializers.DictField(required=False) # TODO: Should do checks for what goes inside
+    parameters = serializers.DictField(
+        required=False
+    )  # TODO: Should do checks for what goes inside
 
 
 # OpenAI tool serializer (needed for OpenAIParamSerializer)
@@ -258,7 +263,6 @@ class OpenAIToolChoiceObjectSerializer(BaseSerializers):
 
 # OpenAI tool choicefield
 class OpenAIToolChoiceField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIToolChoiceField, self).__init__(*args, **kwargs)
@@ -307,7 +311,9 @@ class OpenAIUserMessageSerializer(BaseSerializers):
 
 # OpenAI assistant-role message serializer (needed for OpenAIMessageField)
 class OpenAIAssistantMessageSerializer(BaseSerializers):
-    content = TrueCharField(allow_null=True, required=True) # TODO: not required if tool_calls is specified
+    content = TrueCharField(
+        allow_null=True, required=True
+    )  # TODO: not required if tool_calls is specified
     role = serializers.ChoiceField(choices=["assistant"], required=True)
     name = TrueCharField(required=False)
     tool_calls = serializers.ListField(child=OpenAIToolCallSerializer(), required=False)
@@ -329,7 +335,6 @@ class OpenAIFunctionMessageSerializer(BaseSerializers):
 
 # OpenAI message field
 class OpenAIMessageField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIMessageField, self).__init__(*args, **kwargs)
@@ -338,7 +343,7 @@ class OpenAIMessageField(BaseCustomField):
             "user": OpenAIUserMessageSerializer,
             "assistant": OpenAIAssistantMessageSerializer,
             "tool": OpenAIToolMessageSerializer,
-            "function": OpenAIFunctionMessageSerializer
+            "function": OpenAIFunctionMessageSerializer,
         }
         self.custom_error_message = f"Message object must have one of the following 'roles': {self.serializer_choices.keys()}."
 
@@ -350,11 +355,10 @@ class OpenAIMessageField(BaseCustomField):
                 if serializer.is_valid(raise_exception=True):
                     return True
         return False
-    
+
 
 # OpenAI embeddings input field
 class OpenAIEmbeddingsInputField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIEmbeddingsInputField, self).__init__(*args, **kwargs)
@@ -364,33 +368,33 @@ class OpenAIEmbeddingsInputField(BaseCustomField):
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
-
         # Single string
         if isinstance(data, str):
             return True
-        
+
         # List
         if isinstance(data, list):
-
             # Check length
             if len(data) < self.min_items or len(data) > self.max_items:
-                raise ValidationError(f"Length of 'input' lists must be between {self.min_items} and {self.max_items}, inclusively.")
+                raise ValidationError(
+                    f"Length of 'input' lists must be between {self.min_items} and {self.max_items}, inclusively."
+                )
 
             # List of strings
             if all(isinstance(x, str) for x in data):
                 return True
-            
+
             # List of integers (tokens)
             if all(isinstance(x, int) for x in data):
                 return True
-            
+
             # List of integer lists (list of tokens)
             if all(isinstance(x, list) for x in data):
                 for data_list in data:
                     if not all(isinstance(x, int) for x in data_list):
-                        return False # wrong format
+                        return False  # wrong format
                 return True
-        
+
         # Wrong format
         return False
 
@@ -403,7 +407,6 @@ class OpenAIContentPartSerializer(BaseSerializers):
 
 # OpenAI content object (needed for the content field of the chat completions prediction field)
 class OpenAIContentObjectField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIContentObjectField, self).__init__(*args, **kwargs)
@@ -449,18 +452,21 @@ class OpenAIUserLocationSerializer(BaseSerializers):
 
 # OpenAI web search options serializer (needed for chat completions web_search_options field)
 class OpenAIWebSearchOptionsSerializer(BaseSerializers):
-    search_context_size = serializers.ChoiceField(choices=["low", "medium", "high"], required=False)
+    search_context_size = serializers.ChoiceField(
+        choices=["low", "medium", "high"], required=False
+    )
     user_location = OpenAIUserLocationSerializer(required=False, allow_null=True)
 
 
 # OpenAI modalities field (needed for chat completions fields)
 class OpenAIModalitiesField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIModalitiesField, self).__init__(*args, **kwargs)
         self.allowed = [["text"], ["text", "audio"]]
-        self.custom_error_message = f"Must be one of the following arrays: {self.allowed}."
+        self.custom_error_message = (
+            f"Must be one of the following arrays: {self.allowed}."
+        )
 
     # Check if the data has a valid type
     def has_valid_types(self, data):
@@ -475,7 +481,6 @@ class OpenAIModalitiesField(BaseCustomField):
 
 # OpenAI metadata field (needed for chat completions fields)
 class OpenAIMetaDataField(BaseCustomField):
-
     # Add to the existing initialization
     def __init__(self, *args, **kwargs):
         super(OpenAIMetaDataField, self).__init__(*args, **kwargs)

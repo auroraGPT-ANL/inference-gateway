@@ -32,6 +32,7 @@ MOCK_POLICY_UUID = "mock_policy_uuid"
 #   Pydantic
 # ============
 
+
 class AsyncClientPostResponse(BaseModel):
     status_code: int
     text: str
@@ -41,8 +42,11 @@ class AsyncClientPostResponse(BaseModel):
 #   Authentication and authorization
 # ====================================
 
+
 # Get mock access token
-def get_mock_access_token(active=True, expired=False, has_premium_access=False, has_allowed_domain=True):
+def get_mock_access_token(
+    active=True, expired=False, has_premium_access=False, has_allowed_domain=True
+):
     """Generates a mock access token with various conditions."""
 
     # Base-line access token
@@ -61,7 +65,8 @@ def get_mock_access_token(active=True, expired=False, has_premium_access=False, 
     # Return the mock access token
     return mock_token
 
-# Get mock headers 
+
+# Get mock headers
 def get_mock_headers(access_token="", bearer=True):
     """Generates a request headers with or without a authorization token."""
 
@@ -74,13 +79,13 @@ def get_mock_headers(access_token="", bearer=True):
             headers["Authorization"] = f"Bearer {access_token}"
         else:
             headers["Authorization"] = f"{access_token}"
-    
+
     # Return the mock headers
     return headers
 
+
 # Get mock token introspection
 def introspect_token(access_token):
-
     # Emulate an error in the introspection call
     if (ACTIVE not in access_token) or (EXPIRED in access_token):
         return None, [], "mock error message"
@@ -116,21 +121,13 @@ def introspect_token(access_token):
                 "name": MOCK_USER,
                 "username": username,
                 "identity_provider": MOCK_IDP,
-                "identity_provider_display_name": MOCK_IDP_NAME
+                "identity_provider_display_name": MOCK_IDP_NAME,
             }
         ],
-        "session_info": {
-            "authentications": {
-                MOCK_SUB: {
-                    "idp": MOCK_IDP
-                }
-            }
-        },
+        "session_info": {"authentications": {MOCK_SUB: {"idp": MOCK_IDP}}},
         "policy_evaluations": {
-            MOCK_POLICY_UUID: {
-                "evaluation": MOCK_DOMAIN in username
-            }
-        }
+            MOCK_POLICY_UUID: {"evaluation": MOCK_DOMAIN in username}
+        },
     }
 
     # Return the mock token introspection and the Globus group details (here []])
@@ -141,55 +138,58 @@ def introspect_token(access_token):
 #   Globus Compute SDK
 # ======================
 
-# Mock Globus Compute client
-class MockGlobusComputeClient():
 
+# Mock Globus Compute client
+class MockGlobusComputeClient:
     # Mock endpoint status
     def get_endpoint_status(self, endpoint_uuid):
         return {"status": "online", "details": {"managers": 1}}
-    
+
     # Mock run (needs to be random distinct uuids to avoid UNIQUE database errors)
     def run(self, data, endpoint_id=None, function_id=None):
         return uuid.uuid4()
-    
+
     # Mock task status
     def get_task(self, task_uuid):
         return {"pending": False}
-    
+
     # Mock task result
     def get_result(self, task_uuid):
         return MOCK_RESPONSE
-    
+
     # Mock create batch
     def create_batch(self):
         return MockBatch()
-    
+
     # Mock batch run
     def batch_run(self, endpoint_id=None, batch=None):
         return {
             "request_id": str(uuid.uuid4()),
-            "tasks": {
-                "1": [str(uuid.uuid4()), str(uuid.uuid4())]
-            }
+            "tasks": {"1": [str(uuid.uuid4()), str(uuid.uuid4())]},
         }
-    
+
+
 # Mock Globus batch object
-class MockBatch():
+class MockBatch:
     def add(self, function_id=None, args=None):
         pass
 
+
 # Mock Globus Compute Executor
-class MockGlobusComputeExecutor():
+class MockGlobusComputeExecutor:
     def submit_to_registered_function(self, function_uuid, args=None):
         return MockFuture()
+
 
 # Mock get_globus_client function
 def get_globus_client():
     return MockGlobusComputeClient()
 
+
 # Mock get_compute_client_from_globus_app function
 def get_compute_client_from_globus_app():
     return MockGlobusComputeClient()
+
 
 # Mock get_compute_executor function
 def get_compute_executor(endpoint_id=None, client=None, amqp_port=None):
@@ -200,42 +200,45 @@ def get_compute_executor(endpoint_id=None, client=None, amqp_port=None):
 #   Future object
 # =================
 
+
 # Mock asyncio wrap_future function
 def wrap_future(future):
     return MockFuture()
 
+
 # Mock asyncio wait_for function
 async def wait_for(future, timeout=None):
     return MOCK_RESPONSE
+
 
 # Mock Globus SDK Executor Future object
 class MockFuture(Future):
     def __init__(self):
         super().__init__()
         self.task_id = str(uuid.uuid4())
+
     def result(self, timeout=None):
         return MOCK_RESPONSE
-    
+
 
 # ===============
 #   HTTPS calls
 # ===============
 
+
 # Mock AsyncClient to make direct API calls
 class MockAsyncClient(AsyncClient):
     async def post(self, *args, **kwargs):
         # Log the intercepted call
-        url = args[0] if args else kwargs.get('url', 'unknown')
+        url = args[0] if args else kwargs.get("url", "unknown")
         print(f"[MOCK] Intercepted HTTP POST to: {url}")
-        return AsyncClientPostResponse(
-            status_code=200,
-            text=MOCK_RESPONSE
-        )
+        return AsyncClientPostResponse(status_code=200, text=MOCK_RESPONSE)
 
 
 # =============
 #   Streaming
 # =============
+
 
 # Mock sse_generator
 # Return a list instead of generator for easier testing with Django Ninja test client
@@ -244,8 +247,9 @@ def mock_sse_generator():
         b"data: chunk1\n\n",
         b"data: chunk2\n\n",
         b"data: chunk3\n\n",
-        b"data: [DONE]\n\n"
+        b"data: [DONE]\n\n",
     ]
+
 
 # Mock StreamingHttpResponse
 class MockStreamingHttpResponse(StreamingHttpResponse):
@@ -262,11 +266,16 @@ class MockStreamingHttpResponse(StreamingHttpResponse):
 #   Others
 # ==========
 
+
 # Mock utils.metis_utils.fetch_metis_status function
 async def mock_fetch_metis_status(use_cache):
     metis_models = [e.model async for e in Endpoint.objects.filter(cluster="metis")]
-    metis_status = {m: {"model": m, "status": "Live", "endpoint_id": str(uuid.uuid4())} for m in metis_models}
+    metis_status = {
+        m: {"model": m, "status": "Live", "endpoint_id": str(uuid.uuid4())}
+        for m in metis_models
+    }
     return metis_status, ""
+
 
 # Mock __initialize_access_log_data function
 def mock_initialize_access_log_data(self, request):

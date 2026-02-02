@@ -1,8 +1,10 @@
 from typing import List
 import re
 
+
 class BackendUtilsError(Exception):
     pass
+
 
 # Convert a text field into a list of strings
 def textfield_to_strlist(textfield: str) -> List[str]:

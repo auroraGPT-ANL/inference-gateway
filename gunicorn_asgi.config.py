@@ -7,7 +7,7 @@ import multiprocessing
 environment = os.getenv("ENV", "production")
 
 # Localhost port to communicate between Nginx and Gunicorn
-bind = '0.0.0.0:7000'
+bind = "0.0.0.0:7000"
 
 # Maximum response time above which Gunicorn sends a timeout error
 timeout = 1800
@@ -31,7 +31,7 @@ backlog = 2048
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
-workers = 5 # Reduced to 5 for our VM
+workers = 5  # Reduced to 5 for our VM
 threads = 4  # Increase threads per worker for better concurrency
 worker_connections = 1000  # Maximum number of simultaneous clients per worker
 
@@ -44,7 +44,7 @@ if environment == "development":
     # Development log files in the current directory
     accesslog = "./logs/backend_gateway.access.log"
     errorlog = "./logs/backend_gateway.error.log"
-    bind = '127.0.0.1:8000'
+    bind = "127.0.0.1:8000"
     # More verbose logging in development
     loglevel = "debug"
 else:
@@ -65,7 +65,7 @@ enable_stdio_inheritance = True
 # statsd_prefix = 'gunicorn'
 
 # Process naming for better monitoring
-proc_name = 'inference-gateway'
+proc_name = "inference-gateway"
 
 # Error handling
 max_retries = 3

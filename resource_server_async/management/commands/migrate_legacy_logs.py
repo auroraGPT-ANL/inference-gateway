@@ -20,7 +20,9 @@ from resource_server_async.models import (
 
 
 def _det_uuid(namespace_prefix: str, legacy_id: int) -> uuid.UUID:
-    return uuid.uuid5(uuid.NAMESPACE_URL, f"inference-gateway:{namespace_prefix}:{legacy_id}")
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL, f"inference-gateway:{namespace_prefix}:{legacy_id}"
+    )
 
 
 def _parse_endpoint_slug(endpoint_slug: Optional[str]) -> Tuple[str, str, str]:
@@ -29,7 +31,11 @@ def _parse_endpoint_slug(endpoint_slug: Optional[str]) -> Tuple[str, str, str]:
 
     parts = endpoint_slug.strip().lower().split("-")
     if len(parts) < 3:
-        return (parts[0] if parts else "unknown", parts[1] if len(parts) > 1 else "unknown", "unknown")
+        return (
+            parts[0] if parts else "unknown",
+            parts[1] if len(parts) > 1 else "unknown",
+            "unknown",
+        )
 
     cluster = parts[0]
     framework = parts[1]
@@ -42,7 +48,7 @@ def _truncate(value: Optional[str], max_len: int) -> Optional[str]:
         return None
     if len(value) <= max_len:
         return value
-    return value[: max_len]
+    return value[:max_len]
 
 
 def _derive_timestamps(
@@ -63,7 +69,9 @@ def _derive_timestamps(
     return compute_req, compute_res
 
 
-def _safe_status_code(response_status: Optional[int], result: Optional[str]) -> Tuple[int, Optional[str]]:
+def _safe_status_code(
+    response_status: Optional[int], result: Optional[str]
+) -> Tuple[int, Optional[str]]:
     if response_status is None:
         # Unknown status; keep result as-is but mark status 0
         return 0, None
@@ -122,7 +130,9 @@ class Command(BaseCommand):
         skipped = 0
 
         # For small ID lists, one transaction is OK. For larger, use per-batch commits.
-        iterator: Iterable[LegacyLog] = queryset.iterator(chunk_size=min(batch_size, max(total, 1)))
+        iterator: Iterable[LegacyLog] = queryset.iterator(
+            chunk_size=min(batch_size, max(total, 1))
+        )
 
         @transaction.atomic
         def _migrate_one(row: LegacyLog):
@@ -149,12 +159,16 @@ class Command(BaseCommand):
             if dry_run:
                 user_obj = None  # Not created
             else:
-                user_obj, _ = User.objects.get_or_create(id=user_id, defaults=user_defaults)
+                user_obj, _ = User.objects.get_or_create(
+                    id=user_id, defaults=user_defaults
+                )
 
             # AccessLog mapping
             access_id = _det_uuid("access", row.id)
 
-            status_code, error_payload = _safe_status_code(row.response_status, row.result)
+            status_code, error_payload = _safe_status_code(
+                row.response_status, row.result
+            )
             api_route = f"/legacy/{(row.openai_endpoint or 'unknown').strip('/')}"
             origin_ip = "legacy"
 
@@ -173,9 +187,11 @@ class Command(BaseCommand):
             cluster = framework = model = None
             if row.endpoint_slug:
                 try:
-                    ep = LegacyEndpoint.objects.filter(endpoint_slug=row.endpoint_slug).only(
-                        "cluster", "framework", "model"
-                    ).first()
+                    ep = (
+                        LegacyEndpoint.objects.filter(endpoint_slug=row.endpoint_slug)
+                        .only("cluster", "framework", "model")
+                        .first()
+                    )
                     if ep:
                         cluster, framework, model = ep.cluster, ep.framework, ep.model
                 except Exception:
@@ -197,7 +213,9 @@ class Command(BaseCommand):
                 "cluster": cluster,
                 "framework": framework,
                 "model": model,
-                "openai_endpoint": _truncate((row.openai_endpoint or "chat/completions").strip("/"), 100),
+                "openai_endpoint": _truncate(
+                    (row.openai_endpoint or "chat/completions").strip("/"), 100
+                ),
                 "timestamp_compute_request": compute_req,
                 "timestamp_compute_response": compute_res,
                 "prompt": row.prompt,
@@ -213,7 +231,14 @@ class Command(BaseCommand):
                         {
                             "legacy_id": row.id,
                             "user": {"id": user_id, **user_defaults},
-                            "access_log": {"id": str(access_id), **{k: v for k, v in access_defaults.items() if k != "user"}},
+                            "access_log": {
+                                "id": str(access_id),
+                                **{
+                                    k: v
+                                    for k, v in access_defaults.items()
+                                    if k != "user"
+                                },
+                            },
                             "request_log": {"id": str(request_id), **request_defaults},
                         },
                         default=str,
@@ -243,12 +268,12 @@ class Command(BaseCommand):
                 _migrate_one(row)
             except Exception as e:
                 skipped += 1
-                self.stderr.write(self.style.ERROR(f"Failed to migrate legacy row {row.id}: {e}"))
+                self.stderr.write(
+                    self.style.ERROR(f"Failed to migrate legacy row {row.id}: {e}")
+                )
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Migration complete. migrated={migrated}, skipped={skipped}, total_requested={total}, dry_run={dry_run}"
             )
         )
-
-

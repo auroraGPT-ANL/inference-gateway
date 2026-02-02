@@ -10,6 +10,7 @@ import json
 
 # Tool to log access requests
 import logging
+
 log = logging.getLogger(__name__)
 
 
@@ -22,9 +23,10 @@ class ClusterConfig(BaseModel):
 # Globus Compute implementation of a BaseCluster
 class GlobusComputeCluster(BaseCluster):
     """Globus Compute implementation of BaseCluster."""
-    
+
     # Class initialization
-    def __init__(self,
+    def __init__(
+        self,
         id: str,
         cluster_name: str,
         cluster_adapter: str,
@@ -32,14 +34,21 @@ class GlobusComputeCluster(BaseCluster):
         openai_endpoints: List[str],
         allowed_globus_groups: List[str] = [],
         allowed_domains: List[str] = [],
-        config: ClusterConfig = None
+        config: ClusterConfig = None,
     ):
         # Validate endpoint configuration
         self.__config = ClusterConfig(**config)
 
         # Initialize the rest of the common attributes
-        super().__init__(id, cluster_name, cluster_adapter, frameworks, openai_endpoints, allowed_globus_groups, allowed_domains)
-
+        super().__init__(
+            id,
+            cluster_name,
+            cluster_adapter,
+            frameworks,
+            openai_endpoints,
+            allowed_globus_groups,
+            allowed_domains,
+        )
 
     # Get jobs
     async def get_jobs(self) -> GetJobsResponse:
@@ -47,7 +56,7 @@ class GlobusComputeCluster(BaseCluster):
 
         # Redis cache key
         cache_key = f"qstat_details:{self.cluster_name}"
-        
+
         # Try to get qstat details from Redis
         try:
             cached_result = cache.get(cache_key)
@@ -62,51 +71,67 @@ class GlobusComputeCluster(BaseCluster):
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
             return GetJobsResponse(error_message=str(e), error_code=500)
-        
+
         # Build temporary qstat endpoint slug
         endpoint_slug = f"{self.cluster_name}/jobs"
 
         # Get the status of the qstat endpoint
         # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
         endpoint_status, error_message = globus_utils.get_endpoint_status(
-            endpoint_uuid=self.config.qstat_endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
+            endpoint_uuid=self.config.qstat_endpoint_uuid,
+            client=gcc,
+            endpoint_slug=endpoint_slug,
         )
         if len(error_message) > 0:
             return GetJobsResponse(error_message=error_message, error_code=500)
-            
+
         # Return error message if endpoint is not online
         if not endpoint_status["status"] == "online":
-            return GetJobsResponse(error_message=f"Error: Endpoint {endpoint_slug} is offline.", error_code=500)
-        
+            return GetJobsResponse(
+                error_message=f"Error: Endpoint {endpoint_slug} is offline.",
+                error_code=500,
+            )
+
         # Submit task and wait for result
-        result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
-            gce, self.config.qstat_endpoint_uuid, self.config.qstat_function_uuid, timeout=60
+        (
+            result,
+            task_uuid,
+            error_message,
+            error_code,
+        ) = await globus_utils.submit_and_get_result(
+            gce,
+            self.config.qstat_endpoint_uuid,
+            self.config.qstat_function_uuid,
+            timeout=60,
         )
         if len(error_message) > 0:
             return GetJobsResponse(error_message=error_message, error_code=error_code)
-        
+
         # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
         try:
-
             # For each running endpoint ...
             result = json.loads(result)
             for i, running in enumerate(result["running"]):
-
                 # If the model is in a "running" state (not "starting")
                 if running["Model Status"] == "running":
-
                     # Get compute endpoint ID from database
                     running_framework = running["Framework"]
                     running_model = running["Models"].split(",")[0]
                     running_cluster = running["Cluster"]
-                    endpoint_slug = slugify(" ".join([running_cluster, running_framework, running_model]))
-                    endpoint = await sync_to_async(Endpoint.objects.get)(endpoint_slug=endpoint_slug)
+                    endpoint_slug = slugify(
+                        " ".join([running_cluster, running_framework, running_model])
+                    )
+                    endpoint = await sync_to_async(Endpoint.objects.get)(
+                        endpoint_slug=endpoint_slug
+                    )
                     endpoint_config = json.loads(endpoint.config)
                     endpoint_uuid = endpoint_config["endpoint_uuid"]
 
                     # Turn the model to "disconnected" if managers are lost
                     endpoint_status, error_message = globus_utils.get_endpoint_status(
-                        endpoint_uuid=endpoint_uuid, client=gcc, endpoint_slug=endpoint_slug
+                        endpoint_uuid=endpoint_uuid,
+                        client=gcc,
+                        endpoint_slug=endpoint_slug,
                     )
                     if int(endpoint_status["details"].get("managers", 0)) == 0:
                         result["running"][i]["Model Status"] = "disconnected"
@@ -119,13 +144,19 @@ class GlobusComputeCluster(BaseCluster):
             result["private_batch_running"] = result["private-batch-running"]
             result["private_batch_queued"] = result["private-batch-queued"]
         except Exception as e:
-            return GetJobsResponse(error_message=f"Error: Could not parse batch details: {e}", error_code=500)
+            return GetJobsResponse(
+                error_message=f"Error: Could not parse batch details: {e}",
+                error_code=500,
+            )
 
         # Build response
         try:
             response = GetJobsResponse(jobs=Jobs(**result))
         except Exception as e:
-            return GetJobsResponse(error_message=f"Error: Could not generate GetJobsResponse: {e}", error_code=500)
+            return GetJobsResponse(
+                error_message=f"Error: Could not generate GetJobsResponse: {e}",
+                error_code=500,
+            )
 
         # Cache the result for 60 seconds
         try:
@@ -135,7 +166,6 @@ class GlobusComputeCluster(BaseCluster):
 
         # Return qstat result
         return response
-    
 
     # Read-only access to the configuration
     @property

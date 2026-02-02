@@ -4,9 +4,9 @@ import uuid
 from django.utils.timezone import now
 from django.core.exceptions import ValidationError
 
+
 # Details of a given Globus Compute endpoint
 class Endpoint(models.Model):
-
     # Slug for the endpoint
     # In the form of <cluster>-<framework>-<model> (all lower case)
     # An example is polaris-llama-cpp_meta-llama3-8b-instruct
@@ -46,13 +46,14 @@ class Endpoint(models.Model):
     # Automatically generate slug if not provided
     def save(self, *args, **kwargs):
         if self.endpoint_slug is None or self.endpoint_slug == "":
-            self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
+            self.endpoint_slug = slugify(
+                " ".join([self.cluster, self.framework, self.model])
+            )
         super(Endpoint, self).save(*args, **kwargs)
 
- 
+
 # Log of Globus Compute requests sent to Globus
 class Log(models.Model):
-
     # User who triggered a Globus task
     name = models.CharField(max_length=100)
     username = models.CharField(max_length=100)
@@ -94,7 +95,7 @@ class Log(models.Model):
     # String function
     def __str__(self):
         return f"<{self.username} - {self.timestamp_receive} - {self.endpoint_slug}>"
-    
+
 
 # Log of list-endpoints requests, which may include Globus Compute qstat tasks
 class ListEndpointsLog(models.Model):
@@ -129,10 +130,9 @@ class ListEndpointsLog(models.Model):
 
 # Log for batch requests
 class Batch(models.Model):
-
     # Unique UUID assigned to the batch request
     batch_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
+
     # Who submitted the batch?
     name = models.CharField(max_length=100)
     username = models.CharField(max_length=100)
@@ -144,9 +144,9 @@ class Batch(models.Model):
     framework = models.CharField(max_length=100)
     model = models.CharField(max_length=250)
     # OpenAI extra fields
-    #metadata = models.JSONField(default=dict)
-    #completion_window = models.CharField(max_length=100)
-    #endpoint = models.CharField(max_length=250)
+    # metadata = models.JSONField(default=dict)
+    # completion_window = models.CharField(max_length=100)
+    # endpoint = models.CharField(max_length=250)
 
     # List of Globus task UUIDs tied to the batch (string separated with ,)
     globus_batch_uuid = models.CharField(max_length=100)
@@ -161,16 +161,16 @@ class Batch(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     failed_at = models.DateTimeField(null=True, blank=True)
     # OpenAI extra fields
-    #output_file_id = models.CharField(max_length=250, blank=True)
-    #error_file_id = models.CharField(max_length=250, blank=True)
-    #expires_at = models.DateTimeField(null=True, blank=True)
-    #finalizing_at = models.DateTimeField(null=True, blank=True)
-    #object = models.CharField(max_length=100, default="batch")
-    #errors = models.JSONField(default=dict)
-    #expired_at = models.DateTimeField(null=True, blank=True)
-    #cancelling_at = models.DateTimeField(null=True, blank=True)
-    #cancelled_at = models.DateTimeField(null=True, blank=True)
-    #request_counts = models.JSONField(default=dict)
+    # output_file_id = models.CharField(max_length=250, blank=True)
+    # error_file_id = models.CharField(max_length=250, blank=True)
+    # expires_at = models.DateTimeField(null=True, blank=True)
+    # finalizing_at = models.DateTimeField(null=True, blank=True)
+    # object = models.CharField(max_length=100, default="batch")
+    # errors = models.JSONField(default=dict)
+    # expired_at = models.DateTimeField(null=True, blank=True)
+    # cancelling_at = models.DateTimeField(null=True, blank=True)
+    # cancelled_at = models.DateTimeField(null=True, blank=True)
+    # request_counts = models.JSONField(default=dict)
 
     # String function
     def __str__(self):
@@ -180,7 +180,6 @@ class Batch(models.Model):
 # Represents a federated model accessible via a single name,
 # potentially served by multiple concrete endpoints.
 class FederatedEndpoint(models.Model):
-
     # User-friendly name for the federated model offering
     name = models.CharField(max_length=200)
 
@@ -194,13 +193,13 @@ class FederatedEndpoint(models.Model):
 
     # Store the list of potential concrete targets directly as JSON.
     # Each item in the list should be a dictionary containing:
-    # { 
-    #   "cluster": "cluster_name", 
-    #   "framework": "framework_name", 
-    #   "endpoint_uuid": "uuid", 
-    #   "function_uuid": "uuid", 
-    #   "api_port": port_number, 
-    #   "allowed_globus_groups": "group_str" (optional) 
+    # {
+    #   "cluster": "cluster_name",
+    #   "framework": "framework_name",
+    #   "endpoint_uuid": "uuid",
+    #   "function_uuid": "uuid",
+    #   "api_port": port_number,
+    #   "allowed_globus_groups": "group_str" (optional)
     # }
     targets = models.JSONField(default=list)
 
@@ -219,7 +218,6 @@ class FederatedEndpoint(models.Model):
 
 # Details of the latest jobs/ URL (qstat function) status
 class ModelStatus(models.Model):
-
     # Targetted cluster where the models run
     cluster = models.CharField(max_length=128, unique=True)
 
@@ -234,14 +232,14 @@ class ModelStatus(models.Model):
 
 
 # Log for file path imports
-#class File(models.Model):
+# class File(models.Model):
 #
 #    # Unique UUID assigned to the input file path request
 #    input_file_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 #
 #    # Input file path on the HPC resource
 #    input_file_path = models.TextField(blank=False, null=False)
-#    
+#
 #    # Info on who submited the file path
 #    name = models.CharField(max_length=100)
 #    username = models.CharField(max_length=100)
