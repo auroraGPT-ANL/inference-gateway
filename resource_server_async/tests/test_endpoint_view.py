@@ -29,7 +29,10 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         """
         Test get_list_endpoints (GET)
         """
-        db_endpoints_public, db_endpoints_private = self.__get_endpoint_object_counts()
+        (
+            db_endpoints_public,
+            db_endpoints_premium,
+        ) = await self.__get_endpoint_object_counts()
 
         # For valid tokens with and without premium access ...
         # TODO: Factor these tests out as individual units (setattr?)
@@ -69,4 +72,4 @@ class EndpointsViewTestCase(ResourceServerTestCase):
         ):
             db_endpoints_premium += 1
 
-        return (db_endpoints_public, db_endpoints_premium)
+        return db_endpoints_public, db_endpoints_premium
