@@ -2,6 +2,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Any, Optional, List
 
+
 class UserPydantic(BaseModel):
     id: str
     name: str
@@ -10,6 +11,7 @@ class UserPydantic(BaseModel):
     idp_id: str
     idp_name: str
     auth_service: str
+
 
 class AccessLogPydantic(BaseModel):
     id: str
@@ -21,6 +23,7 @@ class AccessLogPydantic(BaseModel):
     status_code: Optional[int] = Field(default=None)
     error: Optional[str] = Field(default=None)
     authorized_groups: Optional[str] = Field(default=None)
+
 
 class RequestLogPydantic(BaseModel):
     id: str
@@ -34,6 +37,7 @@ class RequestLogPydantic(BaseModel):
     prompt: Optional[str] = Field(default=None)
     result: Optional[str] = Field(default=None)
     task_uuid: Optional[str] = Field(default=None)
+
 
 class BatchLogPydantic(BaseModel):
     id: str

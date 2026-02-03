@@ -21,23 +21,27 @@ from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsP
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 from utils.pydantic_models.batch import BatchPydantic, BatchStatusEnum
-from utils.pydantic_models.db_models import AccessLogPydantic, RequestLogPydantic, BatchLogPydantic
+from utils.pydantic_models.db_models import (
+    AccessLogPydantic,
+    RequestLogPydantic,
+    BatchLogPydantic,
+)
 from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from cachetools import TTLCache
 from resource_server_async.models import (
-    AccessLog, 
-    RequestLog, 
-    BatchLog, 
-    RequestMetrics, 
-    BatchMetrics, 
-    Endpoint, 
+    AccessLog,
+    RequestLog,
+    BatchLog,
+    RequestMetrics,
+    BatchMetrics,
+    Endpoint,
     Cluster,
 )
 from resource_server_async.endpoints.endpoint import BaseEndpoint
 from resource_server_async.clusters.cluster import BaseCluster
 
-log = logging.getLogger(__name__) # Add logger
+log = logging.getLogger(__name__)  # Add logger
 
 
 # Exception to raise in case of errors
@@ -48,12 +52,11 @@ class ResourceServerError(Exception):
 # Is cached
 def is_cached(key: str, create_empty: bool = False, ttl: int = 30) -> bool:
     """
-        Returns True if key exists in the cache, False otherwise.
-        If create_empty=True, a non-existing key will be created with a "" value (function will still returns False).
+    Returns True if key exists in the cache, False otherwise.
+    If create_empty=True, a non-existing key will be created with a "" value (function will still returns False).
     """
-     # If the key does not exist ...
+    # If the key does not exist ...
     if cache.get(key) is None:
-
         # Create an empty entry if needed
         if create_empty:
             cache.set(key, "", ttl)
@@ -73,15 +76,15 @@ def extract_prompt(model_params):
     # Completions
     if "prompt" in model_params:
         return model_params["prompt"]
-        
+
     # Chat completions
     elif "messages" in model_params:
         return model_params["messages"]
-        
+
     # Embeddings
     elif "input" in model_params:
         return model_params["input"]
-        
+
     # Undefined
     return "default"
 
@@ -94,7 +97,7 @@ def validate_request_body(request, openai_endpoint):
     # Strip the last forward slash if needed (to be consistent with cluster's openai_endpoints)
     if openai_endpoint[-1] == "/":
         openai_endpoint = openai_endpoint[:-1]
-        
+
     # Select the appropriate pydantic model for data validation
     if "chat/completions" in openai_endpoint:
         pydantic_class = OpenAIChatCompletionsPydantic
@@ -104,14 +107,14 @@ def validate_request_body(request, openai_endpoint):
         pydantic_class = OpenAIEmbeddingsPydantic
     else:
         return {"error": f"Error: {openai_endpoint} endpoint not supported."}
-    
+
     # Decode and validate request body
     model_params = validate_body(request, pydantic_class)
     if "error" in model_params.keys():
         return model_params
 
     # Add the 'url' parameter to model_params
-    model_params['openai_endpoint'] = openai_endpoint
+    model_params["openai_endpoint"] = openai_endpoint
 
     # Build request data if nothing wrong was caught
     return {"model_params": model_params}
@@ -127,12 +130,12 @@ def validate_batch_body(request):
 def decode_request_body(request):
     """
     Safely decode request.body to string, handling both bytes and str.
-    
+
     Django Ninja can return either bytes or str depending on context.
-    
+
     Args:
         request: Django request object
-    
+
     Returns:
         str: Decoded body as string
     """
@@ -145,7 +148,7 @@ def decode_request_body(request):
 # Validate body
 def validate_body(request, pydantic_class):
     """Validate body data from incoming user requests against a given pydantic model."""
-                
+
     # Decode request body into a dictionary
     try:
         params = json.loads(decode_request_body(request))
@@ -165,11 +168,13 @@ def validate_body(request, pydantic_class):
 
 
 # Update database
-async def update_database(db_Model=None, db_data=None, db_object=None, return_obj=False):
+async def update_database(
+    db_Model=None, db_data=None, db_object=None, return_obj=False
+):
     """
     Create new entry in the database or save the modification of existing entry.
     It returns the database object.
-    
+
     Arguments
     ---------
         db_Model: Django database model from models.py (e.g. AccessLog, RequestLog)
@@ -197,7 +202,7 @@ async def update_database(db_Model=None, db_data=None, db_object=None, return_ob
         error_message = f"Could not save {type(db_Model)} database entry: {e}"
         log.error(error_message)
         raise Exception(error_message)
-    
+
     # Return the database object if needed
     if return_obj:
         return db_object
@@ -206,18 +211,21 @@ async def update_database(db_Model=None, db_data=None, db_object=None, return_ob
 _redis_client = None
 _redis_available = None
 
+
 def get_redis_client():
     """Get Redis client for LIST and pipeline operations. Cached singleton."""
     global _redis_client, _redis_available
-    
+
     if _redis_available is False:
         return None
     if _redis_client is not None:
         return _redis_client
-    
+
     try:
-        if hasattr(settings, 'CACHES') and 'redis' in str(settings.CACHES.get('default', {}).get('BACKEND', '')):
-            cache_location = settings.CACHES['default'].get('LOCATION')
+        if hasattr(settings, "CACHES") and "redis" in str(
+            settings.CACHES.get("default", {}).get("BACKEND", "")
+        ):
+            cache_location = settings.CACHES["default"].get("LOCATION")
             if cache_location:
                 _redis_client = redis.Redis.from_url(cache_location)
                 _redis_client.ping()
@@ -226,18 +234,21 @@ def get_redis_client():
                 return _redis_client
     except Exception as e:
         log.warning(f"Redis not available, falling back to Django cache: {e}")
-    
+
     _redis_available = False
     _redis_client = None
     return None
+
 
 # ========================================
 # Generic Streaming Helpers
 # ========================================
 
+
 def _get_cache_key(key_type: str, task_id: str) -> str:
     """Get cache key for streaming data (Django cache uses Redis in production)"""
     return f"stream:{key_type}:{task_id}"
+
 
 def _cache_set(task_id: str, key_type: str, value: str, ttl: int = 3600):
     """Generic cache set - uses Django cache (which is Redis in production)"""
@@ -246,6 +257,7 @@ def _cache_set(task_id: str, key_type: str, value: str, ttl: int = 3600):
         cache.set(key, value, ttl)
     except Exception as e:
         log.error(f"Error setting streaming {key_type} for task {task_id}: {e}")
+
 
 def _cache_get(task_id: str, key_type: str):
     """Generic cache get - uses Django cache (which is Redis in production)"""
@@ -256,9 +268,11 @@ def _cache_get(task_id: str, key_type: str):
         log.error(f"Error getting streaming {key_type} for task {task_id}: {e}")
         return None
 
+
 # ========================================
 # Streaming Data (Redis LIST operations)
 # ========================================
+
 
 def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 600):
     """Store streaming chunk using Redis LIST (lpush for ordering)"""
@@ -277,6 +291,7 @@ def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 600):
     except Exception as e:
         log.error(f"Error storing streaming data for task {task_id}: {e}")
 
+
 def get_streaming_data(task_id: str):
     """Get all streaming chunks using Redis LIST (lrange)"""
     try:
@@ -284,7 +299,10 @@ def get_streaming_data(task_id: str):
         if redis_client:
             key = _get_cache_key("data", task_id)
             chunks = redis_client.lrange(key, 0, -1)
-            return [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk for chunk in reversed(chunks)]
+            return [
+                chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+                for chunk in reversed(chunks)
+            ]
         else:
             # Fallback: retrieve from cache as regular list
             key = _get_cache_key("data", task_id)
@@ -293,11 +311,15 @@ def get_streaming_data(task_id: str):
         log.error(f"Error getting streaming data for task {task_id}: {e}")
         return []
 
+
 # ========================================
 # Streaming Metadata (Django cache)
 # ========================================
 
-def set_streaming_metadata(task_id: str, metadata_type: str, value: str, ttl: int = 3600):
+
+def set_streaming_metadata(
+    task_id: str, metadata_type: str, value: str, ttl: int = 3600
+):
     """Set streaming metadata - use direct Redis for consistency with batch operations"""
     try:
         redis_client = get_redis_client()
@@ -310,6 +332,7 @@ def set_streaming_metadata(task_id: str, metadata_type: str, value: str, ttl: in
     except Exception as e:
         log.error(f"Error setting streaming {metadata_type} for task {task_id}: {e}")
 
+
 def get_streaming_metadata(task_id: str, metadata_type: str):
     """Get streaming metadata - use direct Redis for consistency with batch operations"""
     try:
@@ -317,24 +340,29 @@ def get_streaming_metadata(task_id: str, metadata_type: str):
         if redis_client:
             key = _get_cache_key(metadata_type, task_id)
             value = redis_client.get(key)
-            return value.decode('utf-8') if isinstance(value, bytes) else value
+            return value.decode("utf-8") if isinstance(value, bytes) else value
         else:
             # Fallback to Django cache
             return _cache_get(task_id, metadata_type)
     except Exception as e:
         log.error(f"Error getting streaming {metadata_type} for task {task_id}: {e}")
         return None
+
+
 def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
     """Set streaming status"""
     set_streaming_metadata(task_id, "status", status, ttl)
+
 
 def get_streaming_status(task_id: str):
     """Get streaming status"""
     return get_streaming_metadata(task_id, "status")
 
+
 def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
     """Set streaming error"""
     set_streaming_metadata(task_id, "error", error, ttl)
+
 
 def get_streaming_error(task_id: str):
     """Get streaming error"""
@@ -344,6 +372,7 @@ def get_streaming_error(task_id: str):
 # ========================================
 # Token Security
 # ========================================
+
 
 def generate_and_store_streaming_token(task_id: str, ttl: int = 600) -> str:
     """Generate and store authentication token (256 bits entropy) - use direct Redis"""
@@ -360,6 +389,7 @@ def generate_and_store_streaming_token(task_id: str, ttl: int = 600) -> str:
     log.info(f"Generated and stored streaming token for task {task_id}")
     return token
 
+
 def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
     """Validate task token (constant-time comparison) - use direct Redis"""
     try:
@@ -367,16 +397,20 @@ def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
         if redis_client:
             key = _get_cache_key("token", task_id)
             stored_token = redis_client.get(key)
-            stored_token = stored_token.decode('utf-8') if isinstance(stored_token, bytes) else stored_token
+            stored_token = (
+                stored_token.decode("utf-8")
+                if isinstance(stored_token, bytes)
+                else stored_token
+            )
         else:
             stored_token = _cache_get(task_id, "token")
-            
+
         if stored_token:
             is_valid = hmac.compare_digest(stored_token, provided_token)
             if not is_valid:
                 log.warning(f"Invalid token provided for task {task_id}")
             return is_valid
-        
+
         log.warning(f"No stored token found for task {task_id}")
         return False
     except Exception as e:
@@ -390,6 +424,7 @@ def validate_streaming_task_token(task_id: str, provided_token: str) -> bool:
 
 _validation_cache = TTLCache(maxsize=10000, ttl=300)
 
+
 def validate_streaming_request_optimized(task_id: str, provided_token: str) -> tuple:
     """Validate streaming request with caching. Returns (is_valid, error_message)"""
     # Check in-memory cache first
@@ -397,91 +432,101 @@ def validate_streaming_request_optimized(task_id: str, provided_token: str) -> t
     try:
         if cache_key in _validation_cache:
             is_valid = _validation_cache[cache_key]
-            return (True, None) if is_valid else (False, "Invalid or expired task authentication")
+            return (
+                (True, None)
+                if is_valid
+                else (False, "Invalid or expired task authentication")
+            )
     except Exception:
         pass
-    
+
     # Validate task_id format (UUID)
     try:
         uuid.UUID(task_id)
     except ValueError:
         return False, "Invalid task_id format"
-    
+
     # Validate token (also checks if task exists)
     try:
         is_valid = validate_streaming_task_token(task_id, provided_token)
-        
+
         # Cache the result
         try:
             _validation_cache[cache_key] = is_valid
         except Exception as e:
             log.warning(f"Failed to cache validation result: {e}")
-        
+
         if is_valid:
             return True, None
         return False, "Invalid task authentication token"
-            
+
     except Exception as e:
         log.error(f"Error in validation: {e}")
         return False, f"Validation error: {str(e)}"
 
 
-def validate_streaming_request_security(request, max_content_length: int = 150000) -> tuple:
+def validate_streaming_request_security(
+    request, max_content_length: int = 150000
+) -> tuple:
     """
     Validate security requirements for streaming API endpoints.
     Checks Content-Length, X-Internal-Secret, and X-Stream-Task-Token.
-    
+
     Args:
         request: Django request object
         max_content_length: Maximum allowed content length in bytes
-        
+
     Returns:
         (is_valid, error_response_dict, status_code) tuple
         - is_valid: True if all checks pass, False otherwise
         - error_response_dict: Dict with error details if validation fails, None if valid
         - status_code: HTTP status code for error response, None if valid
     """
-    
+
     # SECURITY LAYER 1 - Validate Content-Length BEFORE parsing
-    content_length = request.headers.get('Content-Length')
+    content_length = request.headers.get("Content-Length")
     if content_length:
         try:
             if int(content_length) > max_content_length:
-                log.warning(f"Streaming request exceeded size limit: {content_length} bytes (max: {max_content_length})")
+                log.warning(
+                    f"Streaming request exceeded size limit: {content_length} bytes (max: {max_content_length})"
+                )
                 return False, {"error": "Request too large"}, 413
         except ValueError:
             pass  # Invalid Content-Length, let parsing catch it
-    
+
     # SECURITY LAYER 2: Validate global internal secret
-    internal_secret = request.headers.get('X-Internal-Secret', '')
-    expected_secret = getattr(settings, 'INTERNAL_STREAMING_SECRET', 'default-secret-change-me')
+    internal_secret = request.headers.get("X-Internal-Secret", "")
+    expected_secret = getattr(
+        settings, "INTERNAL_STREAMING_SECRET", "default-secret-change-me"
+    )
     if internal_secret != expected_secret:
         log.warning("Streaming request with invalid internal secret")
         return False, {"error": "Unauthorized: Invalid internal secret"}, 401
-    
+
     # SECURITY LAYER 3: Validate per-task token
-    task_token = request.headers.get('X-Stream-Task-Token', '')
+    task_token = request.headers.get("X-Stream-Task-Token", "")
     if not task_token:
         log.warning("Streaming request missing task token")
         return False, {"error": "Unauthorized: Missing task token"}, 401
-    
+
     # Parse request body to get task_id for token validation
     try:
         data = json.loads(decode_request_body(request))
-        task_id = data.get('task_id')
-        
+        task_id = data.get("task_id")
+
         if not task_id:
             return False, {"error": "Missing task_id"}, 400
-        
+
         # Validate the task token using optimized validation
         is_valid, error_msg = validate_streaming_request_optimized(task_id, task_token)
         if not is_valid:
             log.warning(f"Streaming validation failed for task {task_id}: {error_msg}")
             return False, {"error": error_msg}, 403
-        
+
         # All validation passed
         return True, None, None
-        
+
     except json.JSONDecodeError as e:
         log.error(f"Invalid JSON in streaming request: {e}")
         return False, {"error": "Invalid JSON"}, 400
@@ -494,6 +539,7 @@ def validate_streaming_request_security(request, max_content_length: int = 15000
 # Batched Operations (Redis pipelines)
 # ========================================
 
+
 def get_streaming_data_and_status_batch(task_id: str):
     """Get data, status, and error in single Redis pipeline. Returns (chunks, status, error)"""
     try:
@@ -504,23 +550,42 @@ def get_streaming_data_and_status_batch(task_id: str):
             pipe.lrange(_get_cache_key("data", task_id), 0, -1)
             pipe.get(_get_cache_key("status", task_id))
             pipe.get(_get_cache_key("error", task_id))
-            
+
             results = pipe.execute()
-            
+
             # Process results with byte decoding
-            chunks = [chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk 
-                     for chunk in reversed(results[0])] if results[0] else []
-            status = results[1].decode('utf-8') if isinstance(results[1], bytes) else results[1]
-            error = results[2].decode('utf-8') if isinstance(results[2], bytes) else results[2]
-            
+            chunks = (
+                [
+                    chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+                    for chunk in reversed(results[0])
+                ]
+                if results[0]
+                else []
+            )
+            status = (
+                results[1].decode("utf-8")
+                if isinstance(results[1], bytes)
+                else results[1]
+            )
+            error = (
+                results[2].decode("utf-8")
+                if isinstance(results[2], bytes)
+                else results[2]
+            )
+
             return chunks, status, error
         else:
             # Fallback to sequential operations using Django cache
-            return get_streaming_data(task_id), get_streaming_status(task_id), get_streaming_error(task_id)
-            
+            return (
+                get_streaming_data(task_id),
+                get_streaming_status(task_id),
+                get_streaming_error(task_id),
+            )
+
     except Exception as e:
         log.error(f"Error in batched streaming retrieval for task {task_id}: {e}")
         return [], None, None
+
 
 def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
     """Store multiple chunks in single Redis pipeline"""
@@ -548,6 +613,7 @@ def store_streaming_data_batch(task_id: str, chunk_list: list, ttl: int = 3600):
 # Reusable functions
 # ------------------
 
+
 def get_item_from_cache(cache_key):
     """Get item from cache or None if not found."""
     try:
@@ -559,6 +625,7 @@ def get_item_from_cache(cache_key):
         log.warning(f"Cache error for {cache_key}: {e}")
     return None
 
+
 def cache_item(cache_key, data, ttl=3600):
     """Cache item data (60 minutes TTL by default)."""
     try:
@@ -566,6 +633,7 @@ def cache_item(cache_key, data, ttl=3600):
         log.info(f"Cached {cache_key}.")
     except Exception as e:
         log.warning(f"Failed to cache {cache_key}: {e}")
+
 
 def remove_item_from_cache(cache_key):
     """Remove item from cache"""
@@ -575,61 +643,77 @@ def remove_item_from_cache(cache_key):
     except Exception as e:
         log.warning(f"Failed to remove {cache_key} from cache: {e}")
 
+
 # Endpoint database caching
 # -------------------------
+
 
 def get_endpoint_from_cache(endpoint_slug):
     """Get endpoint from cache or None if not found"""
     return get_item_from_cache(f"endpoint:{endpoint_slug}")
 
+
 def cache_endpoint(endpoint_slug, data):
     """Cache endpoint data"""
     cache_item(f"endpoint:{endpoint_slug}", data)
+
 
 def remove_endpoint_from_cache(endpoint_slug):
     """Remove endpoint from cache"""
     remove_item_from_cache(f"endpoint:{endpoint_slug}")
 
+
 # Endpoint wrapper caching
 # ------------------------
+
 
 def get_endpoint_wrapper_from_cache(endpoint_slug):
     """Get endpoint wrapper from cache or None if not found"""
     return get_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
 
+
 def cache_endpoint_wrapper(endpoint_slug, data):
     """Cache endpoint wrapper data"""
     cache_item(f"endpoint_wrapper:{endpoint_slug}", data)
+
 
 def remove_endpoint_wrapper_from_cache(endpoint_slug):
     """Remove endpoint wrapper from cache"""
     remove_item_from_cache(f"endpoint_wrapper:{endpoint_slug}")
 
+
 # Cluster database caching
 # -------------------------
+
 
 def get_cluster_from_cache(cluster_name):
     """Get cluster from cache or None if not found"""
     return get_item_from_cache(f"cluster:{cluster_name}")
 
+
 def cache_cluster(cluster_name, data):
     """Cache cluster data"""
     cache_item(f"cluster:{cluster_name}", data)
+
 
 def remove_cluster_from_cache(cluster_name):
     """Remove cluster from cache"""
     remove_item_from_cache(f"cluster:{cluster_name}")
 
+
 # Cluster wrapper caching
 # -----------------------
+
 
 def get_cluster_wrapper_from_cache(cluster_name):
     """Get cluster wrapper from cache or None if not found"""
     return get_item_from_cache(f"cluster_wrapper:{cluster_name}")
 
+
 def cache_cluster_wrapper(cluster_name, data):
     """Cache cluster wrapper data"""
     cache_item(f"cluster_wrapper:{cluster_name}", data)
+
 
 def remove_cluster_wrapper_from_cache(cluster_name):
     """Remove cluster wrapper from cache"""
@@ -643,7 +727,7 @@ async def get_response(content, code, request):
     # If this is an error, define the cache key to see whether the error occured recently (during high traffic)
     skip_database_operation = False
     if code != 200:
-        try: 
+        try:
             cache_key = request.auth.username + str(content) + str(code)
             skip_database_operation = is_cached(cache_key, create_empty=True)
         except:
@@ -652,41 +736,51 @@ async def get_response(content, code, request):
     # Try to create database entries
     # Skip if this is a repeating cached error during high traffic
     if not skip_database_operation:
-      try:
-
-        # First, create AccessLog database entry (should always have one)
-        if hasattr(request, "access_log_data"):
-            access_log = await create_access_log(request.access_log_data, content, code)
-        else:
-            return HttpResponse(json.dumps("Error: get_response did not receive AccessLog data"), status=400)
-        
-        # Create RequestLog database entry
-        if hasattr(request, "request_log_data"):
-            request.request_log_data.access_log = access_log
-            req_obj = await create_request_log(request.request_log_data, content, code)
-
-            # Create RequestMetrics immediately for non-streaming requests
-            await _upsert_request_metrics_auto(req_obj, access_log)
-
-        # Create BatchLog database entry
-        if hasattr(request, "batch_log_data"):
-            request.batch_log_data.access_log = access_log
-            batch_obj = await create_batch_log(request.batch_log_data, content, code)
-            # Create BatchMetrics skeleton; later updates can fill tokens/throughput
-            try:
-                await _upsert_batch_metrics(
-                    batch_obj=batch_obj,
-                    total_tokens=None,
-                    num_responses=None,
-                    response_time_sec=None,
-                    throughput_tokens_per_sec=None,
+        try:
+            # First, create AccessLog database entry (should always have one)
+            if hasattr(request, "access_log_data"):
+                access_log = await create_access_log(
+                    request.access_log_data, content, code
                 )
-            except Exception as e:
-                log.error(f"Error creating BatchMetrics: {e}")
+            else:
+                return HttpResponse(
+                    json.dumps("Error: get_response did not receive AccessLog data"),
+                    status=400,
+                )
 
-      # Error message if something went wrong while creating database entries
-      except Exception as e:
-        return HttpResponse(json.dumps(f"Error: Could not create database entries: {e}"), status=400)
+            # Create RequestLog database entry
+            if hasattr(request, "request_log_data"):
+                request.request_log_data.access_log = access_log
+                req_obj = await create_request_log(
+                    request.request_log_data, content, code
+                )
+
+                # Create RequestMetrics immediately for non-streaming requests
+                await _upsert_request_metrics_auto(req_obj, access_log)
+
+            # Create BatchLog database entry
+            if hasattr(request, "batch_log_data"):
+                request.batch_log_data.access_log = access_log
+                batch_obj = await create_batch_log(
+                    request.batch_log_data, content, code
+                )
+                # Create BatchMetrics skeleton; later updates can fill tokens/throughput
+                try:
+                    await _upsert_batch_metrics(
+                        batch_obj=batch_obj,
+                        total_tokens=None,
+                        num_responses=None,
+                        response_time_sec=None,
+                        throughput_tokens_per_sec=None,
+                    )
+                except Exception as e:
+                    log.error(f"Error creating BatchMetrics: {e}")
+
+        # Error message if something went wrong while creating database entries
+        except Exception as e:
+            return HttpResponse(
+                json.dumps(f"Error: Could not create database entries: {e}"), status=400
+            )
 
     # Prepare and return the HTTP response
     if code == 200:
@@ -695,9 +789,13 @@ async def get_response(content, code, request):
             # If content is a JSON string, validate and return as-is
             if isinstance(content, str):
                 _ = json.loads(content)
-                return HttpResponse(content, status=code, content_type='application/json')
+                return HttpResponse(
+                    content, status=code, content_type="application/json"
+                )
             # If it's already a dict/list, dump once
-            return HttpResponse(json.dumps(content), status=code, content_type='application/json')
+            return HttpResponse(
+                json.dumps(content), status=code, content_type="application/json"
+            )
         except Exception:
             # Fallback: return raw
             return HttpResponse(content, status=code)
@@ -710,29 +808,35 @@ async def get_response(content, code, request):
 # Streaming Setup
 # ========================================
 
+
 def prepare_streaming_task_data(data, stream_task_id):
     """Prepare streaming task data with server config and auth token"""
-    stream_server_host = getattr(settings, 'STREAMING_SERVER_HOST', 'data-portal-dev.cels.anl.gov')
-    stream_server_port = getattr(settings, 'STREAMING_SERVER_PORT', 443)
-    stream_server_protocol = getattr(settings, 'STREAMING_SERVER_PROTOCOL', 'https')
-    
+    stream_server_host = getattr(
+        settings, "STREAMING_SERVER_HOST", "data-portal-dev.cels.anl.gov"
+    )
+    stream_server_port = getattr(settings, "STREAMING_SERVER_PORT", 443)
+    stream_server_protocol = getattr(settings, "STREAMING_SERVER_PROTOCOL", "https")
+
     task_token = generate_and_store_streaming_token(stream_task_id)
-    data["model_params"].update({
-        "streaming_server_host": stream_server_host,
-        "streaming_server_port": stream_server_port,
-        "streaming_server_protocol": stream_server_protocol,
-        "stream_task_id": stream_task_id,
-        "stream_task_token": task_token
-    })
-    
+    data["model_params"].update(
+        {
+            "streaming_server_host": stream_server_host,
+            "streaming_server_port": stream_server_port,
+            "streaming_server_protocol": stream_server_protocol,
+            "stream_task_id": stream_task_id,
+            "stream_task_token": task_token,
+        }
+    )
+
     return data
+
 
 def create_streaming_response_headers():
     """Create standard headers for SSE streaming responses"""
     return {
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control'
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Cache-Control",
     }
 
 
@@ -747,8 +851,10 @@ async def create_access_log(access_log_data: AccessLogPydantic, content, code):
         access_log_data.error = json.dumps(content)
 
     # Create and return database entry
-    return await update_database(db_Model=AccessLog, db_data=access_log_data.model_dump(), return_obj=True)
-    
+    return await update_database(
+        db_Model=AccessLog, db_data=access_log_data.model_dump(), return_obj=True
+    )
+
 
 # Create request log
 async def create_request_log(request_log_data: RequestLogPydantic, content, code):
@@ -759,7 +865,9 @@ async def create_request_log(request_log_data: RequestLogPydantic, content, code
         request_log_data.result = _ensure_json_string(content)
 
     # Create database entry
-    return await update_database(db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True)
+    return await update_database(
+        db_Model=RequestLog, db_data=request_log_data.model_dump(), return_obj=True
+    )
 
 
 # ---- Metrics helpers ----
@@ -768,6 +876,7 @@ def _safe_json(value: str):
         return json.loads(value) if isinstance(value, str) else value
     except Exception:
         return None
+
 
 def _ensure_json_string(content):
     """Normalize any content into a proper JSON string.
@@ -789,6 +898,7 @@ def _ensure_json_string(content):
     except Exception:
         return json.dumps({"raw": "unserializable"})
 
+
 def _compute_response_time_sec(start_ts, end_ts):
     try:
         if start_ts and end_ts:
@@ -796,6 +906,7 @@ def _compute_response_time_sec(start_ts, end_ts):
     except Exception:
         return None
     return None
+
 
 def _compute_throughput_tokens_per_sec(total_tokens, response_time_sec):
     try:
@@ -805,9 +916,15 @@ def _compute_throughput_tokens_per_sec(total_tokens, response_time_sec):
         return None
     return None
 
-async def _upsert_request_metrics_auto(request_obj: RequestLog, access_obj: AccessLog,
-                                       response_time_sec: float = None,
-                                       prompt_tokens=None, completion_tokens=None, total_tokens=None):
+
+async def _upsert_request_metrics_auto(
+    request_obj: RequestLog,
+    access_obj: AccessLog,
+    response_time_sec: float = None,
+    prompt_tokens=None,
+    completion_tokens=None,
+    total_tokens=None,
+):
     # Derive tokens from stored result if not provided
     if prompt_tokens is None and completion_tokens is None and total_tokens is None:
         p, c, t = _extract_usage_tokens_from_result(request_obj.result)
@@ -816,7 +933,8 @@ async def _upsert_request_metrics_auto(request_obj: RequestLog, access_obj: Acce
     # Derive response time from timestamps if not provided
     if response_time_sec is None:
         response_time_sec = _compute_response_time_sec(
-            request_obj.timestamp_compute_request, request_obj.timestamp_compute_response
+            request_obj.timestamp_compute_request,
+            request_obj.timestamp_compute_response,
         )
 
     throughput = _compute_throughput_tokens_per_sec(total_tokens, response_time_sec)
@@ -833,6 +951,7 @@ async def _upsert_request_metrics_auto(request_obj: RequestLog, access_obj: Acce
         )
     except Exception as e:
         log.error(f"Error upserting RequestMetrics: {e}")
+
 
 def _extract_usage_tokens_from_result(result_str: str):
     prompt_tokens = None
@@ -851,10 +970,17 @@ def _extract_usage_tokens_from_result(result_str: str):
             total_tokens = metrics.get("total_tokens")
     return prompt_tokens, completion_tokens, total_tokens
 
+
 @sync_to_async
-def _upsert_request_metrics(request_obj: RequestLog, access_obj: AccessLog,
-                            prompt_tokens, completion_tokens, total_tokens,
-                            response_time_sec, throughput_tokens_per_sec):
+def _upsert_request_metrics(
+    request_obj: RequestLog,
+    access_obj: AccessLog,
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    response_time_sec,
+    throughput_tokens_per_sec,
+):
     defaults = {
         "cluster": request_obj.cluster,
         "framework": request_obj.framework,
@@ -868,16 +994,24 @@ def _upsert_request_metrics(request_obj: RequestLog, access_obj: AccessLog,
         "timestamp_compute_request": request_obj.timestamp_compute_request,
         "timestamp_compute_response": request_obj.timestamp_compute_response,
     }
-    obj, _ = RequestMetrics.objects.update_or_create(request=request_obj, defaults=defaults)
+    obj, _ = RequestMetrics.objects.update_or_create(
+        request=request_obj, defaults=defaults
+    )
     # Mark processed on the request to avoid external re-processing
     if not request_obj.metrics_processed:
         request_obj.metrics_processed = True
         request_obj.save()
     return obj
 
+
 @sync_to_async
-def _upsert_batch_metrics(batch_obj: BatchLog, total_tokens, num_responses,
-                          response_time_sec, throughput_tokens_per_sec):
+def _upsert_batch_metrics(
+    batch_obj: BatchLog,
+    total_tokens,
+    num_responses,
+    response_time_sec,
+    throughput_tokens_per_sec,
+):
     defaults = {
         "cluster": batch_obj.cluster,
         "framework": batch_obj.framework,
@@ -898,7 +1032,10 @@ class UpdateBatchResponse(BaseModel):
     batch: BatchLog
     error_message: Optional[str] = None
     error_code: Optional[int] = None
-    model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable BatchLog
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )  # Allow non-serializable BatchLog
+
 
 # Update batch entry
 async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
@@ -909,8 +1046,7 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
     response = await get_endpoint_wrapper(endpoint_slug)
     if response.error_message:
         return UpdateBatchResponse(
-            error_message=response.error_message,
-            error_code=response.error_code
+            error_message=response.error_message, error_code=response.error_code
         )
     endpoint = response.endpoint
 
@@ -918,15 +1054,13 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
     response = await endpoint.get_batch_status(batch)
     if response.error_message:
         return UpdateBatchResponse(
-            error_message=response.error_message,
-            error_code=response.error_code
+            error_message=response.error_message, error_code=response.error_code
         )
     status = response.status
     result = response.result
 
     # If status changed ...
     if batch.status != status:
-        
         # Update status and result
         batch.status = status
         batch.result = result
@@ -936,17 +1070,17 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
             batch.failed_at = timezone.now()
         elif batch.status == BatchStatusEnum.completed.value:
             batch.completed_at = timezone.now()
-        
+
         # Try to parse metrics summary from result if available
         if result:
             try:
                 result_data = json.loads(batch.result)
-                if isinstance(result_data, dict) and 'metrics' in result_data:
-                    metrics = result_data.get('metrics') or {}
-                    total_tokens = metrics.get('total_tokens')
-                    num_responses = metrics.get('num_responses')
-                    response_time_sec = metrics.get('response_time_sec')
-                    throughput = metrics.get('throughput_tokens_per_sec')
+                if isinstance(result_data, dict) and "metrics" in result_data:
+                    metrics = result_data.get("metrics") or {}
+                    total_tokens = metrics.get("total_tokens")
+                    num_responses = metrics.get("num_responses")
+                    response_time_sec = metrics.get("response_time_sec")
+                    throughput = metrics.get("throughput_tokens_per_sec")
             except Exception:
                 total_tokens = None
                 num_responses = None
@@ -962,15 +1096,12 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
                 )
             except Exception as e:
                 log.error(f"Error upserting BatchMetrics: {e}")
-        
+
         # Update entry in the database
         try:
             await update_database(db_object=batch)
         except Exception as e:
-            return UpdateBatchResponse(
-                error_message=f"Error: {str(e)}",
-                error_code=500
-            )
+            return UpdateBatchResponse(error_message=f"Error: {str(e)}", error_code=500)
 
     # Return the batch object
     return UpdateBatchResponse(batch=batch)
@@ -985,98 +1116,119 @@ async def create_batch_log(batch_log_data: BatchLogPydantic, content, code):
         batch_log_data.result = _ensure_json_string(content)
 
     # Create database entry
-    return await update_database(db_Model=BatchLog, db_data=batch_log_data.model_dump(), return_obj=True)
-    
+    return await update_database(
+        db_Model=BatchLog, db_data=batch_log_data.model_dump(), return_obj=True
+    )
+
 
 # Enhanced streaming utilities for content collection
 
+
 def format_streaming_error_for_openai(error_message: str):
     """Pass through JSON errors as-is, minimal processing for non-JSON errors"""
-    
+
     try:
         # Try to parse if it's already a JSON error from vLLM
-        if error_message.strip().startswith('{') and error_message.strip().endswith('}'):
+        if error_message.strip().startswith("{") and error_message.strip().endswith(
+            "}"
+        ):
             try:
                 parsed_error = json.loads(error_message)
-                if 'object' in parsed_error and parsed_error['object'] == 'error':
+                if "object" in parsed_error and parsed_error["object"] == "error":
                     # Already in OpenAI error format, return as-is
                     return f"data: {json.dumps(parsed_error)}\n\n"
             except json.JSONDecodeError:
                 pass
-        
+
         # Look for JSON error in "Response text:" sections and extract it as-is
-        response_text_match = re.search(r'Response text[:\s]*(\{.*?\})', error_message, re.DOTALL)
+        response_text_match = re.search(
+            r"Response text[:\s]*(\{.*?\})", error_message, re.DOTALL
+        )
         if response_text_match:
             try:
                 json_error = response_text_match.group(1)
                 parsed_error = json.loads(json_error)
-                if 'object' in parsed_error and parsed_error['object'] == 'error':
+                if "object" in parsed_error and parsed_error["object"] == "error":
                     # Found a valid JSON error, return it as-is
                     return f"data: {json.dumps(parsed_error)}\n\n"
             except json.JSONDecodeError:
                 pass
-        
+
         # Fallback for non-JSON errors - minimal generic error
         fallback_error = {
-            "object": "error", 
+            "object": "error",
             "message": "An error occurred during processing",
             "type": "InternalServerError",
             "param": None,
-            "code": 500
-        }
-        return f"data: {json.dumps(fallback_error)}\n\n"
-        
-    except Exception as e:
-        # Ultimate fallback
-        fallback_error = {
-            "object": "error", 
-            "message": "An error occurred during processing",
-            "type": "InternalServerError",
-            "param": None,
-            "code": 500
+            "code": 500,
         }
         return f"data: {json.dumps(fallback_error)}\n\n"
 
+    except Exception as e:
+        # Ultimate fallback
+        fallback_error = {
+            "object": "error",
+            "message": "An error occurred during processing",
+            "type": "InternalServerError",
+            "param": None,
+            "code": 500,
+        }
+        return f"data: {json.dumps(fallback_error)}\n\n"
+
+
 def extract_status_code_from_error(error_message: str):
     """Extract status code from error message for database logging"""
-    
+
     try:
         # Look for explicit status codes in error message
         if "status code:" in error_message:
             match = re.search(r"status code[:\s]+(\d+)", error_message)
             if match:
                 return int(match.group(1))
-        
+
         # Look for status codes in JSON error objects
         if '"code"' in error_message:
             code_match = re.search(r'"code"\s*:\s*(\d+)', error_message)
             if code_match:
                 return int(code_match.group(1))
-        
+
         # Common error patterns
-        if "max_tokens must be at least" in error_message or "maximum context length" in error_message:
+        if (
+            "max_tokens must be at least" in error_message
+            or "maximum context length" in error_message
+        ):
             return 400  # Bad request
-        elif "unauthorized" in error_message.lower() or "authentication" in error_message.lower():
+        elif (
+            "unauthorized" in error_message.lower()
+            or "authentication" in error_message.lower()
+        ):
             return 401
-        elif "forbidden" in error_message.lower() or "permission" in error_message.lower():
+        elif (
+            "forbidden" in error_message.lower()
+            or "permission" in error_message.lower()
+        ):
             return 403
         elif "not found" in error_message.lower():
             return 404
-        elif "rate limit" in error_message.lower() or "too many requests" in error_message.lower():
+        elif (
+            "rate limit" in error_message.lower()
+            or "too many requests" in error_message.lower()
+        ):
             return 429
-        
+
         # Default to 500 for unknown errors
         return 500
-        
+
     except:
         return 500
+
 
 def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
     """Collect all streaming content and create a complete response"""
     chunks = get_streaming_data(task_id)
     if not chunks:
         return None
-    
+
     try:
         # Reconstruct the complete streaming response
         full_content = ""
@@ -1084,59 +1236,59 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
         model_info = {}
         finish_reason = None
         content_chunks = 0
-        
+
         for chunk in chunks:
-            if chunk.startswith('data: '):
+            if chunk.startswith("data: "):
                 chunk_data = chunk[6:]  # Remove "data: " prefix
-                if chunk_data.strip() == '[DONE]':
+                if chunk_data.strip() == "[DONE]":
                     continue
-                
+
                 try:
                     parsed_chunk = json.loads(chunk_data)
-                    
+
                     # Collect usage info (usually in the last chunk or special chunks)
-                    if 'usage' in parsed_chunk and parsed_chunk['usage']:
-                        usage_info.update(parsed_chunk['usage'])
-                    
+                    if "usage" in parsed_chunk and parsed_chunk["usage"]:
+                        usage_info.update(parsed_chunk["usage"])
+
                     # Collect model info (from first chunk usually)
-                    if 'model' in parsed_chunk:
-                        model_info['model'] = parsed_chunk['model']
-                    if 'id' in parsed_chunk:
-                        model_info['id'] = parsed_chunk['id']
-                    if 'object' in parsed_chunk:
-                        model_info['object'] = parsed_chunk['object']  
-                    if 'created' in parsed_chunk:
-                        model_info['created'] = parsed_chunk['created']
-                    
+                    if "model" in parsed_chunk:
+                        model_info["model"] = parsed_chunk["model"]
+                    if "id" in parsed_chunk:
+                        model_info["id"] = parsed_chunk["id"]
+                    if "object" in parsed_chunk:
+                        model_info["object"] = parsed_chunk["object"]
+                    if "created" in parsed_chunk:
+                        model_info["created"] = parsed_chunk["created"]
+
                     # Collect content from streaming chunks
-                    choices = parsed_chunk.get('choices', [])
+                    choices = parsed_chunk.get("choices", [])
                     if choices and len(choices) > 0:
                         choice = choices[0]
-                        
+
                         # For streaming responses, content is in delta
-                        delta = choice.get('delta', {})
-                        content = delta.get('content', '')
+                        delta = choice.get("delta", {})
+                        content = delta.get("content", "")
                         if content:
                             full_content += content
                             content_chunks += 1
-                        
+
                         # Check for finish reason (in final chunks)
-                        if 'finish_reason' in choice and choice['finish_reason']:
-                            finish_reason = choice['finish_reason']
-                
+                        if "finish_reason" in choice and choice["finish_reason"]:
+                            finish_reason = choice["finish_reason"]
+
                 except json.JSONDecodeError:
                     continue
-        
+
         # If no usage info was captured from chunks, estimate from content
-        if not usage_info or not usage_info.get('total_tokens', 0):
+        if not usage_info or not usage_info.get("total_tokens", 0):
             # Enhanced token estimation using multiple methods
             char_estimate = len(full_content) // 4  # ~4 chars per token
             word_estimate = len(full_content.split()) * 1.3  # ~1.3 tokens per word
-            
-            # Use average of methods for better accuracy  
+
+            # Use average of methods for better accuracy
             estimated_completion_tokens = int((char_estimate + word_estimate) / 2)
             estimated_completion_tokens = max(1, estimated_completion_tokens)
-            
+
             # Estimate prompt tokens more accurately if we have the original prompt
             estimated_prompt_tokens = 50  # Conservative default
             if original_prompt:
@@ -1147,53 +1299,59 @@ def collect_and_aggregate_streaming_content(task_id: str, original_prompt=None):
                         # Handle messages format - extract all content
                         prompt_parts = []
                         for msg in original_prompt:
-                            if isinstance(msg, dict) and msg.get('content'):
-                                prompt_parts.append(msg['content'])
+                            if isinstance(msg, dict) and msg.get("content"):
+                                prompt_parts.append(msg["content"])
                         prompt_text = " ".join(prompt_parts)
                     else:
                         prompt_text = str(original_prompt)
-                    
+
                     # Better prompt token estimation using same dual method
                     prompt_char_estimate = len(prompt_text) // 4
                     prompt_word_estimate = len(prompt_text.split()) * 1.3
-                    estimated_prompt_tokens = int((prompt_char_estimate + prompt_word_estimate) / 2)
+                    estimated_prompt_tokens = int(
+                        (prompt_char_estimate + prompt_word_estimate) / 2
+                    )
                     estimated_prompt_tokens = max(10, estimated_prompt_tokens)
-                    
-                    log.info(f"Prompt token estimation for {task_id}: {estimated_prompt_tokens} tokens from {len(prompt_text)} chars")
+
+                    log.info(
+                        f"Prompt token estimation for {task_id}: {estimated_prompt_tokens} tokens from {len(prompt_text)} chars"
+                    )
                 except Exception as e:
                     log.warning(f"Error parsing prompt for token estimation: {e}")
-            
+
             usage_info = {
                 "prompt_tokens": estimated_prompt_tokens,
                 "completion_tokens": estimated_completion_tokens,
                 "total_tokens": estimated_prompt_tokens + estimated_completion_tokens,
-                "prompt_tokens_details": None
+                "prompt_tokens_details": None,
             }
-            log.info(f"Token estimation for {task_id}: {usage_info['total_tokens']} total ({usage_info['completion_tokens']} completion, {usage_info['prompt_tokens']} prompt)")
-        
+            log.info(
+                f"Token estimation for {task_id}: {usage_info['total_tokens']} total ({usage_info['completion_tokens']} completion, {usage_info['prompt_tokens']} prompt)"
+            )
+
         # Ensure we have the correct object type for a complete response (not chunk)
-        model_info['object'] = 'chat.completion'  # Always set to completion, not chunk
-        
+        model_info["object"] = "chat.completion"  # Always set to completion, not chunk
+
         # Create a complete response in authentic OpenAI/vLLM streaming format
         # Only include fields that are actually provided by vLLM/OpenAI streaming
         complete_response = {
             **model_info,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": full_content
-                },
-                "finish_reason": finish_reason or "stop"
-            }],
-            "usage": usage_info
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": full_content},
+                    "finish_reason": finish_reason or "stop",
+                }
+            ],
+            "usage": usage_info,
         }
-        
+
         return complete_response
-        
+
     except Exception as e:
         log.error(f"Error aggregating streaming content: {e}")
         return None
+
 
 @sync_to_async
 def get_log_entry_with_access_log(log_id: str) -> RequestLog:
@@ -1201,19 +1359,24 @@ def get_log_entry_with_access_log(log_id: str) -> RequestLog:
     return RequestLog.objects.select_related("access_log").get(id=log_id)
 
 
-async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_response: dict, stream_task_id: str = None):
+async def update_streaming_log_async(
+    log_id: str,
+    final_metrics: dict,
+    complete_response: dict,
+    stream_task_id: str = None,
+):
     """Asynchronously update streaming log entry with final content"""
-    
+
     try:
         # Get the RequestLog and AccessLog entry without using lazy loading
         log_entry = await get_log_entry_with_access_log(log_id)
         access_log = log_entry.access_log  # Safe: already fetched
-        
+
         # Preserve the original task_uuid
         original_task_uuid = log_entry.task_uuid
-        
+
         # Check if there was a streaming error
-        error_status = final_metrics.get('final_status')
+        error_status = final_metrics.get("final_status")
         streaming_error = None
         response_status = 200  # Default success
 
@@ -1226,19 +1389,19 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
 
         # Update the response status in the log entry
         access_log.status_code = response_status
-        
+
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
-            usage = complete_response.get('usage', {})
-            total_tokens = usage.get('total_tokens', 0)
-            response_time = final_metrics.get('total_processing_time', 0)
-            
+            usage = complete_response.get("usage", {})
+            total_tokens = usage.get("total_tokens", 0)
+            response_time = final_metrics.get("total_processing_time", 0)
+
             # Add throughput calculation like non-streaming
             if response_time > 0 and total_tokens > 0:
                 throughput = total_tokens / response_time
-                complete_response['response_time'] = response_time
-                complete_response['throughput_tokens_per_second'] = throughput
-            
+                complete_response["response_time"] = response_time
+                complete_response["throughput_tokens_per_second"] = throughput
+
             log_entry.result = json.dumps(complete_response, indent=4)
         elif streaming_error:
             # Handle error case - store the full original error message
@@ -1246,28 +1409,31 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
                 "streaming_response": True,
                 "error": True,
                 "error_message": streaming_error,  # Store full original error
-                "response_time": final_metrics.get('total_processing_time', 0),
+                "response_time": final_metrics.get("total_processing_time", 0),
                 "throughput_tokens_per_second": 0,
-                "status": "failed"
+                "status": "failed",
             }
             log_entry.result = None
             access_log.error = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
-            log_entry.result = json.dumps({
-                "streaming_response": True,
-                "error": "Could not reconstruct complete response",
-                "metrics": final_metrics,
-                "response_time": final_metrics.get('total_processing_time', 0),
-                "throughput_tokens_per_second": 0
-            }, indent=4)
-        
+            log_entry.result = json.dumps(
+                {
+                    "streaming_response": True,
+                    "error": "Could not reconstruct complete response",
+                    "metrics": final_metrics,
+                    "response_time": final_metrics.get("total_processing_time", 0),
+                    "throughput_tokens_per_second": 0,
+                },
+                indent=4,
+            )
+
         log_entry.timestamp_compute_response = timezone.now()
-        
+
         # Ensure task_uuid is preserved (don't let it get overwritten)
         if original_task_uuid and not log_entry.task_uuid:
             log_entry.task_uuid = original_task_uuid
-        
+
         # Save the updated log and access entries
         await update_database(db_Model=AccessLog, db_object=access_log)
         await update_database(db_Model=RequestLog, db_object=log_entry)
@@ -1276,20 +1442,25 @@ async def update_streaming_log_async(log_id: str, final_metrics: dict, complete_
         await _upsert_request_metrics_auto(
             request_obj=log_entry,
             access_obj=access_log,
-            response_time_sec=(final_metrics.get('total_processing_time') if final_metrics else None)
+            response_time_sec=(
+                final_metrics.get("total_processing_time") if final_metrics else None
+            ),
         )
 
-        log.info(f"Updated streaming log entry {log_id} with final content (status: {response_status})")
-        
+        log.info(
+            f"Updated streaming log entry {log_id} with final content (status: {response_status})"
+        )
+
     except Exception as e:
         log.error(f"Error updating streaming log entry {log_id}: {e}")
+
 
 def cleanup_streaming_data(task_id: str):
     """Clean up all streaming data for a task"""
     try:
         redis_client = get_redis_client()
         key_types = ["data", "status", "error", "token"]
-        
+
         if redis_client:
             # Batch delete all Redis keys (more efficient than individual deletes)
             keys = [_get_cache_key(kt, task_id) for kt in key_types]
@@ -1298,18 +1469,26 @@ def cleanup_streaming_data(task_id: str):
             # Fallback to Django cache delete
             for key_type in key_types:
                 cache.delete(_get_cache_key(key_type, task_id))
-        
+
         log.info(f"Cleaned up streaming data for task {task_id}")
     except Exception as e:
         log.error(f"Error cleaning up streaming data for task {task_id}: {e}")
 
-async def process_streaming_completion_async(task_id: str, stream_task_id: str, log_id: str, globus_task_future, start_time: float, original_prompt=None):
+
+async def process_streaming_completion_async(
+    task_id: str,
+    stream_task_id: str,
+    log_id: str,
+    globus_task_future,
+    start_time: float,
+    original_prompt=None,
+):
     """Background task to process streaming completion and update database"""
-    
+
     try:
         # Wait a bit for initial streaming data to arrive
         await asyncio.sleep(2)
-        
+
         # Wait for streaming to complete
         max_wait = 300  # Wait up to 5 minutes for streaming completion
         wait_start = time.time()
@@ -1318,34 +1497,40 @@ async def process_streaming_completion_async(task_id: str, stream_task_id: str, 
             if status in ["completed", "error"]:
                 break
             await asyncio.sleep(0.5)
-        
+
         # Collect final streaming data
         end_time = time.time()
-        complete_response = collect_and_aggregate_streaming_content(stream_task_id, original_prompt)
-        
+        complete_response = collect_and_aggregate_streaming_content(
+            stream_task_id, original_prompt
+        )
+
         # Simple metrics
         simple_metrics = {
-            'total_processing_time': end_time - start_time,
-            'final_status': get_streaming_status(stream_task_id) or 'completed'
+            "total_processing_time": end_time - start_time,
+            "final_status": get_streaming_status(stream_task_id) or "completed",
         }
-        
+
         # Update the database log entry with final data
-        await update_streaming_log_async(log_id, simple_metrics, complete_response, stream_task_id)
-        
+        await update_streaming_log_async(
+            log_id, simple_metrics, complete_response, stream_task_id
+        )
+
         # Wait a moment before cleanup to ensure SSE generator reads the "completed" status
         # The SSE generator polls every 25ms, so 500ms gives plenty of time
         await asyncio.sleep(0.5)
-        
+
         # Clean up streaming data from cache
         cleanup_streaming_data(stream_task_id)
-        
+
         log.info(f"Completed streaming processing for task {task_id}")
-        
+
     except Exception as e:
         log.error(f"Error in streaming completion processing: {e}")
         try:
             # Try to update log with error info
-            await update_streaming_log_async(log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id)
+            await update_streaming_log_async(
+                log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id
+            )
         except:
             pass
 
@@ -1355,7 +1540,10 @@ class EndpointWrapperResponse(BaseModel):
     endpoint: Optional[BaseEndpoint] = Field(default=None)
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
-    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseEndpoint
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )  # Allow non-serializable BaseEndpoint
+
 
 # Get endpoint wrapper
 async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
@@ -1371,10 +1559,11 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
 
     # If the endpoint is not chached ...
     if endpoint is None:
-
         # Extract endpoint from database
         try:
-            get_endpoint_async = sync_to_async(Endpoint.objects.get, thread_sensitive=True)
+            get_endpoint_async = sync_to_async(
+                Endpoint.objects.get, thread_sensitive=True
+            )
             endpoint = await get_endpoint_async(endpoint_slug=endpoint_slug)
             cache_endpoint(endpoint_slug, endpoint)
 
@@ -1382,12 +1571,12 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
         except Endpoint.DoesNotExist:
             return EndpointWrapperResponse(
                 error_message=f"Error: The requested endpoint {endpoint_slug} does not exist.",
-                error_code=400
+                error_code=400,
             )
         except Exception as e:
             return EndpointWrapperResponse(
                 error_message=f"Error: Could not extract endpoint {endpoint_slug}: {e}",
-                error_code=500
+                error_code=500,
             )
 
     # Convert the config field into a dictionary
@@ -1397,36 +1586,38 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
     except Exception as e:
         return EndpointWrapperResponse(
             error_message=f"Error: Could not load config field for {endpoint_slug}: {e} {endpoint_dictionary}",
-            error_code=500
+            error_code=500,
         )
-    
+
     # Extract the adapter class from the endpoint's database configuration
     try:
         parts = endpoint.endpoint_adapter.rsplit(".", 1)
-        module = importlib.import_module(parts[0])    
+        module = importlib.import_module(parts[0])
         AdapterClass = getattr(module, parts[1])
     except Exception as e:
         return EndpointWrapperResponse(
             error_message=f"Error: Could not load endpoint adapter class {endpoint.endpoint_adapter}: {e}",
-            error_code=500
-        )        
+            error_code=500,
+        )
 
     # Make sure the adaptor inherits from the BaseEndpoint generic class
     if not issubclass(AdapterClass, BaseEndpoint):
         return EndpointWrapperResponse(
             error_message=f"Error: Endpoint adapter {endpoint.endpoint_adapter} should inherit from BaseEndpoint.",
-            error_code=500
+            error_code=500,
         )
-    
+
     # Instantiate the adaptor class
     try:
-        endpoint_wrapper = EndpointWrapperResponse(endpoint=AdapterClass(**endpoint_dictionary))
+        endpoint_wrapper = EndpointWrapperResponse(
+            endpoint=AdapterClass(**endpoint_dictionary)
+        )
     except Exception as e:
         return EndpointWrapperResponse(
             error_message=f"Error: Could not instantiate endpoint adapter {endpoint.endpoint_adapter}: {e}",
-            error_code=500
+            error_code=500,
         )
-    
+
     # Cache and return endpoint wrapper
     cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
     return endpoint_wrapper
@@ -1437,7 +1628,10 @@ class ClusterWrapperResponse(BaseModel):
     cluster: Optional[BaseCluster] = Field(default=None)
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
-    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-serializable BaseCluster
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )  # Allow non-serializable BaseCluster
+
 
 # Get cluster wrapper
 async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
@@ -1453,10 +1647,11 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
 
     # If the cluster is not chached ...
     if cluster is None:
-
         # Extract cluster from database
         try:
-            get_cluster_async = sync_to_async(Cluster.objects.get, thread_sensitive=True)
+            get_cluster_async = sync_to_async(
+                Cluster.objects.get, thread_sensitive=True
+            )
             cluster = await get_cluster_async(cluster_name=cluster_name)
             cache_cluster(cluster_name, cluster)
 
@@ -1464,12 +1659,12 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
         except Cluster.DoesNotExist:
             return ClusterWrapperResponse(
                 error_message=f"Error: The requested cluster {cluster_name} does not exist.",
-                error_code=400
+                error_code=400,
             )
         except Exception as e:
             return ClusterWrapperResponse(
                 error_message=f"Error: Could not extract cluster {cluster_name}: {e}",
-                error_code=500
+                error_code=500,
             )
 
     # Convert the config field into a dictionary
@@ -1479,36 +1674,38 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     except Exception as e:
         return ClusterWrapperResponse(
             error_message=f"Error: Could not load openai_endpoints field for {cluster_name}: {e} {cluster_dictionary}",
-            error_code=500
+            error_code=500,
         )
 
     # Extract the adapter class from the cluster's database configuration
     try:
         parts = cluster.cluster_adapter.rsplit(".", 1)
-        module = importlib.import_module(parts[0])    
+        module = importlib.import_module(parts[0])
         AdapterClass = getattr(module, parts[1])
     except Exception as e:
         return ClusterWrapperResponse(
             error_message=f"Error: Could not load cluster adapter class {cluster.cluster_adapter}: {e}",
-            error_code=500
-        )        
+            error_code=500,
+        )
 
     # Make sure the adaptor inherits from the BaseCluster generic class
     if not issubclass(AdapterClass, BaseCluster):
         return ClusterWrapperResponse(
             error_message=f"Error: Cluster adapter {cluster.cluster_adapter} should inherit from BaseCluster.",
-            error_code=500
+            error_code=500,
         )
-    
+
     # Instantiate the adaptor class
     try:
-        cluster_wrapper = ClusterWrapperResponse(cluster=AdapterClass(**cluster_dictionary))
+        cluster_wrapper = ClusterWrapperResponse(
+            cluster=AdapterClass(**cluster_dictionary)
+        )
     except Exception as e:
         return ClusterWrapperResponse(
             error_message=f"Error: Could not instantiate cluster adapter {cluster.cluster_adapter}: {e}",
-            error_code=500
+            error_code=500,
         )
-    
+
     # Cache and return the cluster wrapper
     cache_cluster_wrapper(cluster_name, cluster_wrapper)
     return cluster_wrapper
@@ -1520,6 +1717,7 @@ class GetListEndpointsDataResponse(BaseModel):
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
 
+
 # Get list endpoints data
 async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
     """Prepare and return data for the list of available frameworks and models."""
@@ -1530,52 +1728,55 @@ async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
     except Exception as e:
         return GetListEndpointsDataResponse(
             error_message=f"Error: Could not access Cluster database entries: {e}",
-            error_code=500
+            error_code=500,
         )
-    
+
     # For each cluster ...
     all_endpoints = {"clusters": {}}
     for db_cluster in db_clusters:
         try:
-
             # Get cluster wrapper from database
             response = await get_cluster_wrapper(db_cluster.cluster_name)
             if response.error_message:
                 return GetListEndpointsDataResponse(
-                    error_message=response.error_message,
-                    error_code=response.error_code
+                    error_message=response.error_message, error_code=response.error_code
                 )
             cluster = response.cluster
 
             # If the user is allowed to see the cluster ...
-            if cluster.check_permission(request.auth, request.user_group_uuids).is_authorized:
-
+            if cluster.check_permission(
+                request.auth, request.user_group_uuids
+            ).is_authorized:
                 # For each endpoint related to this cluster ...
                 frameworks = {}
-                async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
-
+                async for endpoint in Endpoint.objects.filter(
+                    cluster=cluster.cluster_name
+                ):
                     # Get endpoint wrapper from database
                     response = await get_endpoint_wrapper(endpoint.endpoint_slug)
                     if response.error_message:
                         return GetListEndpointsDataResponse(
                             error_message=response.error_message,
-                            error_code=response.error_code
+                            error_code=response.error_code,
                         )
                     endpoint = response.endpoint
 
                     # If the user is allowed to see this endpoint ...
-                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
-
+                    if endpoint.check_permission(
+                        request.auth, request.user_group_uuids
+                    ).is_authorized:
                         # Add framework if needed
                         if endpoint.framework not in frameworks:
                             frameworks[endpoint.framework] = {
                                 "models": [],
-                                "endpoints": [f"/v1/{e}" for e in cluster.openai_endpoints]
+                                "endpoints": [
+                                    f"/v1/{e}" for e in cluster.openai_endpoints
+                                ],
                             }
 
                         # Add model to the framework
-                        frameworks[endpoint.framework]["models"].append(endpoint.model) 
-                    
+                        frameworks[endpoint.framework]["models"].append(endpoint.model)
+
                 # Sort models alphabetically
                 for fw in frameworks:
                     frameworks[fw]["models"] = sorted(frameworks[fw]["models"])
@@ -1583,17 +1784,15 @@ async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
                 # Add endpoint list to the response
                 all_endpoints["clusters"][cluster.cluster_name] = {
                     "base_url": f"/resource_server/{cluster.cluster_name}",
-                    "frameworks": frameworks
+                    "frameworks": frameworks,
                 }
 
         # Error message if something went wrong while building the endpoint list
         except Exception as e:
             return GetListEndpointsDataResponse(
                 error_message=f"Error: Could not generate list of frameworks and models from database: {e}",
-                error_code=500
+                error_code=500,
             )
-        
+
     # Return the endpoint list data
-    return GetListEndpointsDataResponse(
-        all_endpoints=all_endpoints
-    )
+    return GetListEndpointsDataResponse(all_endpoints=all_endpoints)

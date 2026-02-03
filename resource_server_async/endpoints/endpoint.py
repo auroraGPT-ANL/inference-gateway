@@ -13,23 +13,30 @@ class BaseModelWithError(BaseModel):
     error_message: Optional[str] = Field(default=None)
     error_code: Optional[int] = Field(default=None)
 
+
 class SubmitTaskResponse(BaseModelWithError):
     result: Optional[str] = Field(default=None)
     task_id: Optional[str] = Field(default=None)
 
+
 class SubmitStreamingTaskResponse(BaseModelWithError):
     response: Optional[StreamingHttpResponse] = Field(default=None)
     task_id: Optional[str] = Field(default=None)
-    model_config = ConfigDict(arbitrary_types_allowed=True) # Allow non-serializable StreamingHttpResponse
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )  # Allow non-serializable StreamingHttpResponse
+
 
 class SubmitBatchResponse(BaseModelWithError):
     batch_id: Optional[str] = Field(default=str(uuid.uuid4()))
     task_ids: Optional[str] = None
     status: Optional[BatchStatusEnum] = Field(default=BatchStatusEnum.failed.value)
 
+
 class GetBatchStatusResponse(BaseModelWithError):
     status: Optional[BatchStatusEnum] = None
     result: Optional[str] = None
+
 
 class BatchResultMetrics(BaseModel):
     response_time: float
@@ -43,7 +50,8 @@ class BaseEndpoint(ABC):
     """Generic abstract base class that enforces a common set of methods for inference endpoints."""
 
     # Class initialization
-    def __init__(self,
+    def __init__(
+        self,
         id: str,
         endpoint_slug: str,
         cluster: str,
@@ -51,9 +59,9 @@ class BaseEndpoint(ABC):
         model: str,
         endpoint_adapter: str,
         allowed_globus_groups: List[str] = None,
-        allowed_domains: List[str] = None
+        allowed_domains: List[str] = None,
     ):
-        # Assign common self variables 
+        # Assign common self variables
         self.__id = id
         self.__endpoint_slug = endpoint_slug
         self.__cluster = cluster
@@ -64,21 +72,25 @@ class BaseEndpoint(ABC):
         self.__allowed_domains = allowed_domains
 
     # Check permission
-    def check_permission(self, auth: User, user_group_uuids: List[str] ) -> CheckPermissionResponse:
+    def check_permission(
+        self, auth: User, user_group_uuids: List[str]
+    ) -> CheckPermissionResponse:
         """Verify is the user is permitted to access this endpoint."""
 
         # Check permission
-        response = auth_utils_check_permission(auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains)
+        response = auth_utils_check_permission(
+            auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains
+        )
         if response.error_message:
             return CheckPermissionResponse(
                 is_authorized=False,
                 error_message=response.error_message,
-                error_code=response.error_code
+                error_code=response.error_code,
             )
-        
+
         # Return permission check result
         return CheckPermissionResponse(is_authorized=response.is_authorized)
-    
+
     # Mandatory definitions
     # ---------------------
 
@@ -88,7 +100,9 @@ class BaseEndpoint(ABC):
         pass
 
     @abstractmethod
-    async def submit_streaming_task(self, data: dict, request_log_id: str) -> SubmitStreamingTaskResponse:
+    async def submit_streaming_task(
+        self, data: dict, request_log_id: str
+    ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
         pass
 
@@ -101,15 +115,22 @@ class BaseEndpoint(ABC):
         return False
 
     # Redefine in the child class if needed
-    async def submit_batch(self, batch_data: dict, username: str) -> SubmitBatchResponse:
+    async def submit_batch(
+        self, batch_data: dict, username: str
+    ) -> SubmitBatchResponse:
         """Submits a batch job to the compute resource."""
-        return SubmitBatchResponse(error_message=f"Error: submit_batch unavailable for endpoint {self.endpoint_slug}", error_code=501)
+        return SubmitBatchResponse(
+            error_message=f"Error: submit_batch unavailable for endpoint {self.endpoint_slug}",
+            error_code=501,
+        )
 
     # Redefine in the child class if needed
     async def get_batch_status(self, batch: BatchLog) -> GetBatchStatusResponse:
         """Get the status and results of a batch job."""
-        return GetBatchStatusResponse(error_message=f"Error: get_batch_status unavailable for endpoint {self.endpoint_slug}", error_code=501)
-
+        return GetBatchStatusResponse(
+            error_message=f"Error: get_batch_status unavailable for endpoint {self.endpoint_slug}",
+            error_code=501,
+        )
 
     # Read-only properties
     # --------------------

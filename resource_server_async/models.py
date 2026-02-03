@@ -16,14 +16,15 @@ def validate_str_list(value):
         raise ValidationError("Value must be a list.")
     if not all(isinstance(v, str) for v in value):
         raise ValidationError("All items must be strings.")
-    
+
 
 # JSON field specifically containing a list of strings
 class StrListJSONField(models.JSONField):
     def get_prep_value(self, value):
         validate_str_list(value)
         return super().get_prep_value(value)
-    
+
+
 # OpenAI endpoint list
 class OpenAIEndpointListJSONField(models.JSONField):
     def get_prep_value(self, value):
@@ -31,7 +32,9 @@ class OpenAIEndpointListJSONField(models.JSONField):
         if value:
             for endpoint in value:
                 if endpoint[-1] == "/" or endpoint[0] == "/":
-                    raise ValidationError("OpenAI endpoints cannot end or start with '/'.")
+                    raise ValidationError(
+                        "OpenAI endpoints cannot end or start with '/'."
+                    )
         return super().get_prep_value(value)
 
 
@@ -49,7 +52,9 @@ class User(models.Model):
     idp_name = models.CharField(max_length=100)
 
     # Where the user info is coming from (e.g. Globus, Slack)
-    auth_service = models.CharField(max_length=100, choices=AuthService.choices, default=AuthService.GLOBUS.value)
+    auth_service = models.CharField(
+        max_length=100, choices=AuthService.choices, default=AuthService.GLOBUS.value
+    )
 
     # Custom display
     def __str__(self):
@@ -58,17 +63,16 @@ class User(models.Model):
 
 # Access log model
 class AccessLog(models.Model):
-
     # Unique access ID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # User details (link to the User model)
     user = models.ForeignKey(
-        User, 
-        on_delete=models.PROTECT, 
-        related_name='access_logs', # reverse relation (e.g. user.access_logs.all())
+        User,
+        on_delete=models.PROTECT,
+        related_name="access_logs",  # reverse relation (e.g. user.access_logs.all())
         db_index=True,
-        null=True # For when an AccessLog is used to report un-authorized attempts
+        null=True,  # For when an AccessLog is used to report un-authorized attempts
     )
 
     # Timestamps (request received and response returned)
@@ -79,7 +83,7 @@ class AccessLog(models.Model):
     api_route = models.CharField(max_length=256, null=False, blank=False)
 
     # IP address from where the request is coming from
-    origin_ip = models.CharField(max_length=250, null=False, blank=False)    
+    origin_ip = models.CharField(max_length=250, null=False, blank=False)
 
     # HTTP status of the request
     status_code = models.IntegerField(null=False, db_index=True)
@@ -93,8 +97,14 @@ class AccessLog(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["user", "status_code"], name="idx_accesslog_user_status"),  # Composite for joins
-            models.Index(fields=["user_id"], name="idx_accesslog_user_id", condition=models.Q(user_id__isnull=False) & ~models.Q(user_id="")),  # For COUNT DISTINCT queries
+            models.Index(
+                fields=["user", "status_code"], name="idx_accesslog_user_status"
+            ),  # Composite for joins
+            models.Index(
+                fields=["user_id"],
+                name="idx_accesslog_user_id",
+                condition=models.Q(user_id__isnull=False) & ~models.Q(user_id=""),
+            ),  # For COUNT DISTINCT queries
         ]
 
     # Custom display
@@ -108,7 +118,6 @@ class AccessLog(models.Model):
 
 # Request log model
 class RequestLog(models.Model):
-
     # Unique request ID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -116,7 +125,7 @@ class RequestLog(models.Model):
     access_log = models.OneToOneField(
         AccessLog,
         on_delete=models.PROTECT,
-        related_name='request_log', # reverse relation (e.g., access_log.request_log)
+        related_name="request_log",  # reverse relation (e.g., access_log.request_log)
         db_index=True,
     )
 
@@ -125,7 +134,7 @@ class RequestLog(models.Model):
     framework = models.CharField(max_length=100, null=False, blank=False)
     model = models.CharField(max_length=100, null=False, blank=False, db_index=True)
     openai_endpoint = models.CharField(max_length=100, null=False, blank=False)
-    
+
     # Timestamps (before and after the remote computation)
     timestamp_compute_request = models.DateTimeField(null=False, blank=False)
     timestamp_compute_response = models.DateTimeField(null=False, blank=False)
@@ -143,9 +152,14 @@ class RequestLog(models.Model):
         indexes = [
             models.Index(fields=["cluster", "framework"], name="idx_rlog_clstr_frmwrk"),
             models.Index(fields=["model"], name="idx_requestlog_model"),
-            models.Index(fields=["access_log_id", "model"], name="idx_requestlog_access_model"),  # Critical for dashboard joins
-            models.Index(fields=["timestamp_compute_request"], name="idx_rlog_ts_compute_req"),  # For time-range queries
+            models.Index(
+                fields=["access_log_id", "model"], name="idx_requestlog_access_model"
+            ),  # Critical for dashboard joins
+            models.Index(
+                fields=["timestamp_compute_request"], name="idx_rlog_ts_compute_req"
+            ),  # For time-range queries
         ]
+
     # Custom display
     def __str__(self):
         return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
@@ -153,7 +167,6 @@ class RequestLog(models.Model):
 
 # Batch log model
 class BatchLog(models.Model):
-
     # Unique request ID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -161,10 +174,10 @@ class BatchLog(models.Model):
     access_log = models.OneToOneField(
         AccessLog,
         on_delete=models.PROTECT,
-        related_name='batch_log', # reverse relation (e.g., access_log.batch_log)
+        related_name="batch_log",  # reverse relation (e.g., access_log.batch_log)
         db_index=True,
     )
-    
+
     # What did the user request?
     input_file = models.CharField(max_length=500)
     output_folder_path = models.CharField(max_length=500, blank=True)
@@ -180,25 +193,31 @@ class BatchLog(models.Model):
     # What is the status of the batch?
     status = models.CharField(max_length=250, default="pending")
     in_progress_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True, db_index=True)  # For dashboard ORDER BY
+    completed_at = models.DateTimeField(
+        null=True, blank=True, db_index=True
+    )  # For dashboard ORDER BY
     failed_at = models.DateTimeField(null=True, blank=True)
-    
+
     class Meta:
         indexes = [
-            models.Index(fields=["-completed_at", "-in_progress_at"], name="idx_batchlog_completion"),  # Dashboard sorting
-            models.Index(fields=["status"], name="idx_batchlog_status"),  # Status filtering
+            models.Index(
+                fields=["-completed_at", "-in_progress_at"],
+                name="idx_batchlog_completion",
+            ),  # Dashboard sorting
+            models.Index(
+                fields=["status"], name="idx_batchlog_status"
+            ),  # Status filtering
         ]
 
 
 # Request metrics model (1:1 with RequestLog)
 class RequestMetrics(models.Model):
-
     # Tie metrics to a single request (and reuse its UUID as primary key)
     request = models.OneToOneField(
         RequestLog,
         primary_key=True,
         on_delete=models.CASCADE,
-        related_name='metrics',
+        related_name="metrics",
         db_index=True,
     )
 
@@ -228,7 +247,9 @@ class RequestMetrics(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["cluster", "framework"], name="idx_rmetrics_clstr_frmwrk"),
+            models.Index(
+                fields=["cluster", "framework"], name="idx_rmetrics_clstr_frmwrk"
+            ),
             models.Index(fields=["model"], name="idx_requestmetrics_model"),
         ]
 
@@ -238,12 +259,11 @@ class RequestMetrics(models.Model):
 
 # Batch metrics model (1:1 with BatchLog)
 class BatchMetrics(models.Model):
-
     batch = models.OneToOneField(
         BatchLog,
         primary_key=True,
         on_delete=models.CASCADE,
-        related_name='metrics',
+        related_name="metrics",
         db_index=True,
     )
 
@@ -268,11 +288,10 @@ class BatchMetrics(models.Model):
 
     def __str__(self):
         return f"<BatchMetrics - {self.batch_id}>"
-    
+
 
 # Details of a given inference endpoint
 class Endpoint(models.Model):
-
     # Slug for the endpoint
     # <cluster>-<framework>-<model> (all lower case)
     # Example: sophia-vllm-meta-llamameta-llama-3-70b-instruct
@@ -311,13 +330,14 @@ class Endpoint(models.Model):
     # Automatically generate slug if not provided
     def save(self, *args, **kwargs):
         if self.endpoint_slug is None or self.endpoint_slug == "":
-            self.endpoint_slug = slugify(" ".join([self.cluster, self.framework, self.model]))
+            self.endpoint_slug = slugify(
+                " ".join([self.cluster, self.framework, self.model])
+            )
         super(Endpoint, self).save(*args, **kwargs)
 
 
 # Details of a given inference cluster
 class Cluster(models.Model):
-
     # Cluster name
     cluster_name = models.CharField(max_length=100, unique=True)
 

@@ -9,19 +9,25 @@ from django.http import JsonResponse, HttpResponse
 
 # Tool to log access requests
 import logging
+
 log = logging.getLogger(__name__)
 
 # Force Uvicorn to add timestamps in the Gunicorn access log
 import logging.config
 from logging_config import LOGGING_CONFIG
+
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-from utils.pydantic_models.db_models import RequestLogPydantic, BatchLogPydantic, UserPydantic
+from utils.pydantic_models.db_models import (
+    RequestLogPydantic,
+    BatchLogPydantic,
+    UserPydantic,
+)
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
 from resource_server_async.clusters.cluster import Jobs, JobInfo, BaseCluster
 from resource_server_async.utils import (
-    extract_prompt, 
+    extract_prompt,
     validate_request_body,
     validate_batch_body,
     update_batch,
@@ -40,12 +46,13 @@ from resource_server_async.utils import (
     get_endpoint_wrapper,
     get_cluster_wrapper,
     get_list_endpoints_data,
-    GetListEndpointsDataResponse
+    GetListEndpointsDataResponse,
 )
+
 log.info("Utils functions loaded.")
 
 # Django database
-#from resource_server.models import FederatedEndpoint
+# from resource_server.models import FederatedEndpoint
 from resource_server_async.models import BatchLog, Cluster, Endpoint
 
 # Django Ninja API
@@ -63,7 +70,7 @@ from resource_server_async.api import api, router
 @router.get("/health", auth=None)
 async def health_check(request):
     """Lightweight health check endpoint - returns OK if API is responding."""
-    return JsonResponse({'status': 'ok'}, status=200)
+    return JsonResponse({"status": "ok"}, status=200)
 
 
 # Whoami (GET)
@@ -80,11 +87,13 @@ async def whoami(request):
             user_group_uuids=request.user_group_uuids,
             idp_id=request.auth.idp_id,
             idp_name=request.auth.idp_name,
-            auth_service=request.auth.auth_service
+            auth_service=request.auth.auth_service,
         )
     except Exception as e:
-        return await get_response(f"Error: could not create user from request.auth: {e}", 500, request)
-    
+        return await get_response(
+            f"Error: could not create user from request.auth: {e}", 500, request
+        )
+
     # Return user details
     return await get_response(user.model_dump_json(), 200, request)
 
@@ -106,7 +115,7 @@ async def get_list_endpoints(request):
 
 # List running and queue models (GET)
 @router.get("/{cluster}/jobs")
-async def get_jobs(request, cluster:str):
+async def get_jobs(request, cluster: str):
     """GET request to list the available frameworks and models."""
 
     # Get cluster wrapper from database
@@ -119,24 +128,29 @@ async def get_jobs(request, cluster:str):
     response = cluster.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
-    
+
     # If the cluster is under maintenance ...
     response = cluster.check_maintenance()
     if response.is_under_maintenance:
-
         # Create initial empty Jobs response
         jobs = Jobs()
 
         # Extract the list of all endpoints from the database
         response = await get_list_endpoints_data(request)
         if response.error_message:
-            return await get_response(response.error_message, response.error_code, request)
+            return await get_response(
+                response.error_message, response.error_code, request
+            )
         all_endpoints = response.all_endpoints
 
         # Try to add each model listed for this cluster in the "stopped" section
-        try: 
-            for framework in all_endpoints["clusters"][cluster.cluster_name]["frameworks"]:
-                for model in all_endpoints["clusters"][cluster.cluster_name]["frameworks"][framework]["models"]:
+        try:
+            for framework in all_endpoints["clusters"][cluster.cluster_name][
+                "frameworks"
+            ]:
+                for model in all_endpoints["clusters"][cluster.cluster_name][
+                    "frameworks"
+                ][framework]["models"]:
                     jobs.stopped.append(
                         JobInfo(
                             Models=model,
@@ -147,17 +161,22 @@ async def get_jobs(request, cluster:str):
 
         # Error if the model parsing did not work
         except Exception as e:
-            return await get_response(f"Error: Cluster {cluster.cluster_name} under maintenance. Could not recover list of models: {e}", 500, request)
+            return await get_response(
+                f"Error: Cluster {cluster.cluster_name} under maintenance. Could not recover list of models: {e}",
+                500,
+                request,
+            )
 
     # If the cluster is operational and not under maintenance ...
     else:
-
         # Get jobs from the targetted cluster
         response = await cluster.get_jobs()
         if response.error_message:
-            return await get_response(response.error_message, response.error_code, request)
+            return await get_response(
+                response.error_message, response.error_code, request
+            )
         jobs: Jobs = response.jobs
-        
+
         # For each job state listed in the jobs response ...
         for jobs_state in [
             jobs.running,
@@ -165,13 +184,13 @@ async def get_jobs(request, cluster:str):
             jobs.stopped,
             jobs.others,
             jobs.private_batch_running,
-            jobs.private_batch_queued
+            jobs.private_batch_queued,
         ]:
             # For each block (set of models) in this state
             # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
             for i_block in range(len(jobs_state) - 1, -1, -1):
                 block = jobs_state[i_block]
-            
+
                 # Collect the list of models
                 models = [m.strip() for m in block.Models.split(",") if m.strip()]
 
@@ -180,9 +199,10 @@ async def get_jobs(request, cluster:str):
 
                 # For each model ...
                 for model in models:
-
                     # Extract the underlying endpoint wrapper for this model
-                    endpoint_slug = slugify(" ".join([block.Cluster, block.Framework, model.lower()]))
+                    endpoint_slug = slugify(
+                        " ".join([block.Cluster, block.Framework, model.lower()])
+                    )
                     response = await get_endpoint_wrapper(endpoint_slug)
 
                     # Continue if the endpoint does not exist to ignore test/dev running jobs
@@ -190,11 +210,15 @@ async def get_jobs(request, cluster:str):
                         if "does not exist" in response.error_message:
                             continue
                         else:
-                            return await get_response(response.error_message, response.error_code, request)
+                            return await get_response(
+                                response.error_message, response.error_code, request
+                            )
 
                     # Flag the model as "visible" if the user is authorized to see it ...
                     endpoint = response.endpoint
-                    if endpoint.check_permission(request.auth, request.user_group_uuids).is_authorized:
+                    if endpoint.check_permission(
+                        request.auth, request.user_group_uuids
+                    ).is_authorized:
                         visible_models.append(model)
 
                 # Remove block if no model should be visible
@@ -217,7 +241,7 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     # Validate and build the inference request data
     batch_data = validate_batch_body(request)
     if "error" in batch_data.keys():
-        return await get_response(batch_data['error'], 400, request)
+        return await get_response(batch_data["error"], 400, request)
 
     # Get cluster wrapper from database
     response = await get_cluster_wrapper(cluster)
@@ -232,10 +256,16 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Verify that the framework is enabled by the cluster
     if framework not in cluster.frameworks:
-        return await get_response(f"Error: framework {framework} not available on cluster {cluster.cluster_name}.", 400, request)
+        return await get_response(
+            f"Error: framework {framework} not available on cluster {cluster.cluster_name}.",
+            400,
+            request,
+        )
 
     # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster.cluster_name, framework, batch_data["model"].lower()]))
+    endpoint_slug = slugify(
+        " ".join([cluster.cluster_name, framework, batch_data["model"].lower()])
+    )
 
     # Get endpoint wrapper from database
     response = await get_endpoint_wrapper(endpoint_slug)
@@ -245,40 +275,57 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
 
     # Error if batch is disabled for this endpoint
     if not endpoint.has_batch_enabled():
-        return await get_response(f"Error: Batch is unavailable for endpoint {endpoint_slug}", 501, request)
+        return await get_response(
+            f"Error: Batch is unavailable for endpoint {endpoint_slug}", 501, request
+        )
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
-    
+
     # Reject request if the allowed quota per user would be exceeded
     try:
         number_of_active_batches = 0
-        async for batch in BatchLog.objects.filter(
-            access_log__user__username=request.auth.username,
-            status__in=["pending", "running"]
-        ).select_related("access_log", "access_log__user").aiterator():
+        async for batch in (
+            BatchLog.objects.filter(
+                access_log__user__username=request.auth.username,
+                status__in=["pending", "running"],
+            )
+            .select_related("access_log", "access_log__user")
+            .aiterator()
+        ):
             number_of_active_batches += 1
         if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
             error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
             return await get_response(error_message, 400, request)
     except Exception as e:
-        return await get_response(f"Error: Could not query active batches owned by user: {e}", 400, request)
-    
+        return await get_response(
+            f"Error: Could not query active batches owned by user: {e}", 400, request
+        )
+
     # Error if an ongoing batch already exists with the same input_file for the same user
     try:
-        async for batch in BatchLog.objects.filter(
-            access_log__user__username=request.auth.username,
-            input_file=batch_data["input_file"]
-        ).select_related("access_log", "access_log__user").aiterator():
-            if not batch.status in [BatchStatusEnum.failed.value, BatchStatusEnum.completed.value]:
+        async for batch in (
+            BatchLog.objects.filter(
+                access_log__user__username=request.auth.username,
+                input_file=batch_data["input_file"],
+            )
+            .select_related("access_log", "access_log__user")
+            .aiterator()
+        ):
+            if not batch.status in [
+                BatchStatusEnum.failed.value,
+                BatchStatusEnum.completed.value,
+            ]:
                 error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
                 return await get_response(error_message, 400, request)
     except BatchLog.DoesNotExist:
-        pass # Batch can be submitted if the input_file is not used by any other batches
+        pass  # Batch can be submitted if the input_file is not used by any other batches
     except Exception as e:
-        return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, request)
+        return await get_response(
+            f"Error: Could not filter Batch database entries: {e}", 400, request
+        )
 
     # Submit batch
     batch_response = await endpoint.submit_batch(batch_data, request.auth.username)
@@ -293,25 +340,29 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         input_file=batch_data["input_file"],
         output_folder_path=batch_data.get("output_folder_path", ""),
         status=batch_response.status,
-        in_progress_at=timezone.now()
+        in_progress_at=timezone.now(),
     )
 
     # Error if something went wrong during the batch submission
     if batch_response.error_message:
-        return await get_response(batch_response.error_message, batch_response.error_code, request)
+        return await get_response(
+            batch_response.error_message, batch_response.error_code, request
+        )
 
     # Prepare response and return it to the user
     response = {
         "batch_id": request.batch_log_data.id,
         "input_file": request.batch_log_data.input_file,
-        "status": request.batch_log_data.status
+        "status": request.batch_log_data.status,
     }
     return await get_response(json.dumps(response), 200, request)
 
 
 # List of batches (GET)
 @router.get("/v1/batches")
-async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, **kwargs):
+async def get_batch_list(
+    request, filters: BatchListFilter = Query(...), *args, **kwargs
+):
     """GET request to list all batches linked to the authenticated user."""
 
     # Declare the list of batches to be returned to the user
@@ -319,37 +370,42 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 
     # For each batch object owned by the user ...
     try:
-        async for batch in BatchLog.objects.filter(
-            access_log__user__username=request.auth.username
-        ).select_related("access_log", "access_log__user").aiterator():
-        
+        async for batch in (
+            BatchLog.objects.filter(access_log__user__username=request.auth.username)
+            .select_related("access_log", "access_log__user")
+            .aiterator()
+        ):
             # If the batch status needs to be revised ...
-            if batch.status not in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
-                
+            if batch.status not in [
+                BatchStatusEnum.completed.value,
+                BatchStatusEnum.failed.value,
+            ]:
                 # Get the latest batch status and result (and update database if needed)
                 response = await update_batch(batch)
                 if response.error_message:
-                    return await get_response(response.error_message, response.error_code, request)
+                    return await get_response(
+                        response.error_message, response.error_code, request
+                    )
                 batch = response.batch
-                
+
             # If no optional status filter was provided ...
             # or if the status filter matches the current batch status ...
-            if isinstance(filters.status, type(None)) or \
-                (isinstance(filters.status, str) and filters.status == batch.status):
-
+            if isinstance(filters.status, type(None)) or (
+                isinstance(filters.status, str) and filters.status == batch.status
+            ):
                 # Add the batch details to the list
                 batch_list.append(
-                {
-                    "batch_id": str(batch.id),
-                    "cluster": batch.cluster,
-                    "framework": batch.framework,
-                    "input_file": batch.input_file,
-                    "in_progress_at": str(batch.in_progress_at),
-                    "completed_at": str(batch.completed_at),
-                    "failed_at": str(batch.failed_at),
-                    "status": batch.status
-                }
-            )
+                    {
+                        "batch_id": str(batch.id),
+                        "cluster": batch.cluster,
+                        "framework": batch.framework,
+                        "input_file": batch.input_file,
+                        "in_progress_at": str(batch.in_progress_at),
+                        "completed_at": str(batch.completed_at),
+                        "failed_at": str(batch.failed_at),
+                        "status": batch.status,
+                    }
+                )
 
     # Will return empty list if no batch object was found
     except BatchLog.DoesNotExist:
@@ -357,7 +413,9 @@ async def get_batch_list(request, filters: BatchListFilter = Query(...), *args, 
 
     # Error message if something went wrong
     except Exception as e:
-        return await get_response(f"Error: Could not filter Batch database entries: {e}", 400, request)
+        return await get_response(
+            f"Error: Could not filter Batch database entries: {e}", 400, request
+        )
 
     # Return list of batches
     return await get_response(json.dumps(batch_list), 200, request)
@@ -372,31 +430,43 @@ async def get_batch_status(request, batch_id: str, *args, **kwargs):
     # Recover batch object in the database
     try:
         batch: BatchLog = await sync_to_async(
-            lambda: BatchLog.objects.select_related("access_log", "access_log__user").get(id=batch_id),
+            lambda: BatchLog.objects.select_related(
+                "access_log", "access_log__user"
+            ).get(id=batch_id),
             thread_sensitive=True,
         )()
     except BatchLog.DoesNotExist:
-        return await get_response(f"Error: Batch {batch_id} does not exist.", 400, request)
+        return await get_response(
+            f"Error: Batch {batch_id} does not exist.", 400, request
+        )
     except Exception as e:
-        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 500, request)
+        return await get_response(
+            f"Error: Could not access Batch {batch_id} from database: {e}", 500, request
+        )
 
     # Make sure user has permission to access this batch_id
     try:
         if not request.auth.username == batch.access_log.user.username:
-            return await get_response(f"Error: Permission denied to Batch {batch_id}.", 403, request)
+            return await get_response(
+                f"Error: Permission denied to Batch {batch_id}.", 403, request
+            )
     except Exception as e:
-        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 500, request)
-    
+        return await get_response(
+            f"Error: Something went wrong while parsing Batch {batch_id}: {e}",
+            500,
+            request,
+        )
+
     # Return status directly if batch already completed or failed
     if batch.status in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
         return await get_response(json.dumps(batch.status), 200, request)
-    
+
     # Get the latest batch status and result (and update database if needed)
     response = await update_batch(batch)
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     batch = response.batch
-        
+
     # Return status of the batch job
     return await get_response(json.dumps(batch.status), 200, request)
 
@@ -410,13 +480,19 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
     # Recover batch object in the database
     try:
         batch = await sync_to_async(
-            lambda: BatchLog.objects.select_related("access_log", "access_log__user").get(id=batch_id),
+            lambda: BatchLog.objects.select_related(
+                "access_log", "access_log__user"
+            ).get(id=batch_id),
             thread_sensitive=True,
         )()
     except BatchLog.DoesNotExist:
-        return await get_response(f"Error: Batch {batch_id} does not exist.", 400, request)
+        return await get_response(
+            f"Error: Batch {batch_id} does not exist.", 400, request
+        )
     except Exception as e:
-        return await get_response(f"Error: Could not access Batch {batch_id} from database: {e}", 400, request)
+        return await get_response(
+            f"Error: Could not access Batch {batch_id} from database: {e}", 400, request
+        )
 
     # Make sure user has permission to access this batch_id
     try:
@@ -424,12 +500,16 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
             error_message = f"Error: Permission denied to Batch {batch_id}.."
             return await get_response(error_message, 403, request)
     except Exception as e:
-        return await get_response(f"Error: Something went wrong while parsing Batch {batch_id}: {e}", 400, request)
-    
+        return await get_response(
+            f"Error: Something went wrong while parsing Batch {batch_id}: {e}",
+            400,
+            request,
+        )
+
     # Return error if batch failed
     if batch.status == BatchStatusEnum.failed.value:
         return await get_response(f"Error: Batch failed: {batch.result}", 400, request)
-    
+
     # Return result if batch already finished
     if batch.status == BatchStatusEnum.completed.value:
         return await get_response(json.dumps(batch.result), 200, request)
@@ -442,7 +522,9 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
     # Return error if results are not ready yet
     if batch.status != BatchStatusEnum.completed.value:
-        return await get_response("Error: Batch not completed yet. Results not ready.", 400, request)
+        return await get_response(
+            "Error: Batch not completed yet. Results not ready.", 400, request
+        )
 
     # Return status of the batch job
     return await get_response(json.dumps(batch.result), 200, request)
@@ -450,13 +532,15 @@ async def get_batch_result(request, batch_id: str, *args, **kwargs):
 
 # Inference (POST)
 @router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
-async def post_inference(request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs):
+async def post_inference(
+    request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs
+):
     """POST request to reach Globus Compute endpoints."""
-    
+
     # Validate and build the inference request data, and clear openai_endpoint string
     data = validate_request_body(request, openai_endpoint)
     if "error" in data.keys():
-        return await get_response(data['error'], 400, request)
+        return await get_response(data["error"], 400, request)
     openai_endpoint = data["model_params"].get("openai_endpoint", openai_endpoint)
 
     # Get cluster wrapper from database
@@ -472,17 +556,29 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Verify that the framework is available by the cluster
     if framework not in cluster.frameworks:
-        return await get_response(f"Error: framework {framework} not available on cluster {cluster.cluster_name}.", 400, request)
-    
+        return await get_response(
+            f"Error: framework {framework} not available on cluster {cluster.cluster_name}.",
+            400,
+            request,
+        )
+
     # Verify that the openAI endpoint is available by the cluster
     if openai_endpoint not in cluster.openai_endpoints:
-        return await get_response(f"Error: OpenAI endpoint {openai_endpoint} not available on cluster {cluster.cluster_name}.", 400, request)
-    
+        return await get_response(
+            f"Error: OpenAI endpoint {openai_endpoint} not available on cluster {cluster.cluster_name}.",
+            400,
+            request,
+        )
+
     # Check if streaming is requested
-    stream = data["model_params"].get('stream', False)
-    
+    stream = data["model_params"].get("stream", False)
+
     # Build the requested endpoint slug
-    endpoint_slug = slugify(" ".join([cluster.cluster_name, framework, data["model_params"]["model"].lower()]))
+    endpoint_slug = slugify(
+        " ".join(
+            [cluster.cluster_name, framework, data["model_params"]["model"].lower()]
+        )
+    )
     log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
 
     # Get endpoint wrapper from database
@@ -495,7 +591,7 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
-    
+
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
         id=str(uuid.uuid4()),
@@ -504,12 +600,14 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
         openai_endpoint=data["model_params"]["openai_endpoint"],
         prompt=json.dumps(extract_prompt(data["model_params"])),
         model=data["model_params"]["model"],
-        timestamp_compute_request=timezone.now()
+        timestamp_compute_request=timezone.now(),
     )
-    
+
     # Submit task
     if stream:
-        task_response = await endpoint.submit_streaming_task(data, request.request_log_data.id)
+        task_response = await endpoint.submit_streaming_task(
+            data, request.request_log_data.id
+        )
     else:
         task_response = await endpoint.submit_task(data)
 
@@ -519,18 +617,24 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 
     # Display error message if any
     if task_response.error_message:
-        return await get_response(task_response.error_message, task_response.error_code, request)
-    
+        return await get_response(
+            task_response.error_message, task_response.error_code, request
+        )
+
     # If streaming, meaning that the StreamingHttpResponse object will be returned directly ...
     if stream:
-
         # Manually create access and request logs to database
         try:
             access_log = await create_access_log(request.access_log_data, None, 200)
             request.request_log_data.access_log = access_log
-            _ = await create_request_log(request.request_log_data, "streaming_response_in_progress", 200)
+            _ = await create_request_log(
+                request.request_log_data, "streaming_response_in_progress", 200
+            )
         except Exception as e:
-            return HttpResponse(json.dumps(f"Error: Could not save access and request logs: {e}"), status=500)
+            return HttpResponse(
+                json.dumps(f"Error: Could not save access and request logs: {e}"),
+                status=500,
+            )
 
         # Return StreamingHttpResponse object directly
         return task_response.response
@@ -544,130 +648,144 @@ async def post_inference(request, cluster: str, framework: str, openai_endpoint:
 @router.post("/api/streaming/data/", auth=None, throttle=[])
 async def receive_streaming_data(request):
     """Receive streaming data from vLLM function - INTERNAL ONLY
-    
+
     Security layers (optimized with caching):
     1. Content-Length validation (DoS prevention)
     2. Global shared secret validation
     3. Per-task token validation (cached)
     4. Data size validation
     """
-    
+
     # Validate all security requirements
-    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=150000)
+    is_valid, error_response, status_code = validate_streaming_request_security(
+        request, max_content_length=150000
+    )
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
             data = json.loads(decode_request_body(request))
-            task_id = data.get('task_id')
+            task_id = data.get("task_id")
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
-                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+                log.warning(
+                    f"Authentication failure recorded for streaming task {task_id}"
+                )
         except Exception:
             pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
-    
+
     try:
         data = json.loads(decode_request_body(request))
-        task_id = data.get('task_id')
-        chunk_data = data.get('data')
-        
+        task_id = data.get("task_id")
+        chunk_data = data.get("data")
+
         if chunk_data is None:
             return JsonResponse({"error": "Missing data"}, status=400)
-        
-        if '\n' in chunk_data:
+
+        if "\n" in chunk_data:
             # Split batched chunks and store each one
-            chunks = chunk_data.split('\n')
+            chunks = chunk_data.split("\n")
             for individual_chunk in chunks:
                 if individual_chunk.strip():
                     store_streaming_data(task_id, individual_chunk.strip())
         else:
             store_streaming_data(task_id, chunk_data)
-        
+
         set_streaming_status(task_id, "streaming")
-        
+
         return JsonResponse({"status": "received"})
-        
+
     except Exception as e:
         log.error(f"Error in streaming data endpoint: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
+
 @router.post("/api/streaming/error/", auth=None, throttle=[])
 async def receive_streaming_error(request):
     """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
-    
+
     Security layers (optimized with caching):
     1. Content-Length validation (DoS prevention)
     2. Global shared secret validation
     3. Per-task token validation (cached)
     """
-    
+
     # Validate all security requirements
-    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
+    is_valid, error_response, status_code = validate_streaming_request_security(
+        request, max_content_length=15000
+    )
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
             data = json.loads(decode_request_body(request))
-            task_id = data.get('task_id')
+            task_id = data.get("task_id")
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
-                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+                log.warning(
+                    f"Authentication failure recorded for streaming task {task_id}"
+                )
         except Exception:
             pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
-    
+
     try:
         data = json.loads(decode_request_body(request))
-        task_id = data.get('task_id')
-        error = data.get('error')
-        
+        task_id = data.get("task_id")
+        error = data.get("error")
+
         if error is None:
             return JsonResponse({"error": "Missing error"}, status=400)
-        
+
         # Store error with automatic cleanup
         set_streaming_error(task_id, error)
         set_streaming_status(task_id, "error")
-        
+
         log.error(f"Received error for task {task_id}: {error}")
         return JsonResponse({"status": "ok", "task_id": task_id})
-        
+
     except Exception as e:
         log.error(f"Error receiving streaming error: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
+
 @router.post("/api/streaming/done/", auth=None, throttle=[])
 async def receive_streaming_done(request):
     """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
-    
+
     Security layers (optimized with caching):
     1. Content-Length validation (DoS prevention)
     2. Global shared secret validation
     3. Per-task token validation (cached)
     """
-    
+
     # Validate all security requirements
-    is_valid, error_response, status_code = validate_streaming_request_security(request, max_content_length=15000)
+    is_valid, error_response, status_code = validate_streaming_request_security(
+        request, max_content_length=15000
+    )
     if not is_valid:
         # Try to extract task_id to record auth failure
         try:
             data = json.loads(decode_request_body(request))
-            task_id = data.get('task_id')
+            task_id = data.get("task_id")
             if task_id and status_code in [401, 403]:
                 set_streaming_metadata(task_id, "auth_failure", "true", ttl=60)
-                log.warning(f"Authentication failure recorded for streaming task {task_id}")
+                log.warning(
+                    f"Authentication failure recorded for streaming task {task_id}"
+                )
         except Exception:
             pass  # Don't fail the error response if we can't record the failure
         return JsonResponse(error_response, status=status_code)
-    
+
     try:
         data = json.loads(decode_request_body(request))
-        task_id = data.get('task_id')
-        
+        task_id = data.get("task_id")
+
         # Mark as completed with automatic cleanup
         set_streaming_status(task_id, "completed")
-        
+
         log.info(f"Completed streaming task: {task_id}")
         return JsonResponse({"status": "ok", "task_id": task_id})
-        
+
     except Exception as e:
         log.error(f"Error receiving streaming done: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
@@ -919,6 +1037,6 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
     # Return Globus Compute results
     return await get_response(result, 200, request)
 '''
-    
+
 # Add URLs to the Ninja API
 api.add_router("/", router)

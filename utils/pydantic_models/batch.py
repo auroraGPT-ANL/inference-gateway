@@ -6,18 +6,21 @@ from typing import Optional
 
 # Batch status
 class BatchStatusEnum(str, Enum):
-    pending = 'pending'
-    running = 'running'
-    failed = 'failed'
-    completed = 'completed'
+    pending = "pending"
+    running = "running"
+    failed = "failed"
+    completed = "completed"
+
 
 class BatchListFilter(FilterSchema):
     status: BatchStatusEnum = None
 
+
 # Extention of the Pydantic BaseModel that prevent extra attributes
 class BaseModelExtraForbid(BaseModel):
     class Config:
-        extra = 'forbid'
+        extra = "forbid"
+
 
 # Batch request
 class BatchPydantic(BaseModelExtraForbid):

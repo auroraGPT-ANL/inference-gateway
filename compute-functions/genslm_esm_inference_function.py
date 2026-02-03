@@ -33,27 +33,27 @@ class AppSettings(BaseSettings):
     # Uses .env file if available, otherwise uses environment variables.
     # Environment variables override .env file. Extra settings are ignored.
     model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding='utf-8',
-        extra='ignore',
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     hf_token: SecretStr = Field(
-        description='Hugging Face token to use for model loading (Required)',
+        description="Hugging Face token to use for model loading (Required)",
     )
     batch_size: int = Field(
         default=64,
         ge=1,
-        description='Batch size to use for embeddings',
+        description="Batch size to use for embeddings",
     )
     num_workers: int = Field(
         default=4,
         ge=0,
-        description='Number of workers to use for embeddings',
+        description="Number of workers to use for embeddings",
     )
     pin_memory: bool = Field(
         default=True,
-        description='Whether to pin memory for embeddings',
+        description="Whether to pin memory for embeddings",
     )
 
 
@@ -77,7 +77,7 @@ def load_model(
 ) -> tuple[GenslmEsmcModel, AutoTokenizer, torch.device]:
     """Load a model and return the model, tokenizer, and device."""
     # Load model and tokenizer
-    print(f'Loading model: {model_id}')
+    print(f"Loading model: {model_id}")
     model = AutoModel.from_pretrained(model_id, trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
@@ -85,17 +85,17 @@ def load_model(
     model.eval()
 
     # Initialize device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Move model to device
     model = model.to(device)
 
     # Convert to bfloat16 if not on CPU
-    if device.type != 'cpu':
+    if device.type != "cpu":
         model = model.to(torch.bfloat16)
 
-    print(f'Model loaded successfully on {device}')
-    print(f'Model dtype: {next(model.parameters()).dtype}')
+    print(f"Model loaded successfully on {device}")
+    print(f"Model dtype: {next(model.parameters()).dtype}")
 
     return model, tokenizer, device
 
@@ -172,21 +172,19 @@ def compute_embeddings(
         The embeddings for the sequences.
     """
     # Validate the modality
-    if modality not in ['codon', 'aminoacid']:
-        raise ValueError(
-            f'modality must be "codon" or "aminoacid", got {modality}'
-        )
+    if modality not in ["codon", "aminoacid"]:
+        raise ValueError(f'modality must be "codon" or "aminoacid", got {modality}')
 
     # Load the model
     model, tokenizer, device = load_model(model_id)
 
-    print('All models started successfully.')
+    print("All models started successfully.")
     # Get the settings
     settings = get_settings()
 
     # Decide whether to return codon or amino acid embeddings
-    return_codon = modality == 'codon'
-    return_aminoacid = modality == 'aminoacid'
+    return_codon = modality == "codon"
+    return_aminoacid = modality == "aminoacid"
 
     # The dataset splits the sequences into codons
     dataset = FastaDataset(
@@ -209,11 +207,11 @@ def compute_embeddings(
         batch_size=settings.batch_size,
         collate_fn=collator,
         num_workers=settings.num_workers,
-        pin_memory=settings.pin_memory if device.type != 'cpu' else False,
+        pin_memory=settings.pin_memory if device.type != "cpu" else False,
     )
 
     # Get the attention mask key
-    attn_key = f'{modality}_attention_mask'
+    attn_key = f"{modality}_attention_mask"
 
     # Initialize the embeddings list
     embeddings_list = []
@@ -232,7 +230,6 @@ def compute_embeddings(
 
             # Get the last hidden state
             last_embeddings = outputs.hidden_states[-1]
-
 
             # Average pool the embeddings over the sequence length dimension
             embeddings = average_pool(last_embeddings, items[attn_key])
@@ -337,27 +334,30 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     start_time = time.time()
 
     # Unpack the parameters
-    if 'model_params' in parameters:
-        model_params = parameters['model_params']
+    if "model_params" in parameters:
+        model_params = parameters["model_params"]
     else:
         # Fallback for backward compatibility
         model_params = parameters
 
     # Check if this is a health check (simulating vLLM behavior)
     # The gateway may send an 'openai_endpoint' parameter to check health.
-    openai_endpoint = model_params.get('openai_endpoint', '')
-    if 'health' in openai_endpoint.lower():
+    openai_endpoint = model_params.get("openai_endpoint", "")
+    if "health" in openai_endpoint.lower():
         end_time = time.time()
         response_time = end_time - start_time
-        return json.dumps({
-            "status": "healthy",
-            "response_time": response_time,
-            "throughput_tokens_per_second": 0.0
-        }, indent=4)
+        return json.dumps(
+            {
+                "status": "healthy",
+                "response_time": response_time,
+                "throughput_tokens_per_second": 0.0,
+            },
+            indent=4,
+        )
 
     # Unpack the request parameters
-    sequences = model_params['input']
-    model_id = model_params['model']
+    sequences = model_params["input"]
+    model_id = model_params["model"]
 
     # If the sequences is a single string, convert it to a list
     if isinstance(sequences, str):
@@ -367,39 +367,35 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     if not isinstance(sequences, list) or (
         not all(isinstance(seq, str) for seq in sequences)
     ):
-        raise ValueError(
-            f'input must be a str or list of str, got {type(sequences)}'
-        )
+        raise ValueError(f"input must be a str or list of str, got {type(sequences)}")
 
     # Validate the model ID
     valid_model_ids = [
-        'genslm-test/genslm-esmc-600M-contrastive-aminoacid',
-        'genslm-test/genslm-esmc-600M-contrastive-codon',
-        'genslm-test/genslm-esmc-600M-joint-aminoacid',
-        'genslm-test/genslm-esmc-600M-joint-codon',
-        'genslm-test/genslm-esmc-600M-aminoacid',
-        'genslm-test/genslm-esmc-600M-codon',
-        'genslm-test/genslm-esmc-300M-contrastive-aminoacid',
-        'genslm-test/genslm-esmc-300M-contrastive-codon',
-        'genslm-test/genslm-esmc-300M-joint-aminoacid',
-        'genslm-test/genslm-esmc-300M-joint-codon',
-        'genslm-test/genslm-esmc-300M-aminoacid',
-        'genslm-test/genslm-esmc-300M-codon',
+        "genslm-test/genslm-esmc-600M-contrastive-aminoacid",
+        "genslm-test/genslm-esmc-600M-contrastive-codon",
+        "genslm-test/genslm-esmc-600M-joint-aminoacid",
+        "genslm-test/genslm-esmc-600M-joint-codon",
+        "genslm-test/genslm-esmc-600M-aminoacid",
+        "genslm-test/genslm-esmc-600M-codon",
+        "genslm-test/genslm-esmc-300M-contrastive-aminoacid",
+        "genslm-test/genslm-esmc-300M-contrastive-codon",
+        "genslm-test/genslm-esmc-300M-joint-aminoacid",
+        "genslm-test/genslm-esmc-300M-joint-codon",
+        "genslm-test/genslm-esmc-300M-aminoacid",
+        "genslm-test/genslm-esmc-300M-codon",
     ]
     if model_id not in valid_model_ids:
-        raise ValueError(
-            f'model must be one of {valid_model_ids}, got {model_id}'
-        )
+        raise ValueError(f"model must be one of {valid_model_ids}, got {model_id}")
 
     # Extract modality from model name
-    modality = 'aminoacid' if 'aminoacid' in model_id.lower() else 'codon'
+    modality = "aminoacid" if "aminoacid" in model_id.lower() else "codon"
 
     # Strip the modality from the model name if it exists
     # This occurs for contrastive and joint models, e.g.,
     # 'genslm-test/genslm-esmc-600M-contrastive-aminoacid' ->
     # 'genslm-test/genslm-esmc-600M-contrastive'
-    if 'contrastive' in model_id.lower() or 'joint' in model_id.lower():
-        clean_model_id = '-'.join(model_id.split('-')[:-1])
+    if "contrastive" in model_id.lower() or "joint" in model_id.lower():
+        clean_model_id = "-".join(model_id.split("-")[:-1])
     else:
         clean_model_id = model_id
 
@@ -407,10 +403,10 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     embeddings = compute_embeddings(clean_model_id, sequences, modality)
 
     # Calculate token counts
-    if modality == 'aminoacid':
+    if modality == "aminoacid":
         # If aminoacid modality, each character is a token
         total_tokens = sum(len(seq) for seq in sequences)
-    elif modality == 'codon':
+    elif modality == "codon":
         # If codon modality, each codon is a token
         total_tokens = sum(len(seq) // 3 for seq in sequences)
     else:
@@ -419,9 +415,9 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     # Format response in OpenAI-style structure
     data = [
         {
-            'object': 'embedding',
-            'embedding': embedding,
-            'index': idx,
+            "object": "embedding",
+            "embedding": embedding,
+            "index": idx,
         }
         for idx, embedding in enumerate(embeddings)
     ]
@@ -432,21 +428,21 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
 
     # Return the embeddings in OpenAI-style format
     response = {
-        'object': 'list',
-        'data': data,
-        'model': model_params['model'],  # Use original model name from params
-        'usage': {
-            'prompt_tokens': total_tokens,
-            'total_tokens': total_tokens,
+        "object": "list",
+        "data": data,
+        "model": model_params["model"],  # Use original model name from params
+        "usage": {
+            "prompt_tokens": total_tokens,
+            "total_tokens": total_tokens,
         },
-        'response_time': response_time,
-        'throughput_tokens_per_second': throughput,
+        "response_time": response_time,
+        "throughput_tokens_per_second": throughput,
     }
-    
+
     return json.dumps(response, indent=4)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from globus_compute_sdk import Client
 
     # This will trigger an authentication flow if you aren't already logged in
@@ -456,8 +452,8 @@ if __name__ == '__main__':
     func_uuid = gcc.register_function(embeddings_gc_fn)
 
     # Print the function UUID
-    print(f'Function registered with UUID: {func_uuid}')
+    print(f"Function registered with UUID: {func_uuid}")
 
     # Touch a file to back up the function UUID
-    with open('genslm_esm_globus_compute_function_uuid.txt', 'w') as f:
+    with open("genslm_esm_globus_compute_function_uuid.txt", "w") as f:
         f.write(func_uuid)

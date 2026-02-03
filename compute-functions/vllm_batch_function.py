@@ -1,6 +1,7 @@
 import globus_compute_sdk
 import json
 
+
 def chunked_vllm_inference_function(parameters):
     import os
     import subprocess
@@ -15,8 +16,15 @@ def chunked_vllm_inference_function(parameters):
     # ---------------------------
     # Helper: run one chunk
     # ---------------------------
-    def run_chunk_inference(lines_buffer, model_name, base_name, batch_id,
-                            final_output_file, token_pattern, chunk_index):
+    def run_chunk_inference(
+        lines_buffer,
+        model_name,
+        base_name,
+        batch_id,
+        final_output_file,
+        token_pattern,
+        chunk_index,
+    ):
         """Run vLLM batch inference on one chunk and append results."""
         unique_id = uuid.uuid4().hex[:6]
         tmp_dir = os.path.join("/tmp", os.environ.get("USER", "gcuser"))
@@ -31,13 +39,20 @@ def chunked_vllm_inference_function(parameters):
             cf.writelines(lines_buffer)
 
         cmd = [
-            "python", "-m", "vllm.entrypoints.openai.run_batch",
-            "-i", chunk_input,
-            "-o", chunk_output,
-            "--model", model_name,
-            "--tensor-parallel-size", "8",
-            "--max-model-len", "28672",
-            "--trust-remote-code"
+            "python",
+            "-m",
+            "vllm.entrypoints.openai.run_batch",
+            "-i",
+            chunk_input,
+            "-o",
+            chunk_output,
+            "--model",
+            model_name,
+            "--tensor-parallel-size",
+            "8",
+            "--max-model-len",
+            "28672",
+            "--trust-remote-code",
         ]
 
         # Dynamic environment per model type
@@ -80,7 +95,6 @@ def chunked_vllm_inference_function(parameters):
 
         return tokens, responses, elapsed, chunk_log
 
-
     # ---------------------------
     # Main batch orchestration
     # ---------------------------
@@ -89,27 +103,38 @@ def chunked_vllm_inference_function(parameters):
     input_file = model_params.get("input_file")
     output_dir = model_params.get(
         "output_folder_path",
-        "/lus/eagle/projects/argonne_tpc/inference-service-batch-results/"
+        "/lus/eagle/projects/argonne_tpc/inference-service-batch-results/",
     )
     chunk_size = model_params.get("chunk_size", 20000)
     username = parameters.get("username", "anonymous")
     batch_id = parameters.get("batch_id", f"batch_{uuid.uuid4().hex[:6]}")
 
     if not (model_name and input_file):
-        raise ValueError("Both 'model' and 'input_file' must be provided in model_params.")
+        raise ValueError(
+            "Both 'model' and 'input_file' must be provided in model_params."
+        )
 
     # Prepare directories
     base_name = os.path.splitext(os.path.basename(input_file))[0]
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(output_dir, f"{base_name}_{model_name.split('/')[-1]}_{batch_id}")
+    output_dir = os.path.join(
+        output_dir, f"{base_name}_{model_name.split('/')[-1]}_{batch_id}"
+    )
     os.makedirs(output_dir, exist_ok=True)
 
-    final_output_file = os.path.join(output_dir, f"{base_name}_{timestamp}.results.jsonl")
+    final_output_file = os.path.join(
+        output_dir, f"{base_name}_{timestamp}.results.jsonl"
+    )
     progress_file = os.path.join(output_dir, f"{base_name}_{timestamp}.progress.json")
     token_pattern = re.compile(r'"total_tokens":\s*(\d+)')
 
     # Load or initialize progress
-    progress = {"lines_processed": 0, "total_tokens": 0, "num_responses": 0, "chunks": []}
+    progress = {
+        "lines_processed": 0,
+        "total_tokens": 0,
+        "num_responses": 0,
+        "chunks": [],
+    }
     if os.path.exists(progress_file):
         with open(progress_file) as pf:
             progress.update(json.load(pf))
@@ -145,49 +170,67 @@ def chunked_vllm_inference_function(parameters):
             buffer.append(line)
             if len(buffer) >= chunk_size:
                 chunk_tokens, chunk_resps, dur, log_file = run_chunk_inference(
-                    buffer, model_name, base_name, batch_id,
-                    final_output_file, token_pattern, chunk_idx
+                    buffer,
+                    model_name,
+                    base_name,
+                    batch_id,
+                    final_output_file,
+                    token_pattern,
+                    chunk_idx,
                 )
                 total_tokens += chunk_tokens
                 total_resps += chunk_resps
                 lines_done += len(buffer)
 
-                progress.update({
-                    "lines_processed": lines_done,
-                    "total_tokens": total_tokens,
-                    "num_responses": total_resps
-                })
-                progress["chunks"].append({
-                    "chunk_index": chunk_idx,
-                    "lines": len(buffer),
-                    "tokens": chunk_tokens,
-                    "responses": chunk_resps,
-                    "time_sec": dur,
-                    "log": log_file
-                })
+                progress.update(
+                    {
+                        "lines_processed": lines_done,
+                        "total_tokens": total_tokens,
+                        "num_responses": total_resps,
+                    }
+                )
+                progress["chunks"].append(
+                    {
+                        "chunk_index": chunk_idx,
+                        "lines": len(buffer),
+                        "tokens": chunk_tokens,
+                        "responses": chunk_resps,
+                        "time_sec": dur,
+                        "log": log_file,
+                    }
+                )
                 checkpoint()
-                print(f"[✓] Chunk {chunk_idx} done in {dur:.1f}s "
-                      f"({chunk_tokens} tokens, {chunk_resps} responses)")
+                print(
+                    f"[✓] Chunk {chunk_idx} done in {dur:.1f}s "
+                    f"({chunk_tokens} tokens, {chunk_resps} responses)"
+                )
                 chunk_idx += 1
                 buffer = []
 
         # Handle remaining lines
         if buffer:
             chunk_tokens, chunk_resps, dur, log_file = run_chunk_inference(
-                buffer, model_name, base_name, batch_id,
-                final_output_file, token_pattern, chunk_idx
+                buffer,
+                model_name,
+                base_name,
+                batch_id,
+                final_output_file,
+                token_pattern,
+                chunk_idx,
             )
             total_tokens += chunk_tokens
             total_resps += chunk_resps
             lines_done += len(buffer)
-            progress["chunks"].append({
-                "chunk_index": chunk_idx,
-                "lines": len(buffer),
-                "tokens": chunk_tokens,
-                "responses": chunk_resps,
-                "time_sec": dur,
-                "log": log_file
-            })
+            progress["chunks"].append(
+                {
+                    "chunk_index": chunk_idx,
+                    "lines": len(buffer),
+                    "tokens": chunk_tokens,
+                    "responses": chunk_resps,
+                    "time_sec": dur,
+                    "log": log_file,
+                }
+            )
             checkpoint()
 
     total_time = time.time() - start_all
@@ -200,7 +243,7 @@ def chunked_vllm_inference_function(parameters):
         "num_responses": total_resps,
         "lines_processed": lines_done,
         "duration_sec": total_time,
-        "throughput_tokens_per_sec": throughput
+        "throughput_tokens_per_sec": throughput,
     }
 
     with open(progress_file, "w") as pf:

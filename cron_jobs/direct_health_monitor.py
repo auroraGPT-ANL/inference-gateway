@@ -62,8 +62,8 @@ django.setup()
 from django.conf import settings  # noqa: E402
 
 from resource_server_async.models import Endpoint  # noqa: E402
-from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse # noqa: E402
-from resource_server_async.clusters.cluster import GetJobsResponse, Jobs # noqa: E402
+from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse  # noqa: E402
+from resource_server_async.clusters.cluster import GetJobsResponse, Jobs  # noqa: E402
 from utils import globus_utils, metis_utils  # noqa: E402
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
 
@@ -168,15 +168,19 @@ async def gather_endpoints() -> Dict[str, EndpointInfo]:
     def _load() -> Dict[str, EndpointInfo]:  # synchronous helper
         result: Dict[str, EndpointInfo] = {}
         for endpoint in Endpoint.objects.filter(cluster="sophia"):
-
             # Extract config parameters
             endpoint_config = ast.literal_eval(endpoint.config)
-            endpoint_uuid=endpoint_config.get("endpoint_uuid",None)
-            function_uuid=endpoint_config.get("function_uuid", None)
-            api_port=endpoint_config.get("api_port", None)
+            endpoint_uuid = endpoint_config.get("endpoint_uuid", None)
+            function_uuid = endpoint_config.get("function_uuid", None)
+            api_port = endpoint_config.get("api_port", None)
 
             # Skip if not in production
-            if "removed" in endpoint.model or "aaaaaaaa" in endpoint_uuid or "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" in endpoint.allowed_globus_groups:
+            if (
+                "removed" in endpoint.model
+                or "aaaaaaaa" in endpoint_uuid
+                or "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+                in endpoint.allowed_globus_groups
+            ):
                 continue
 
             # Add endpoint if in production
@@ -197,16 +201,14 @@ async def gather_endpoints() -> Dict[str, EndpointInfo]:
     return await sync_to_async(_load)()
 
 
-async def fetch_qstat_running_models(
-    gcc, gce
-) -> Tuple[Dict[str, Dict], Optional[str]]:
+async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optional[str]]:
     """Return mapping of running model name -> qstat entry."""
 
-#    raw_result, task_uuid, error_message, error_code = await get_qstat_details(
-#        "sophia", gcc=gcc, gce=gce, timeout=QSTAT_TIMEOUT_SECONDS
-#    )
-     # Get the jobs response from the cluster wrapper
-    wrapper_response: ClusterWrapperResponse =  await get_cluster_wrapper("sophia")
+    #    raw_result, task_uuid, error_message, error_code = await get_qstat_details(
+    #        "sophia", gcc=gcc, gce=gce, timeout=QSTAT_TIMEOUT_SECONDS
+    #    )
+    # Get the jobs response from the cluster wrapper
+    wrapper_response: ClusterWrapperResponse = await get_cluster_wrapper("sophia")
     if wrapper_response.cluster:
         jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs()
         error_message = jobs_response.error_message
@@ -215,9 +217,9 @@ async def fetch_qstat_running_models(
         error_message = wrapper_response.error_message
         error_code = wrapper_response.error_code
 
-#    if isinstance(raw_result, list) and len(raw_result) == 4:
-#        # Cached result format: [result, task_uuid, error, code]
-#        raw_result, task_uuid, error_message, error_code = raw_result
+    #    if isinstance(raw_result, list) and len(raw_result) == 4:
+    #        # Cached result format: [result, task_uuid, error, code]
+    #        raw_result, task_uuid, error_message, error_code = raw_result
 
     if error_message:
         log.error(
@@ -226,7 +228,7 @@ async def fetch_qstat_running_models(
             error_message,
         )
         return {}, error_message
-    
+
     # Access the qstat jobs raw result (convert pydantic to raw dictionary)
     raw_result = jobs_response.jobs.model_dump()
 
@@ -291,7 +293,9 @@ async def check_sophia_models() -> List[HealthRecord]:
 
     endpoint_status_cache: Dict[str, Tuple[Optional[dict], Optional[str]]] = {}
 
-    def get_endpoint_status_cached(info: EndpointInfo) -> Tuple[Optional[dict], Optional[str]]:
+    def get_endpoint_status_cached(
+        info: EndpointInfo,
+    ) -> Tuple[Optional[dict], Optional[str]]:
         cached = endpoint_status_cache.get(info.endpoint_slug)
         if cached is not None:
             return cached
@@ -405,7 +409,12 @@ async def check_sophia_models() -> List[HealthRecord]:
             info.api_port,
         )
         start = time.monotonic()
-        result, task_uuid, error_message, error_code = await globus_utils.submit_and_get_result(
+        (
+            result,
+            task_uuid,
+            error_message,
+            error_code,
+        ) = await globus_utils.submit_and_get_result(
             gce,
             info.endpoint_uuid,
             info.function_uuid,
@@ -485,11 +494,11 @@ def extract_metis_models(status_data: Dict) -> List[Dict]:
     for model_key, model_info in status_data.items():
         if model_info.get("status") != "Live":
             continue
-        #experts = model_info.get("experts", [])
+        # experts = model_info.get("experts", [])
         endpoint_id = model_info.get("endpoint_id", "")
         model_name = model_info.get("model", "")
         health_path = model_info.get("health_path", "health")
-        #for expert in experts or []:
+        # for expert in experts or []:
         #    models.append(
         #        {
         #            "model": normalize_model_name(expert),
@@ -562,8 +571,9 @@ async def check_metis_models() -> List[HealthRecord]:
             continue
 
         # Get API key for the model
-        #token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
+        # token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
         from resource_server_async.utils import get_endpoint_wrapper
+
         endpoint_slug = slugify(" ".join(["metis", "api", model_name.lower()]))
         response = await get_endpoint_wrapper(endpoint_slug)
         try:
@@ -583,7 +593,7 @@ async def check_metis_models() -> List[HealthRecord]:
             )
             continue
 
-        #url = f"{api_url.rstrip('/')}/{health_path.lstrip('/')}"
+        # url = f"{api_url.rstrip('/')}/{health_path.lstrip('/')}"
         url = "https://metis.alcf.anl.gov/v1/health"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -618,7 +628,9 @@ async def check_metis_models() -> List[HealthRecord]:
                 detail_text = status_text or "ok"
 
                 record_status = "healthy"
-                if (resp_time is not None and resp_time > SLOW_THRESHOLD_SECONDS) or elapsed > SLOW_THRESHOLD_SECONDS:
+                if (
+                    resp_time is not None and resp_time > SLOW_THRESHOLD_SECONDS
+                ) or elapsed > SLOW_THRESHOLD_SECONDS:
                     record_status = "slow"
                     detail_text += f" (slow: resp={format_duration(resp_time)}, elapsed={format_duration(elapsed)})"
                 else:
@@ -683,7 +695,10 @@ async def check_vm_health() -> List[HealthRecord]:
 
     def _run_checks() -> dict:
         checker = ApplicationHealthChecker()
-        checker.application_url = os.getenv("STREAMING_SERVER_HOST", "http://localhost:8000")
+        checker.application_url = os.getenv(
+            "STREAMING_SERVER_HOST", "http://localhost:8000"
+        )
+
         # Override the checker health endpoint to the main service URL
         def _health_override() -> dict:
             try:
@@ -745,11 +760,17 @@ def group_records(records: Iterable[HealthRecord]) -> Dict[str, List[HealthRecor
     return grouped
 
 
-def format_records(records: List[HealthRecord], *, full: bool = False) -> Tuple[str, bool]:
+def format_records(
+    records: List[HealthRecord], *, full: bool = False
+) -> Tuple[str, bool]:
     lines: List[str] = []
     grouped = group_records(records)
 
-    order = ["failed", "offline", "slow", "idle", "healthy"] if full else ["failed", "offline", "slow"]
+    order = (
+        ["failed", "offline", "slow", "idle", "healthy"]
+        if full
+        else ["failed", "offline", "slow"]
+    )
     icons = {
         "failed": "❌",
         "offline": "⛔",
@@ -774,7 +795,9 @@ def format_records(records: List[HealthRecord], *, full: bool = False) -> Tuple[
     return "\n".join(lines), has_entries
 
 
-def format_summary(records: List[HealthRecord], *, full: bool = False) -> Tuple[str, bool]:
+def format_summary(
+    records: List[HealthRecord], *, full: bool = False
+) -> Tuple[str, bool]:
     total = len(records)
     grouped = group_records(records)
     summary_parts = [f"Total checked: {total}"]
@@ -858,16 +881,26 @@ def post_to_slack(message: str) -> None:
     try:
         response = requests.post(webhook_url, json={"text": message}, timeout=10)
         if response.status_code >= 400:
-            log.error("Failed to post to Slack: HTTP %s %s", response.status_code, response.text)
+            log.error(
+                "Failed to post to Slack: HTTP %s %s",
+                response.status_code,
+                response.text,
+            )
     except requests.RequestException as exc:
         log.error("Error posting to Slack: %s", exc)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = ArgumentParser(description="Internal health monitor")
-    parser.add_argument("--full", action="store_true", help="send full report without truncation")
+    parser.add_argument(
+        "--full", action="store_true", help="send full report without truncation"
+    )
     parser.add_argument("--log-file", help="override log file destination")
-    parser.add_argument("--summary", action="store_true", help="print summary without sending Slack notification")
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="print summary without sending Slack notification",
+    )
     args = parser.parse_args(argv)
 
     if args.log_file:
@@ -887,4 +920,3 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-

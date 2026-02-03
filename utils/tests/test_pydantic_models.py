@@ -20,14 +20,14 @@ PYDANTIC_MODELS = {
     BATCH: BatchPydantic,
 }
 
+
 # Test OpenAI pydantic models
 class UtilsPydanticModelsTestCase(APITestCase):
-
     # Initialization
     @classmethod
     def setUp(self):
         """
-            Initialization that will only happen once before running all tests.
+        Initialization that will only happen once before running all tests.
         """
 
         # Load test input data (OpenAI format)
@@ -43,7 +43,7 @@ class UtilsPydanticModelsTestCase(APITestCase):
     # Test OpenAICompletions pydantic model for validation
     def test_OpenAICompletions_validation(self):
         self.__generic_serializer_validation(COMPLETIONS)
-    
+
     # Test OpenAIChatCompletions pydantic model for validation
     def test_OpenAIChatCompletions_validation(self):
         self.__generic_serializer_validation(CHAT_COMPLETIONS)
@@ -58,23 +58,23 @@ class UtilsPydanticModelsTestCase(APITestCase):
 
     # Reusable function to validate pydantic model definitions
     def __generic_serializer_validation(self, model):
-
         # For each valid set of parameters ...
         for valid_params in self.valid_params[model]:
-
             # Make sure the pydantic model does not raise a validation error
             try:
                 PYDANTIC_MODELS[model](**valid_params)
             except ValidationError:
-                self.fail(f"The following data was supposed to be valid, but was flagged as invalid: {valid_params}")
+                self.fail(
+                    f"The following data was supposed to be valid, but was flagged as invalid: {valid_params}"
+                )
 
         # For each invalid set of parameters ...
         for invalid_params in self.invalid_params[model]:
-
             # Make sure the pydantic model raises a validation error
             try:
                 PYDANTIC_MODELS[model](**invalid_params)
-                self.fail(f"The following data was supposed to be invalid, but was flagged as valid: {invalid_params}")
+                self.fail(
+                    f"The following data was supposed to be invalid, but was flagged as valid: {invalid_params}"
+                )
             except ValidationError:
                 pass
-

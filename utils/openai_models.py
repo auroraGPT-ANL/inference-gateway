@@ -12,132 +12,146 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-from pydantic import AnyUrl, BaseModel, Extra, Field, confloat, conint, RootModel, field_validator, ConfigDict
+from pydantic import (
+    AnyUrl,
+    BaseModel,
+    Extra,
+    Field,
+    confloat,
+    conint,
+    RootModel,
+    field_validator,
+    ConfigDict,
+)
+
 
 class BaseModelForbid(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+
 class Model(Enum):
-    gpt_3_5_turbo_instruct = 'gpt-3.5-turbo-instruct'
-    davinci_002 = 'davinci-002'
-    babbage_002 = 'babbage-002'
+    gpt_3_5_turbo_instruct = "gpt-3.5-turbo-instruct"
+    davinci_002 = "davinci-002"
+    babbage_002 = "babbage-002"
+
 
 class PromptItem(RootModel):
     root: List[int]
 
+
 class ChatCompletionStreamOptions(BaseModelForbid):
     include_usage: Optional[bool] = Field(
         None,
-        description='If set, an additional chunk will be streamed before the `data: [DONE]` message. The `usage` field on this chunk shows the token usage statistics for the entire request, and the `choices` field will always be an empty array. All other chunks will also include a `usage` field, but with a null value.\n',
+        description="If set, an additional chunk will be streamed before the `data: [DONE]` message. The `usage` field on this chunk shows the token usage statistics for the entire request, and the `choices` field will always be an empty array. All other chunks will also include a `usage` field, but with a null value.\n",
     )
 
 
 class Model1(Enum):
-    gpt_4o = 'gpt-4o'
-    gpt_4o_2024_05_13 = 'gpt-4o-2024-05-13'
-    gpt_4_turbo = 'gpt-4-turbo'
-    gpt_4_turbo_2024_04_09 = 'gpt-4-turbo-2024-04-09'
-    gpt_4_0125_preview = 'gpt-4-0125-preview'
-    gpt_4_turbo_preview = 'gpt-4-turbo-preview'
-    gpt_4_1106_preview = 'gpt-4-1106-preview'
-    gpt_4_vision_preview = 'gpt-4-vision-preview'
-    gpt_4 = 'gpt-4'
-    gpt_4_0314 = 'gpt-4-0314'
-    gpt_4_0613 = 'gpt-4-0613'
-    gpt_4_32k = 'gpt-4-32k'
-    gpt_4_32k_0314 = 'gpt-4-32k-0314'
-    gpt_4_32k_0613 = 'gpt-4-32k-0613'
-    gpt_3_5_turbo = 'gpt-3.5-turbo'
-    gpt_3_5_turbo_16k = 'gpt-3.5-turbo-16k'
-    gpt_3_5_turbo_0301 = 'gpt-3.5-turbo-0301'
-    gpt_3_5_turbo_0613 = 'gpt-3.5-turbo-0613'
-    gpt_3_5_turbo_1106 = 'gpt-3.5-turbo-1106'
-    gpt_3_5_turbo_0125 = 'gpt-3.5-turbo-0125'
-    gpt_3_5_turbo_16k_0613 = 'gpt-3.5-turbo-16k-0613'
+    gpt_4o = "gpt-4o"
+    gpt_4o_2024_05_13 = "gpt-4o-2024-05-13"
+    gpt_4_turbo = "gpt-4-turbo"
+    gpt_4_turbo_2024_04_09 = "gpt-4-turbo-2024-04-09"
+    gpt_4_0125_preview = "gpt-4-0125-preview"
+    gpt_4_turbo_preview = "gpt-4-turbo-preview"
+    gpt_4_1106_preview = "gpt-4-1106-preview"
+    gpt_4_vision_preview = "gpt-4-vision-preview"
+    gpt_4 = "gpt-4"
+    gpt_4_0314 = "gpt-4-0314"
+    gpt_4_0613 = "gpt-4-0613"
+    gpt_4_32k = "gpt-4-32k"
+    gpt_4_32k_0314 = "gpt-4-32k-0314"
+    gpt_4_32k_0613 = "gpt-4-32k-0613"
+    gpt_3_5_turbo = "gpt-3.5-turbo"
+    gpt_3_5_turbo_16k = "gpt-3.5-turbo-16k"
+    gpt_3_5_turbo_0301 = "gpt-3.5-turbo-0301"
+    gpt_3_5_turbo_0613 = "gpt-3.5-turbo-0613"
+    gpt_3_5_turbo_1106 = "gpt-3.5-turbo-1106"
+    gpt_3_5_turbo_0125 = "gpt-3.5-turbo-0125"
+    gpt_3_5_turbo_16k_0613 = "gpt-3.5-turbo-16k-0613"
 
 
 class Type(Enum):
-    text = 'text'
-    json_object = 'json_object'
+    text = "text"
+    json_object = "json_object"
 
 
 class ResponseFormat(BaseModelForbid):
     type: Optional[Type] = Field(
-        'text',
-        description='Must be one of `text` or `json_object`.',
-        example='json_object',
+        "text",
+        description="Must be one of `text` or `json_object`.",
+        example="json_object",
     )
 
 
 class ServiceTier(Enum):
-    auto = 'auto'
-    default = 'default'
+    auto = "auto"
+    default = "default"
 
 
 class FunctionCall(Enum):
-    none = 'none'
-    auto = 'auto'
+    none = "none"
+    auto = "auto"
 
 
 class Role(Enum):
-    system = 'system'
+    system = "system"
 
 
 class ChatCompletionRequestSystemMessage(BaseModelForbid):
-    content: str = Field(..., description='The contents of the system message.')
+    content: str = Field(..., description="The contents of the system message.")
     role: Role = Field(
-        ..., description='The role of the messages author, in this case `system`.'
+        ..., description="The role of the messages author, in this case `system`."
     )
     name: Optional[str] = Field(
         None,
-        description='An optional name for the participant. Provides the model information to differentiate between participants of the same role.',
+        description="An optional name for the participant. Provides the model information to differentiate between participants of the same role.",
     )
 
 
 class Role1(Enum):
-    user = 'user'
+    user = "user"
 
 
 class Role2(Enum):
-    assistant = 'assistant'
+    assistant = "assistant"
 
 
 class FunctionCall1(BaseModelForbid):
     arguments: str = Field(
         ...,
-        description='The arguments to call the function with, as generated by the model in JSON format. Note that the model does not always generate valid JSON, and may hallucinate parameters not defined by your function schema. Validate the arguments in your code before calling your function.',
+        description="The arguments to call the function with, as generated by the model in JSON format. Note that the model does not always generate valid JSON, and may hallucinate parameters not defined by your function schema. Validate the arguments in your code before calling your function.",
     )
-    name: str = Field(..., description='The name of the function to call.')
+    name: str = Field(..., description="The name of the function to call.")
 
 
 class Role3(Enum):
-    tool = 'tool'
+    tool = "tool"
 
 
 class ChatCompletionRequestToolMessage(BaseModelForbid):
     role: Role3 = Field(
-        ..., description='The role of the messages author, in this case `tool`.'
+        ..., description="The role of the messages author, in this case `tool`."
     )
-    content: str = Field(..., description='The contents of the tool message.')
+    content: str = Field(..., description="The contents of the tool message.")
     tool_call_id: str = Field(
-        ..., description='Tool call that this message is responding to.'
+        ..., description="Tool call that this message is responding to."
     )
 
 
 class Role4(Enum):
-    function = 'function'
+    function = "function"
 
 
 class ChatCompletionRequestFunctionMessage(BaseModelForbid):
     role: Role4 = Field(
-        ..., description='The role of the messages author, in this case `function`.'
+        ..., description="The role of the messages author, in this case `function`."
     )
-    content: str = Field(..., description='The contents of the function message.')
-    name: str = Field(..., description='The name of the function to call.')
+    content: str = Field(..., description="The contents of the function message.")
+    name: str = Field(..., description="The name of the function to call.")
 
 
 class ChatCompletionFunctionCallOption(BaseModelForbid):
-    name: str = Field(..., description='The name of the function to call.')
+    name: str = Field(..., description="The name of the function to call.")
 
 
 class FunctionParameters(BaseModelForbid):
@@ -150,111 +164,112 @@ class FunctionParameters(BaseModelForbid):
 class ChatCompletionFunctions(BaseModelForbid):
     description: Optional[str] = Field(
         None,
-        description='A description of what the function does, used by the model to choose when and how to call the function.',
+        description="A description of what the function does, used by the model to choose when and how to call the function.",
     )
     name: str = Field(
         ...,
-        description='The name of the function to be called. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 64.',
+        description="The name of the function to be called. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 64.",
     )
     parameters: Optional[FunctionParameters] = None
 
 
 class Type1(Enum):
-    function = 'function'
+    function = "function"
 
 
 class Function(BaseModelForbid):
-    name: str = Field(..., description='The name of the function to call.')
+    name: str = Field(..., description="The name of the function to call.")
     arguments: str = Field(
         ...,
-        description='The arguments to call the function with, as generated by the model in JSON format. Note that the model does not always generate valid JSON, and may hallucinate parameters not defined by your function schema. Validate the arguments in your code before calling your function.',
+        description="The arguments to call the function with, as generated by the model in JSON format. Note that the model does not always generate valid JSON, and may hallucinate parameters not defined by your function schema. Validate the arguments in your code before calling your function.",
     )
 
 
 class ChatCompletionMessageToolCall(BaseModelForbid):
-    id: str = Field(..., description='The ID of the tool call.')
+    id: str = Field(..., description="The ID of the tool call.")
     type: Type1 = Field(
         ...,
-        description='The type of the tool. Currently, only `function` is supported.',
+        description="The type of the tool. Currently, only `function` is supported.",
     )
-    function: Function = Field(..., description='The function that the model called.')
+    function: Function = Field(..., description="The function that the model called.")
 
 
 class Type2(Enum):
-    image_url = 'image_url'
+    image_url = "image_url"
 
 
 class Detail(Enum):
-    auto = 'auto'
-    low = 'low'
-    high = 'high'
+    auto = "auto"
+    low = "low"
+    high = "high"
 
 
 class ImageUrl(BaseModelForbid):
     url: AnyUrl = Field(
-        ..., description='Either a URL of the image or the base64 encoded image data.'
+        ..., description="Either a URL of the image or the base64 encoded image data."
     )
     detail: Optional[Detail] = Field(
-        'auto',
-        description='Specifies the detail level of the image. Learn more in the [Vision guide](/docs/guides/vision/low-or-high-fidelity-image-understanding).',
+        "auto",
+        description="Specifies the detail level of the image. Learn more in the [Vision guide](/docs/guides/vision/low-or-high-fidelity-image-understanding).",
     )
 
 
 class ChatCompletionRequestMessageContentPartImage(BaseModelForbid):
-    type: Type2 = Field(..., description='The type of the content part.')
+    type: Type2 = Field(..., description="The type of the content part.")
     image_url: ImageUrl
 
 
 class Type3(Enum):
-    text = 'text'
+    text = "text"
 
 
 class ChatCompletionRequestMessageContentPartText(BaseModelForbid):
-    type: Type3 = Field(..., description='The type of the content part.')
-    text: str = Field(..., description='The text content.')
+    type: Type3 = Field(..., description="The type of the content part.")
+    text: str = Field(..., description="The text content.")
 
 
 class Type4(Enum):
-    function = 'function'
+    function = "function"
 
 
 class FunctionObject(BaseModelForbid):
     description: Optional[str] = Field(
         None,
-        description='A description of what the function does, used by the model to choose when and how to call the function.',
+        description="A description of what the function does, used by the model to choose when and how to call the function.",
     )
     # Edit from datamodel-codegen to add string restrictions
     name: str = Field(
         ...,
         max_length=64,
-        description='The name of the function to be called. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 64.',
+        description="The name of the function to be called. Must be a-z, A-Z, 0-9, or contain underscores and dashes, with a maximum length of 64.",
     )
     parameters: Optional[FunctionParameters] = None
 
     # Edit from datamodel-codegen to add further string restrictions
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def name_with_limited_characters(cls, v: str) -> str:
         if len(v) <= 64:
-            test_v = v.replace("-","").replace("_","")
+            test_v = v.replace("-", "").replace("_", "")
             if test_v.isalnum():
                 return v.title()
         raise ValueError("Must be a-z, A-Z, 0-9, or contain underscores and dashes")
 
+
 class ChatCompletionToolChoiceOption1(Enum):
-    none = 'none'
-    auto = 'auto'
-    required = 'required'
+    none = "none"
+    auto = "auto"
+    required = "required"
 
 
 class Function1(BaseModelForbid):
-    name: str = Field(..., description='The name of the function to call.')
+    name: str = Field(..., description="The name of the function to call.")
 
 
 class ChatCompletionNamedToolChoice(BaseModelForbid):
     type: Type4 = Field(
         ...,
-        description='The type of the tool. Currently, only `function` is supported.',
+        description="The type of the tool. Currently, only `function` is supported.",
     )
     function: Function1
 
@@ -262,7 +277,7 @@ class ChatCompletionNamedToolChoice(BaseModelForbid):
 class ParallelToolCalls(RootModel):
     root: bool = Field(
         ...,
-        description='Whether to enable [parallel function calling](/docs/guides/function-calling/parallel-function-calling) during tool use.',
+        description="Whether to enable [parallel function calling](/docs/guides/function-calling/parallel-function-calling) during tool use.",
     )
 
 
@@ -279,32 +294,32 @@ class StopList(RootModel):
 class CreateCompletionRequest(BaseModelForbid):
     model: Union[str, Model] = Field(
         ...,
-        description='ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models/overview) for descriptions of them.\n',
+        description="ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models/overview) for descriptions of them.\n",
     )
     prompt: Union[str, List[str], List[int], List[PromptItem]] = Field(
         ...,
-        description='The prompt(s) to generate completions for, encoded as a string, array of strings, array of tokens, or array of token arrays.\n\nNote that <|endoftext|> is the document separator that the model sees during training, so if a prompt is not specified the model will generate as if from the beginning of a new document.\n',
+        description="The prompt(s) to generate completions for, encoded as a string, array of strings, array of tokens, or array of token arrays.\n\nNote that <|endoftext|> is the document separator that the model sees during training, so if a prompt is not specified the model will generate as if from the beginning of a new document.\n",
     )
     best_of: Optional[conint(ge=0, le=20)] = Field(
         1,
         description='Generates `best_of` completions server-side and returns the "best" (the one with the highest log probability per token). Results cannot be streamed.\n\nWhen used with `n`, `best_of` controls the number of candidate completions and `n` specifies how many to return – `best_of` must be greater than `n`.\n\n**Note:** Because this parameter generates many completions, it can quickly consume your token quota. Use carefully and ensure that you have reasonable settings for `max_tokens` and `stop`.\n',
     )
     echo: Optional[bool] = Field(
-        False, description='Echo back the prompt in addition to the completion\n'
+        False, description="Echo back the prompt in addition to the completion\n"
     )
     frequency_penalty: Optional[confloat(ge=-2.0, le=2.0)] = Field(
         0,
         description="Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.\n\n[See more information about frequency and presence penalties.](/docs/guides/text-generation/parameter-details)\n",
     )
     # Edit from datamodel-codegen
-    #logit_bias: Optional[Dict[str, int]] = Field(
+    # logit_bias: Optional[Dict[str, int]] = Field(
     logit_bias: Optional[Dict[str, LogitBiasInt]] = Field(
         None,
         description='Modify the likelihood of specified tokens appearing in the completion.\n\nAccepts a JSON object that maps tokens (specified by their token ID in the GPT tokenizer) to an associated bias value from -100 to 100. You can use this [tokenizer tool](/tokenizer?view=bpe) to convert text to token IDs. Mathematically, the bias is added to the logits generated by the model prior to sampling. The exact effect will vary per model, but values between -1 and 1 should decrease or increase likelihood of selection; values like -100 or 100 should result in a ban or exclusive selection of the relevant token.\n\nAs an example, you can pass `{"50256": -100}` to prevent the <|endoftext|> token from being generated.\n',
     )
     logprobs: Optional[conint(ge=0, le=5)] = Field(
         None,
-        description='Include the log probabilities on the `logprobs` most likely output tokens, as well the chosen tokens. For example, if `logprobs` is 5, the API will return a list of the 5 most likely tokens. The API will always return the `logprob` of the sampled token, so there may be up to `logprobs+1` elements in the response.\n\nThe maximum value for `logprobs` is 5.\n',
+        description="Include the log probabilities on the `logprobs` most likely output tokens, as well the chosen tokens. For example, if `logprobs` is 5, the API will return a list of the 5 most likely tokens. The API will always return the `logprob` of the sampled token, so there may be up to `logprobs+1` elements in the response.\n\nThe maximum value for `logprobs` is 5.\n",
     )
     max_tokens: Optional[conint(ge=0)] = Field(
         16,
@@ -313,7 +328,7 @@ class CreateCompletionRequest(BaseModelForbid):
     )
     n: Optional[conint(ge=1, le=128)] = Field(
         1,
-        description='How many completions to generate for each prompt.\n\n**Note:** Because this parameter generates many completions, it can quickly consume your token quota. Use carefully and ensure that you have reasonable settings for `max_tokens` and `stop`.\n',
+        description="How many completions to generate for each prompt.\n\n**Note:** Because this parameter generates many completions, it can quickly consume your token quota. Use carefully and ensure that you have reasonable settings for `max_tokens` and `stop`.\n",
         example=1,
     )
     presence_penalty: Optional[confloat(ge=-2.0, le=2.0)] = Field(
@@ -322,45 +337,45 @@ class CreateCompletionRequest(BaseModelForbid):
     )
     seed: Optional[conint(ge=-9223372036854775808, le=9223372036854775807)] = Field(
         None,
-        description='If specified, our system will make a best effort to sample deterministically, such that repeated requests with the same `seed` and parameters should return the same result.\n\nDeterminism is not guaranteed, and you should refer to the `system_fingerprint` response parameter to monitor changes in the backend.\n',
+        description="If specified, our system will make a best effort to sample deterministically, such that repeated requests with the same `seed` and parameters should return the same result.\n\nDeterminism is not guaranteed, and you should refer to the `system_fingerprint` response parameter to monitor changes in the backend.\n",
     )
     # Edit from datamodel-codegen
-    #stop: Optional[Union[str, List[str]] ] = Field(
-    stop: Optional[Union[str, StopList] ] = Field(
+    # stop: Optional[Union[str, List[str]] ] = Field(
+    stop: Optional[Union[str, StopList]] = Field(
         None,
-        description='Up to 4 sequences where the API will stop generating further tokens. The returned text will not contain the stop sequence.\n',
+        description="Up to 4 sequences where the API will stop generating further tokens. The returned text will not contain the stop sequence.\n",
     )
     stream: Optional[bool] = Field(
         False,
-        description='Whether to stream back partial progress. If set, tokens will be sent as data-only [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format) as they become available, with the stream terminated by a `data: [DONE]` message. [Example Python code](https://cookbook.openai.com/examples/how_to_stream_completions).\n',
+        description="Whether to stream back partial progress. If set, tokens will be sent as data-only [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format) as they become available, with the stream terminated by a `data: [DONE]` message. [Example Python code](https://cookbook.openai.com/examples/how_to_stream_completions).\n",
     )
     stream_options: Optional[ChatCompletionStreamOptions] = None
     suffix: Optional[str] = Field(
         None,
-        description='The suffix that comes after a completion of inserted text.\n\nThis parameter is only supported for `gpt-3.5-turbo-instruct`.\n',
-        example='test.',
+        description="The suffix that comes after a completion of inserted text.\n\nThis parameter is only supported for `gpt-3.5-turbo-instruct`.\n",
+        example="test.",
     )
     temperature: Optional[confloat(ge=0.0, le=2.0)] = Field(
         1,
-        description='What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.\n\nWe generally recommend altering this or `top_p` but not both.\n',
+        description="What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.\n\nWe generally recommend altering this or `top_p` but not both.\n",
         example=1,
     )
     top_p: Optional[confloat(ge=0.0, le=1.0)] = Field(
         1,
-        description='An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.\n\nWe generally recommend altering this or `temperature` but not both.\n',
+        description="An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.\n\nWe generally recommend altering this or `temperature` but not both.\n",
         example=1,
     )
     user: Optional[str] = Field(
         None,
-        description='A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n',
-        example='user-1234',
+        description="A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n",
+        example="user-1234",
     )
 
 
 class ChatCompletionMessageToolCalls(RootModel):
     root: List[ChatCompletionMessageToolCall] = Field(
         ...,
-        description='The tool calls generated by the model, such as function calls.',
+        description="The tool calls generated by the model, such as function calls.",
     )
 
 
@@ -374,15 +389,13 @@ class ChatCompletionRequestMessageContentPart(RootModel):
 class ChatCompletionTool(BaseModelForbid):
     type: Type4 = Field(
         ...,
-        description='The type of the tool. Currently, only `function` is supported.',
+        description="The type of the tool. Currently, only `function` is supported.",
     )
     function: FunctionObject
 
 
 class ChatCompletionToolChoiceOption(RootModel):
-    root: Union[
-        ChatCompletionToolChoiceOption1, ChatCompletionNamedToolChoice
-    ] = Field(
+    root: Union[ChatCompletionToolChoiceOption1, ChatCompletionNamedToolChoice] = Field(
         ...,
         description='Controls which (if any) tool is called by the model.\n`none` means the model will not call any tool and instead generates a message.\n`auto` means the model can pick between generating a message or calling one or more tools.\n`required` means the model must call one or more tools.\nSpecifying a particular tool via `{"type": "function", "function": {"name": "my_function"}}` forces the model to call that tool.\n\n`none` is the default when no tools are present. `auto` is the default if tools are present.\n',
     )
@@ -390,33 +403,33 @@ class ChatCompletionToolChoiceOption(RootModel):
 
 class ChatCompletionRequestUserMessage(BaseModelForbid):
     content: Union[str, List[ChatCompletionRequestMessageContentPart]] = Field(
-        ..., description='The contents of the user message.\n'
+        ..., description="The contents of the user message.\n"
     )
     role: Role1 = Field(
-        ..., description='The role of the messages author, in this case `user`.'
+        ..., description="The role of the messages author, in this case `user`."
     )
     name: Optional[str] = Field(
         None,
-        description='An optional name for the participant. Provides the model information to differentiate between participants of the same role.',
+        description="An optional name for the participant. Provides the model information to differentiate between participants of the same role.",
     )
 
 
 class ChatCompletionRequestAssistantMessage(BaseModelForbid):
     content: Optional[str] = Field(
         None,
-        description='The contents of the assistant message. Required unless `tool_calls` or `function_call` is specified.\n',
+        description="The contents of the assistant message. Required unless `tool_calls` or `function_call` is specified.\n",
     )
     role: Role2 = Field(
-        ..., description='The role of the messages author, in this case `assistant`.'
+        ..., description="The role of the messages author, in this case `assistant`."
     )
     name: Optional[str] = Field(
         None,
-        description='An optional name for the participant. Provides the model information to differentiate between participants of the same role.',
+        description="An optional name for the participant. Provides the model information to differentiate between participants of the same role.",
     )
     tool_calls: Optional[ChatCompletionMessageToolCalls] = None
     function_call: Optional[FunctionCall1] = Field(
         None,
-        description='Deprecated and replaced by `tool_calls`. The name and arguments of a function that should be called, as generated by the model.',
+        description="Deprecated and replaced by `tool_calls`. The name and arguments of a function that should be called, as generated by the model.",
     )
 
 
@@ -433,31 +446,31 @@ class ChatCompletionRequestMessage(RootModel):
 class CreateChatCompletionRequest(BaseModelForbid):
     messages: List[ChatCompletionRequestMessage] = Field(
         ...,
-        description='A list of messages comprising the conversation so far. [Example Python code](https://cookbook.openai.com/examples/how_to_format_inputs_to_chatgpt_models).',
+        description="A list of messages comprising the conversation so far. [Example Python code](https://cookbook.openai.com/examples/how_to_format_inputs_to_chatgpt_models).",
         min_items=1,
     )
     model: Union[str, Model1] = Field(
         ...,
-        description='ID of the model to use. See the [model endpoint compatibility](/docs/models/model-endpoint-compatibility) table for details on which models work with the Chat API.',
-        example='gpt-4-turbo',
+        description="ID of the model to use. See the [model endpoint compatibility](/docs/models/model-endpoint-compatibility) table for details on which models work with the Chat API.",
+        example="gpt-4-turbo",
     )
     frequency_penalty: Optional[confloat(ge=-2.0, le=2.0)] = Field(
         0,
         description="Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.\n\n[See more information about frequency and presence penalties.](/docs/guides/text-generation/parameter-details)\n",
     )
     # Edit from datamodel-codegen
-    #logit_bias: Optional[Dict[str, int]] = Field(
+    # logit_bias: Optional[Dict[str, int]] = Field(
     logit_bias: Optional[Dict[str, LogitBiasInt]] = Field(
         None,
-        description='Modify the likelihood of specified tokens appearing in the completion.\n\nAccepts a JSON object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling. The exact effect will vary per model, but values between -1 and 1 should decrease or increase likelihood of selection; values like -100 or 100 should result in a ban or exclusive selection of the relevant token.\n',
+        description="Modify the likelihood of specified tokens appearing in the completion.\n\nAccepts a JSON object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling. The exact effect will vary per model, but values between -1 and 1 should decrease or increase likelihood of selection; values like -100 or 100 should result in a ban or exclusive selection of the relevant token.\n",
     )
     logprobs: Optional[bool] = Field(
         False,
-        description='Whether to return log probabilities of the output tokens or not. If true, returns the log probabilities of each output token returned in the `content` of `message`.',
+        description="Whether to return log probabilities of the output tokens or not. If true, returns the log probabilities of each output token returned in the `content` of `message`.",
     )
     top_logprobs: Optional[conint(ge=0, le=20)] = Field(
         None,
-        description='An integer between 0 and 20 specifying the number of most likely tokens to return at each token position, each with an associated log probability. `logprobs` must be set to `true` if this parameter is used.',
+        description="An integer between 0 and 20 specifying the number of most likely tokens to return at each token position, each with an associated log probability. `logprobs` must be set to `true` if this parameter is used.",
     )
     max_tokens: Optional[int] = Field(
         None,
@@ -465,7 +478,7 @@ class CreateChatCompletionRequest(BaseModelForbid):
     )
     n: Optional[conint(ge=1, le=128)] = Field(
         1,
-        description='How many chat completion choices to generate for each input message. Note that you will be charged based on the number of generated tokens across all of the choices. Keep `n` as `1` to minimize costs.',
+        description="How many chat completion choices to generate for each input message. Note that you will be charged based on the number of generated tokens across all of the choices. Keep `n` as `1` to minimize costs.",
         example=1,
     )
     presence_penalty: Optional[confloat(ge=-2.0, le=2.0)] = Field(
@@ -478,96 +491,96 @@ class CreateChatCompletionRequest(BaseModelForbid):
     )
     seed: Optional[conint(ge=-9223372036854775808, le=9223372036854775807)] = Field(
         None,
-        description='This feature is in Beta.\nIf specified, our system will make a best effort to sample deterministically, such that repeated requests with the same `seed` and parameters should return the same result.\nDeterminism is not guaranteed, and you should refer to the `system_fingerprint` response parameter to monitor changes in the backend.\n',
+        description="This feature is in Beta.\nIf specified, our system will make a best effort to sample deterministically, such that repeated requests with the same `seed` and parameters should return the same result.\nDeterminism is not guaranteed, and you should refer to the `system_fingerprint` response parameter to monitor changes in the backend.\n",
     )
     service_tier: Optional[ServiceTier] = Field(
         None,
         description="Specifies the latency tier to use for processing the request. This parameter is relevant for customers subscribed to the scale tier service:\n  - If set to 'auto', the system will utilize scale tier credits until they are exhausted.\n  - If set to 'default', the request will be processed using the default service tier with a lower uptime SLA and no latency guarentee.\n\n  When this parameter is set, the response body will include the `service_tier` utilized.\n",
     )
     # Edit from datamodel-codegen
-    #stop: Optional[Union[str, List[str]] ] = Field(
-    stop: Optional[Union[str, StopList] ] = Field(
+    # stop: Optional[Union[str, List[str]] ] = Field(
+    stop: Optional[Union[str, StopList]] = Field(
         None,
-        description='Up to 4 sequences where the API will stop generating further tokens.\n',
+        description="Up to 4 sequences where the API will stop generating further tokens.\n",
     )
     stream: Optional[bool] = Field(
         False,
-        description='If set, partial message deltas will be sent, like in ChatGPT. Tokens will be sent as data-only [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format) as they become available, with the stream terminated by a `data: [DONE]` message. [Example Python code](https://cookbook.openai.com/examples/how_to_stream_completions).\n',
+        description="If set, partial message deltas will be sent, like in ChatGPT. Tokens will be sent as data-only [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format) as they become available, with the stream terminated by a `data: [DONE]` message. [Example Python code](https://cookbook.openai.com/examples/how_to_stream_completions).\n",
     )
     stream_options: Optional[ChatCompletionStreamOptions] = None
     temperature: Optional[confloat(ge=0.0, le=2.0)] = Field(
         1,
-        description='What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.\n\nWe generally recommend altering this or `top_p` but not both.\n',
+        description="What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.\n\nWe generally recommend altering this or `top_p` but not both.\n",
         example=1,
     )
     top_p: Optional[confloat(ge=0.0, le=1.0)] = Field(
         1,
-        description='An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.\n\nWe generally recommend altering this or `temperature` but not both.\n',
+        description="An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.\n\nWe generally recommend altering this or `temperature` but not both.\n",
         example=1,
     )
     tools: Optional[List[ChatCompletionTool]] = Field(
         None,
         max_length=128,
-        description='A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of functions the model may generate JSON inputs for. A max of 128 functions are supported.\n',
+        description="A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of functions the model may generate JSON inputs for. A max of 128 functions are supported.\n",
     )
     tool_choice: Optional[ChatCompletionToolChoiceOption] = None
     parallel_tool_calls: Optional[ParallelToolCalls] = None
     user: Optional[str] = Field(
         None,
-        description='A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n',
-        example='user-1234',
+        description="A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n",
+        example="user-1234",
     )
-    function_call: Optional[
-        Union[FunctionCall, ChatCompletionFunctionCallOption]
-    ] = Field(
-        None,
-        description='Deprecated in favor of `tool_choice`.\n\nControls which (if any) function is called by the model.\n`none` means the model will not call a function and instead generates a message.\n`auto` means the model can pick between generating a message or calling a function.\nSpecifying a particular function via `{"name": "my_function"}` forces the model to call that function.\n\n`none` is the default when no functions are present. `auto` is the default if functions are present.\n',
+    function_call: Optional[Union[FunctionCall, ChatCompletionFunctionCallOption]] = (
+        Field(
+            None,
+            description='Deprecated in favor of `tool_choice`.\n\nControls which (if any) function is called by the model.\n`none` means the model will not call a function and instead generates a message.\n`auto` means the model can pick between generating a message or calling a function.\nSpecifying a particular function via `{"name": "my_function"}` forces the model to call that function.\n\n`none` is the default when no functions are present. `auto` is the default if functions are present.\n',
+        )
     )
     functions: Optional[List[ChatCompletionFunctions]] = Field(
         None,
-        description='Deprecated in favor of `tools`.\n\nA list of functions the model may generate JSON inputs for.\n',
+        description="Deprecated in favor of `tools`.\n\nA list of functions the model may generate JSON inputs for.\n",
         max_items=128,
         min_items=1,
     )
+
 
 class EmbeddingsInputItem(RootModel):
     root: List[int]
 
 
 class EmbeddingsModel(Enum):
-    text_embedding_ada_002 = 'text-embedding-ada-002'
-    text_embedding_3_small = 'text-embedding-3-small'
-    text_embedding_3_large = 'text-embedding-3-large'
+    text_embedding_ada_002 = "text-embedding-ada-002"
+    text_embedding_3_small = "text-embedding-3-small"
+    text_embedding_3_large = "text-embedding-3-large"
 
 
 class EmbeddingsEncodingFormat(Enum):
-    float = 'float'
-    base64 = 'base64'
+    float = "float"
+    base64 = "base64"
 
 
 class CreateEmbeddingRequest(BaseModelForbid):
-
     input: Union[str, List[str], List[int], List[EmbeddingsInputItem]] = Field(
         ...,
-        description='Input text to embed, encoded as a string or array of tokens. To embed multiple inputs in a single request, pass an array of strings or array of token arrays. The input must not exceed the max input tokens for the model (8192 tokens for `text-embedding-ada-002`), cannot be an empty string, and any array must be 2048 dimensions or less. [Example Python code](https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken) for counting tokens.\n',
-        example='The quick brown fox jumped over the lazy dog',
+        description="Input text to embed, encoded as a string or array of tokens. To embed multiple inputs in a single request, pass an array of strings or array of token arrays. The input must not exceed the max input tokens for the model (8192 tokens for `text-embedding-ada-002`), cannot be an empty string, and any array must be 2048 dimensions or less. [Example Python code](https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken) for counting tokens.\n",
+        example="The quick brown fox jumped over the lazy dog",
     )
     model: Union[str, EmbeddingsModel] = Field(
         ...,
-        description='ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models/overview) for descriptions of them.\n',
-        example='text-embedding-3-small',
+        description="ID of the model to use. You can use the [List models](/docs/api-reference/models/list) API to see all of your available models, or see our [Model overview](/docs/models/overview) for descriptions of them.\n",
+        example="text-embedding-3-small",
     )
     encoding_format: Optional[EmbeddingsEncodingFormat] = Field(
-        'float',
-        description='The format to return the embeddings in. Can be either `float` or [`base64`](https://pypi.org/project/pybase64/).',
-        example='float',
+        "float",
+        description="The format to return the embeddings in. Can be either `float` or [`base64`](https://pypi.org/project/pybase64/).",
+        example="float",
     )
     dimensions: Optional[conint(ge=1)] = Field(
         None,
-        description='The number of dimensions the resulting output embeddings should have. Only supported in `text-embedding-3` and later models.\n',
+        description="The number of dimensions the resulting output embeddings should have. Only supported in `text-embedding-3` and later models.\n",
     )
     user: Optional[str] = Field(
         None,
-        description='A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n',
-        example='user-1234',
+        description="A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](/docs/guides/safety-best-practices/end-user-ids).\n",
+        example="user-1234",
     )

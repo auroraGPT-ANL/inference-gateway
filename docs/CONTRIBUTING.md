@@ -191,6 +191,11 @@ You can also manually trigger deployment:
 - Include examples wherever possible
 - Add context before diving into details
 
+### Code Style
+
+- We use `ruff` to format our codebase
+- Run `ruff check` in the project root to conform your code's formatting
+
 ## Contributing Process
 
 1. Fork the repository

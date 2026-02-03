@@ -2,15 +2,18 @@ from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Union
 from enum import Enum
 
+
 # Extention of the Pydantic BaseModel that prevent extra attributes
 class BaseModelExtraForbid(BaseModel):
     class Config:
-        extra = 'forbid'
+        extra = "forbid"
+
 
 # Encoding format
 class EncodingFormat(str, Enum):
     float = "float"
     base64 = "base64"
+
 
 # OpenAI embeddings
 # https://platform.openai.com/docs/api-reference/embeddings/create
@@ -18,13 +21,14 @@ class OpenAIEmbeddingsPydantic(BaseModelExtraForbid):
     input: Union[str, List[str], List[int], List[List[int]]]
     model: str
     dimensions: Optional[int] = Field(default=None, ge=1)
-    encoding_format: Optional[EncodingFormat] = Field(default=EncodingFormat.float.value)
+    encoding_format: Optional[EncodingFormat] = Field(
+        default=EncodingFormat.float.value
+    )
     user: Optional[str] = Field(default=None)
 
     # Extra validations
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def extra_validations(self):
-
         # Check length of input arrays
         min_length = 1
         max_lentgh = 2048
