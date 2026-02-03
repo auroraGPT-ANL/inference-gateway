@@ -341,7 +341,7 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
 
 
 # Extract service account client
-def extract_service_account_client(introspection: str, client_groups: List[str]):
+def extract_service_account_client(introspection: dict, client_groups: List[str]):
     """Extract and return the user object if identity is an authorized Globus client."""
 
     # Extract the client ID and full username
