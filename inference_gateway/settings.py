@@ -133,6 +133,9 @@ else:
         ", ".join(domains_string) + ", or providers with approved projects"
     )
 
+# Authorized Globus service account identities
+AUTHORIZED_GLOBUS_SERVICE_USERNAMES = json.loads(os.getenv("AUTHORIZED_GLOBUS_SERVICE_USERNAMES", "[]"))
+
 # Load maintenance notices to be displayed for individual clusters
 MAINTENANCE_ERROR_NOTICES = json.loads(os.getenv("MAINTENANCE_ERROR_NOTICES", "{}"))
 

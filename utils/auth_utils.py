@@ -340,6 +340,39 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
     return True, "", None
 
 
+# Extract service account client
+def extract_service_account_client(introspection: dict, client_groups: List[str]):
+    """Extract and return the user object if identity is an authorized Globus client."""
+
+    # Extract the client ID and full username
+    client_id = introspection.get("client_id", "")
+    username = introspection.get("username", "")
+    domain = username.split("@")[1]
+    name = introspection.get("name", "")
+    iss = introspection.get("iss", "")
+
+    # Skip client recognition if not enough details
+    if len(client_id) == 0 or len(username) == 0 or len(domain) == 0 or len(name) == 0 or len(iss) == 0:
+        return None
+
+    # If this is an authorized Globus service account client ...
+    if username in settings.AUTHORIZED_GLOBUS_SERVICE_USERNAMES:
+        
+        # Create and return the User object
+        return UserPydantic(
+            id=client_id,
+            name=name,
+            username=username,
+            user_group_uuids=client_groups,
+            idp_id=domain,
+            idp_name=iss,
+            auth_service=AuthService.GLOBUS.value,
+        )
+    
+    # Return nothing if this is not an authorized Globus client
+    else:
+        return None
+
 # Validate access token sent by user
 def validate_access_token(request):
     """This function returns an instance of the ATVResponse pydantic data structure."""
@@ -373,7 +406,7 @@ def validate_access_token(request):
     if len(error_message) > 0:
         return ATVResponse(
             is_valid=False,
-            error_message=f"Token introspection: {error_message}",
+            error_message=f"Error: Token introspection: {error_message}",
             error_code=401,
         )
 
@@ -383,20 +416,32 @@ def validate_access_token(request):
         return ATVResponse(
             is_valid=False, error_message="Error: Access token expired.", error_code=401
         )
+    
+    # Try to identify an authorized Globus service account client
+    try:
+        user = extract_service_account_client(introspection, user_groups)
+    except Exception as e:
+        log.warning(f"Globus introspection extract_service_account_client error: {e}")
+        user = None
 
-    # Make sure the authentication was made by an authorized identity provider
-    successful, user, error_message = check_session_info(introspection, user_groups)
-    if not successful:
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
+    # If the token is NOT from an authorized Globus client ...
+    if user is None:
 
-    # Make sure the authenticated user comes from an allowed domain
-    # Those must be a high-assurance policies
-    if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
-        successful, error_message = check_globus_policies(introspection)
+        # Make sure the authentication was made by an authorized identity provider
+        successful, user, error_message = check_session_info(introspection, user_groups)
         if not successful:
             return ATVResponse(
                 is_valid=False, error_message=error_message, error_code=403
             )
+
+        # Make sure the authenticated user comes from an allowed domain
+        # Those must be a high-assurance policies
+        if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
+            successful, error_message = check_globus_policies(introspection)
+            if not successful:
+                return ATVResponse(
+                    is_valid=False, error_message=error_message, error_code=403
+                )
 
     # Make sure the user is part of a per-IdP authorized group (if any)
     successful, error_message, idp_group_overlap_str = check_groups_per_idp(
@@ -418,7 +463,16 @@ def validate_access_token(request):
         return ATVResponse(
             is_valid=False,
             error_message="Error: Username could not be recovered.",
-            error_code=400,
+            error_code=403,
+        )
+    
+    # Make sure the user's identity is valid
+    # TODO: Add more checks here
+    if "<" in user.username or ">" in user.username:
+        return ATVResponse(
+            is_valid=False,
+            error_message=f"Error: Username {user.username} includes non-authorized characters.",
+            error_code=403,
         )
 
     # Return valid token response
