@@ -1,5 +1,6 @@
 # Use Python 3.12 as base image
 FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -15,21 +16,24 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file first for better layer caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --all-extras --dev --no-install-project
 
 # Copy project files
 COPY . .
+
+# Sync project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --all-extras --dev
 
 # Expose port
 EXPOSE 7000
 
 # Run the application with Uvicorn worker
-CMD ["gunicorn", \
+CMD ["uv", "run", "--", "gunicorn", \
      "inference_gateway.asgi:application", \
      "-k", "uvicorn.workers.UvicornWorker", \
      "-b", "0.0.0.0:7000", \

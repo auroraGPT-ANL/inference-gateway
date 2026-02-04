@@ -1,49 +1,117 @@
-[tool.poetry]
+[project]
 name = "inference-gateway-backend"
 version = "0.1.0"
 description = ""
-authors = ["Benoit Cote <bcote@anl.gov>"]
+authors = [{ name = "Benoit Cote", email = "bcote@anl.gov" }]
+requires-python = "==3.12.6"
 readme = "README.md"
-packages = [
-    { include = "resource_server" },
-    { include = "resource_server_async" },
-    { include = "dashboard_async" },
-    { include = "utils" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "annotated-types==0.7.0",
+    "asgiref==3.10.0",
+    "asyncache>=0.3.1,<0.4",
+    "attrs==25.4.0",
+    "babel==2.17.0",
+    "backrefs==6.0.1",
+    "cachetools>=5.5.2,<6",
+    "certifi==2025.10.5",
+    "cffi==2.0.0 ; platform_python_implementation != 'PyPy'",
+    "charset-normalizer==3.4.4",
+    "click==8.3.0",
+    "colorama==0.4.6",
+    "cryptography==46.0.3",
+    "csscompressor==0.9.5",
+    "dill==0.3.9",
+    "django-cors-headers>=4.9.0,<5",
+    "django-filter>=24.3,<25",
+    "django-ninja>=1.4.5,<2",
+    "django-redis>=6.0.0,<7",
+    "django>=5.2.9,<6",
+    "djangorestframework>=3.16.1,<4",
+    "drf-spectacular>=0.27.2,<0.28",
+    "exceptiongroup==1.3.0",
+    "ghp-import==2.1.0",
+    "globus-compute-common>=0.7.1,<0.8",
+    "globus-compute-sdk>=3.16.1,<4",
+    "globus-sdk>=3.65.0,<4",
+    "gunicorn>=23.0.0,<24",
+    "h11>=0.16.0,<0.17",
+    "hiredis>=3.3.0,<4",
+    "htmlmin2==0.1.13",
+    "httpx>=0.27.2,<0.28",
+    "idna==3.11",
+    "inflection==0.5.1",
+    "jinja2==3.1.6",
+    "jsmin==3.0.1",
+    "jsonschema-specifications==2025.9.1",
+    "jsonschema==4.25.1",
+    "markdown-it-py==4.0.0",
+    "markdown==3.10",
+    "markupsafe==3.0.3",
+    "mdurl==0.1.2",
+    "mergedeep==1.3.4",
+    "packaging==25.0",
+    "paginate==0.5.7",
+    "pathspec==0.12.1",
+    "pika==1.3.2",
+    "platformdirs==4.5.0",
+    "psutil==5.9.8",
+    "psycopg-pool>=3.2.7,<4",
+    "psycopg>=3.2.12,<4",
+    "pycparser==2.23 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'",
+    "pydantic-core==2.41.5",
+    "pydantic==2.12.4",
+    "pygments==2.19.2",
+    "pyjwt==2.10.1",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv>=1.2.1,<2",
+    "pyyaml-env-tag==1.1",
+    "pyyaml==6.0.3",
+    "redis>=6.4.0,<7",
+    "referencing==0.37.0",
+    "requests>=2.32.5,<3",
+    "rich==14.2.0",
+    "rpds-py==0.28.0",
+    "shellingham==1.5.4",
+    "six==1.17.0",
+    "sqlparse==0.5.3",
+    "tblib==1.7.0",
+    "texttable==1.7.0",
+    "typer>=0.12.5,<0.13",
+    "typing-extensions==4.15.0",
+    "typing-inspection==0.4.2",
+    "tzdata==2025.2 ; sys_platform == 'win32'",
+    "uritemplate==4.2.0",
+    "urllib3>=2.6.3,<3",
+    "uvicorn>=0.30.6,<0.31",
+    "watchdog==6.0.0",
+    "websockets>=13.1,<14",
+
+    # Documentation dependencies
+    "mkdocs-get-deps==0.2.0",
+    "mkdocs-material-extensions==1.3.1",
+    "mkdocs-material>=9.7.0,<10",
+    "mkdocs-minify-plugin>=0.8.0,<0.9",
+    "mkdocs>=1.5.0",
+    "pymdown-extensions>=10.0",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.12.6"
-django = "^5.2.9"
-globus-sdk = "^3.65.0"
-globus-compute-sdk = "^3.16.1"
-djangorestframework = "^3.16.1"
-django-cors-headers = "^4.9.0"
-python-dotenv = "^1.2.1"
-gunicorn = "^23.0.0"
-uvicorn = "^0.30.6"
-drf-spectacular = "^0.27.2"
-cachetools = "^5.5.2"
-typer = { extras = ["all"], version = "^0.12.5" }
-django-filter = "^24.3"
-psycopg = "^3.2.12"
-psycopg-pool = "^3.2.7"
-websockets = "^13.1"
-httpx = "^0.27.2"
-django-ninja = "^1.4.5"
-asyncache = "^0.3.1"
-globus-compute-common = "^0.7.1"
-h11 = "^0.16.0"
-urllib3 = "^2.6.3"
-requests = "^2.32.5"
-redis = "^6.4.0"
-django-redis = "^6.0.0"
-hiredis = "^3.3.0"
-mkdocs-material = "^9.7.0"
-mkdocs-minify-plugin = "^0.8.0"
+[tool.uv.build-backend]
+module-name = [
+    "resource_server",
+    "resource_server_async",
+    "dashboard_async",
+    "utils",
+]
+module-root = ""
+namespace = true
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 88

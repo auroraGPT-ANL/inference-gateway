@@ -8,7 +8,7 @@ This guide covers installing the FIRST Inference Gateway directly on your server
 - Python 3.12 or later
 - PostgreSQL 13 or later
 - Redis 6 or later
-- Poetry (Python dependency manager)
+- uv (Python dependency manager)
 - Sudo access for system packages
 - At least 4GB RAM
 
@@ -31,16 +31,13 @@ sudo dnf install -y python3.12 python3.12-devel \
     gcc gcc-c++ make libpq-devel git
 ```
 
-## Step 2: Install Poetry
+## Step 2: Install uv
 
 ```bash
-curl -sSL https://install.python-poetry.org | python3 -
-
-# Add to PATH
-export PATH="$HOME/.local/bin:$PATH"
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Verify installation
-poetry --version
+uv --version
 ```
 
 ## Step 3: Clone and Setup Project
@@ -49,17 +46,8 @@ poetry --version
 git clone https://github.com/auroraGPT-ANL/inference-gateway.git
 cd inference-gateway
 
-# Configure Poetry to create venv in project
-poetry config virtualenvs.in-project true
-
-# Set Python version
-poetry env use python3.12
-
 # Install dependencies
-poetry install
-
-# Activate environment
-poetry shell
+uv sync
 ```
 
 ## Step 4: Configure PostgreSQL
@@ -141,7 +129,7 @@ cp env.example .env
 
 Make sure you include all of the Globus UUIDs and secrets generated during the [Globus setup](globus-setup.md) stage. You can generate the `SECRET_KEY` variable with the following Django command (if installed):
 ```bash
-python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+uv run -- python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
 !!! warning "Production Security"
@@ -156,15 +144,10 @@ python -c 'from django.core.management.utils import get_random_secret_key; print
 
 ## Step 7: Initialize Database
 
-Make sure you activate your python environment:
-```bash
-poetry shell
-```
-
 Apply Django models to the database
 ```bash
-python manage.py makemigrations
-python manage.py migrate
+uv run -- ./manage.py makemigrations
+uv run -- ./manage.py migrate
 ```
 
 ## Step 8: Test the Gateway
@@ -172,7 +155,7 @@ python manage.py migrate
 Run development server:
 
 ```bash
-python manage.py runserver
+uv run -- ./manage.py runserver
 ```
 
 In another terminal, execute the following command:
@@ -187,7 +170,7 @@ Missing ('Authorization': 'Bearer <your-access-token>') in request headers.
 
 ## Step 9: Setup Production Server (Gunicorn)
 
-### Install Gunicorn (already included in poetry dependencies)
+### Install Gunicorn (already included in pyproject dependencies)
 
 Create a systemd service file:
 
@@ -348,8 +331,8 @@ sudo systemctl restart inference-gateway
 ```bash
 cd /path/to/inference-gateway
 git pull origin main
-poetry install
-python manage.py migrate
+uv sync
+uv run -- ./manage.py migrate
 sudo systemctl restart inference-gateway
 ```
 
@@ -366,8 +349,7 @@ sudo journalctl -u inference-gateway -n 50
 Check configuration:
 
 ```bash
-poetry shell
-python manage.py check
+uv run -- ./manage.py check
 ```
 
 ### Database connection errors
