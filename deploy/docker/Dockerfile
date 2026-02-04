@@ -16,10 +16,11 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Copy dependency file to avoid "Permission denied" issues
+COPY pyproject.toml uv.lock ./
+
+# Install Python dependencies (without installing the project yet)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --all-extras --dev --no-install-project
 
 # Copy project files
@@ -36,5 +37,5 @@ RUN mkdir /var/log/inference-service/
 EXPOSE 7000
 
 # Setup and start the application
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+RUN chmod +x /app/deploy/docker/entrypoint.sh
+ENTRYPOINT ["/app/deploy/docker/entrypoint.sh"]
