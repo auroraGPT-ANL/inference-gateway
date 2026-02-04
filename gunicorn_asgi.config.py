@@ -1,5 +1,7 @@
 import os
 import multiprocessing
+from dotenv import load_dotenv
+load_dotenv()
 
 """gunicorn ASGI server configuration."""
 
@@ -31,7 +33,7 @@ backlog = 2048
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
-workers = 5  # Reduced to 5 for our VM
+workers = int(os.getenv("GUNICORN_WORKERS", 5))
 threads = 4  # Increase threads per worker for better concurrency
 worker_connections = 1000  # Maximum number of simultaneous clients per worker
 
