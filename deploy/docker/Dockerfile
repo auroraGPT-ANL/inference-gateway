@@ -29,18 +29,12 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --all-extras --dev
 
+# Create the log directory
+RUN mkdir /var/log/inference-service/
+
 # Expose port
 EXPOSE 7000
 
-# Run the application with Uvicorn worker
-CMD ["uv", "run", "--", "gunicorn", \
-     "inference_gateway.asgi:application", \
-     "-k", "uvicorn.workers.UvicornWorker", \
-     "-b", "0.0.0.0:7000", \
-     "--workers", "5", \
-     "--threads", "4", \
-     "--timeout", "1800", \
-     "--log-level", "debug", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-", \
-     "--capture-output"] 
+# Setup and start the application
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
