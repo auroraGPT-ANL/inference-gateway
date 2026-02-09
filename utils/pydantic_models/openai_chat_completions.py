@@ -514,6 +514,8 @@ class AssistantMessage(BaseModelExtraForbid):
     name: Optional[str] = Field(default=None)
     refusal: Optional[str] = Field(default=None)
     tool_calls: Optional[List[AssistantMessageToolCalls]] = Field(default=None)
+    reasoning: Optional[str] = Field(default=None)
+    reasoning_content: Optional[str] = Field(default=None)
 
 
 # Tool message
@@ -532,6 +534,8 @@ class Message(BaseModelExtraForbid):
     refusal: Optional[Any] = Field(default=None)
     tool_calls: Optional[Any] = Field(default=None)
     tool_call_id: Optional[Any] = Field(default=None)
+    reasoning: Optional[str] = Field(default=None)
+    reasoning_content: Optional[str] = Field(default=None)
 
     # Providing more human-readable (simpler) error messages
     @model_validator(mode="before")
