@@ -3,7 +3,6 @@ import re
 from typing import override
 from django.conf import settings
 from django.core.management import call_command
-from resource_server_async.models import Cluster, Endpoint
 import asyncio
 import utils.auth_utils as auth_utils
 import utils.globus_utils as globus_utils
@@ -117,33 +116,35 @@ with open(f"{base_path}/invalid_batch.json") as json_file:
 INVALID_PARAMS["health"] = {}
 INVALID_PARAMS["metrics"] = {}
 
-# Collect available clusters from database
-db_clusters = Cluster.objects.all()
-ALLOWED_CLUSTERS = [c.cluster_name for c in db_clusters]
+# Collect available clusters and endpoints from database
+with open("fixtures/new_endpoints.json") as json_file:
+    DB_ENDPOINTS = [e["fields"] for e in json.load(json_file)]
+with open("fixtures/clusters.json") as json_file:
+    DB_CLUSTERS = [c["fields"] for c in json.load(json_file)]
 
-# Collect available frameworks for each cluster
+# Collect available information for each cluster
+ALLOWED_CLUSTERS = []
 ALLOWED_FRAMEWORKS = {}
-for cluster in db_clusters:
-    ALLOWED_FRAMEWORKS[cluster.cluster_name] = cluster.frameworks
-
-# Collect available openAI endpoint for each cluster
 ALLOWED_OPENAI_ENDPOINTS = {}
-for cluster in db_clusters:
-    ALLOWED_OPENAI_ENDPOINTS[cluster.cluster_name] = [
-        e for e in cluster.openai_endpoints if e not in ["health", "metrics"]
+for cluster in DB_CLUSTERS:
+    cluster_name = cluster["cluster_name"]
+
+    ALLOWED_CLUSTERS.append(cluster_name)
+    ALLOWED_FRAMEWORKS[cluster_name] = cluster["frameworks"]
+    ALLOWED_OPENAI_ENDPOINTS[cluster_name] = [
+        e for e in cluster["openai_endpoints"] if e not in ["health", "metrics"]
     ]
 
-del db_clusters
 del base_path
 
 
-def get_endpoint_urls(endpoint: Endpoint) -> dict[str, str]:
+def get_endpoint_urls(endpoint):
     """
     Get endpoint URLs from `ALLOWED_OPENAI_ENDPOINTS`.
     """
     return {
-        openai_endpoint: f"/{endpoint.cluster}/{endpoint.framework}/v1/{openai_endpoint}/"
-        for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint.cluster]
+        openai_endpoint: f"/{endpoint['cluster']}/{endpoint['framework']}/v1/{openai_endpoint}/"
+        for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint["cluster"]]
     }
 
 
