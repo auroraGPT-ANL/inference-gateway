@@ -1,6 +1,6 @@
 import json
-from resource_server_async.models import Endpoint
 from resource_server_async.tests import (
+    DB_ENDPOINTS,
     HEADERS,
     INVALID_PARAMS,
     KWARGS,
@@ -81,8 +81,8 @@ class InferenceViewTestCase(ResourceServerTestCase):
 for endpoint in get_wrong_endpoint_urls():
     InferenceViewTestCase.template_test("unsupported_post_request", endpoint)
 
-for endpoint in Endpoint.objects.all():
-    if "model-removed" in endpoint.endpoint_slug:
+for endpoint in DB_ENDPOINTS:
+    if "model-removed" in endpoint["endpoint_slug"]:
         continue
 
     # Build the targeted Django URLs
@@ -98,7 +98,9 @@ for endpoint in Endpoint.objects.all():
             url,
         )
 
-        if endpoint.allowed_globus_groups not in [
+        if "allowed_globus_groups" not in endpoint or endpoint[
+            "allowed_globus_groups"
+        ] not in [
             [],
             [mock_utils.MOCK_GROUP_UUID],
         ]:
@@ -110,7 +112,7 @@ for endpoint in Endpoint.objects.all():
         # For each valid set of input parameters ...
         for valid_params in VALID_PARAMS[openai_endpoint]:
             # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
-            valid_params["model"] = endpoint.model
+            valid_params["model"] = endpoint["model"]
 
             # Make sure the request is not streaming (this is tested in another function)
             # "if" statement needed since not all openai endpoints support streaming
@@ -121,7 +123,7 @@ for endpoint in Endpoint.objects.all():
                 "good_post_request", url, valid_params, headers
             )
 
-            if endpoint.allowed_globus_groups == [mock_utils.MOCK_GROUP_UUID]:
+            if endpoint["allowed_globus_groups"] == [mock_utils.MOCK_GROUP_UUID]:
                 InferenceViewTestCase.template_test(
                     "inaccessible_post_request",
                     url,
