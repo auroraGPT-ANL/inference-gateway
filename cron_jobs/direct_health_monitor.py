@@ -62,6 +62,7 @@ django.setup()
 from django.conf import settings  # noqa: E402
 
 from resource_server_async.models import Endpoint  # noqa: E402
+from resource_server_async.models import User
 from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse  # noqa: E402
 from resource_server_async.clusters.cluster import GetJobsResponse, Jobs  # noqa: E402
 from utils import globus_utils, metis_utils  # noqa: E402
@@ -204,13 +205,21 @@ async def gather_endpoints() -> Dict[str, EndpointInfo]:
 async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optional[str]]:
     """Return mapping of running model name -> qstat entry."""
 
-    #    raw_result, task_uuid, error_message, error_code = await get_qstat_details(
-    #        "sophia", gcc=gcc, gce=gce, timeout=QSTAT_TIMEOUT_SECONDS
-    #    )
+    # Create mock User object to run get_jobs()
+    mock_auth_data = {
+        "id": "ALCF-monitor-tool-id",
+        "name": "ALCF-monitor-tool-name",
+        "username": "ALCF-monitor-tool-username",
+        "idp_id": "ALCF-monitor-tool-idp-id",
+        "idp_name": "ALCF-monitor-tool-idp-name",
+    }
+    mock_auth = User(**mock_auth_data)
+
     # Get the jobs response from the cluster wrapper
     wrapper_response: ClusterWrapperResponse = await get_cluster_wrapper("sophia")
     if wrapper_response.cluster:
-        jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs()
+        jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs(mock_auth)
+        del mock_auth
         error_message = jobs_response.error_message
         error_code = jobs_response.error_code
     else:
