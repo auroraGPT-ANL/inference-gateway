@@ -170,7 +170,7 @@ async def get_jobs(request, cluster: str):
     # If the cluster is operational and not under maintenance ...
     else:
         # Get jobs from the targetted cluster
-        response = await cluster.get_jobs()
+        response = await cluster.get_jobs(request.auth)
         if response.error_message:
             return await get_response(
                 response.error_message, response.error_code, request
