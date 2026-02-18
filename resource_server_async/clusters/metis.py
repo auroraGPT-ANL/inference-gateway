@@ -4,6 +4,7 @@ from resource_server_async.clusters.cluster import (
     Jobs,
     JobInfo,
 )
+from resource_server_async.models import User
 from utils import metis_utils
 from typing import Dict, List
 from django.core.cache import cache
@@ -42,11 +43,11 @@ class MetisCluster(BaseCluster):
         )
 
     # Get jobs
-    async def get_jobs(self) -> GetJobsResponse:
+    async def get_jobs(self, auth: User) -> GetJobsResponse:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key
-        cache_key = f"qstat_details:{self.cluster_name}"
+        cache_key = f"qstat_details:{auth.username}:{auth.id}:{self.cluster_name}"
 
         # Try to get qstat details from Redis
         try:
