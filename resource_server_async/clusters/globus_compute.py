@@ -1,5 +1,5 @@
 from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse, Jobs
-from resource_server_async.models import Endpoint
+from resource_server_async.models import Endpoint, User
 from utils import globus_utils
 from pydantic import BaseModel
 from django.core.cache import cache
@@ -51,11 +51,11 @@ class GlobusComputeCluster(BaseCluster):
         )
 
     # Get jobs
-    async def get_jobs(self) -> GetJobsResponse:
+    async def get_jobs(self, auth: User) -> GetJobsResponse:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key
-        cache_key = f"qstat_details:{self.cluster_name}"
+        cache_key = f"qstat_details:{auth.username}:{auth.id}:{self.cluster_name}"
 
         # Try to get qstat details from Redis
         try:

@@ -147,7 +147,7 @@ class BaseCluster(ABC):
     # ---------------------
 
     @abstractmethod
-    async def get_jobs(self) -> GetJobsResponse:
+    async def get_jobs(self, auth: User) -> GetJobsResponse:
         """Provides a status of the cluster as a whole, including which models are running."""
         pass
 
