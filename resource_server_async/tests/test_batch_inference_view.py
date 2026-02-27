@@ -1,97 +1,98 @@
-from resource_server_async.tests import ResourceServerTestCase
-
-from resource_server_async.models import Endpoint
-import resource_server_async.tests.mock_utils as mock_utils
-import ast
 import json
 import uuid
-import logging
 
-log = logging.getLogger(__name__)
+from resource_server_async.tests import (
+    CLIENT,
+    DB_ENDPOINTS,
+    INVALID_PARAMS,
+    KWARGS,
+    PREMIUM_HEADERS,
+    VALID_PARAMS,
+    ResourceServerTestCase,
+    get_response_json,
+    get_wrong_batch_urls,
+)
+from resource_server_async.tests.mixins import (
+    EndpointPostTestsMixin,
+    HeaderFailuresTestMixin,
+)
+import resource_server_async.tests.mock_utils as mock_utils
 
 
-class BatchInferenceViewTestCase(ResourceServerTestCase):
-    async def test_post_batch_inference_view(self):
+class BatchInferenceViewTestCase(
+    EndpointPostTestsMixin, HeaderFailuresTestMixin, ResourceServerTestCase
+):
+    async def good_batch_post_request(self, endpoint, valid_params, headers):
         """
-        Test post_batch_inference view (POST)
+        Make sure valid batch POST requests succeed.
         """
-        # Make sure POST requests fail when targetting an unsupported cluster or framework
-        for wrong_url in self._get_wrong_batch_urls():
-            response = await self.client.post(wrong_url, headers=self.headers)
-            self.assertEqual(response.status_code, 400)
+        response = await CLIENT.post(
+            endpoint,
+            data=json.dumps(valid_params).encode("utf-8"),
+            headers=headers,
+            **KWARGS,
+        )
+        self.assertEqual(response.status_code, 200)
 
-        # For each endpoint that support batch in the database ...
-        async for endpoint in Endpoint.objects.all():
-            if "model-removed" not in endpoint.endpoint_slug:
-                if (
-                    len(
-                        ast.literal_eval(endpoint.config).get("batch_endpoint_uuid", "")
-                    )
-                    > 0
-                ):
-                    # Build the targeted Django URL
-                    url = f"/{endpoint.cluster}/{endpoint.framework}/v1/batches"
+        # Check whether the response makes sense (do not check batch_id, it's randomly generated in the view)
+        response_json = get_response_json(response)
+        self.assertEqual(response_json["input_file"], valid_params["input_file"])
 
-                    # Make sure POST requests fail if something is wrong with the authentication
-                    await self._verify_headers_failures(
-                        url=url, method=self.client.post
-                    )
 
-                    # Make sure non-POST requests are not allowed
-                    for method in [
-                        self.client.get,
-                        self.client.put,
-                        self.client.delete,
-                    ]:
-                        response = await method(url)
-                        self.assertEqual(response.status_code, 405)
+# Template tests
+# Make sure POST requests fail when targetting an unsupported cluster or framework
+for wrong_url in get_wrong_batch_urls():
+    BatchInferenceViewTestCase.template_test("unsupported_post_request", wrong_url)
 
-                    # If the endpoint can be accessed by the mock access token ...
-                    if endpoint.allowed_globus_groups in [
-                        [],
-                        [mock_utils.MOCK_GROUP_UUID],
-                    ]:
-                        headers = self.premium_headers
+# For each endpoint that supports batch in the database ...
+for endpoint in DB_ENDPOINTS:
+    if "model-removed" in endpoint["endpoint_slug"]:
+        continue
 
-                        # For each valid set of input parameters ...
-                        for valid_params in self.valid_params["batch"]:
-                            # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
-                            valid_params["model"] = endpoint.model
+    if "batch_endpoint_uuid" in endpoint["config"]:
+        # Build the targeted Django URL
+        url = f"/{endpoint['cluster']}/{endpoint['framework']}/v1/batches"
 
-                            # Overwrite the input file to make it unique (otherwise will encounter "already used" error)
-                            valid_params["input_file"] = f"/path/{str(uuid.uuid4())}"
+        # Make sure POST requests fail if something is wrong with the authentication
+        BatchInferenceViewTestCase.template_test(
+            "verify_headers_failures", url, CLIENT.post
+        )
 
-                            # Make sure POST requests succeed
-                            response = await self.client.post(
-                                url,
-                                data=json.dumps(valid_params).encode("utf-8"),
-                                headers=headers,
-                                **self.kwargs,
-                            )
-                            self.assertEqual(response.status_code, 200)
+        # Make sure non-POST requests are not allowed
+        BatchInferenceViewTestCase.template_test("non_post_request", url)
 
-                            # Check whether the response makes sense (do not check batch_id, it's randomly generated in the view)
-                            response_json = self._get_response_json(response)
-                            self.assertEqual(
-                                response_json["input_file"], valid_params["input_file"]
-                            )
+        if "allowed_globus_groups" not in endpoint or endpoint[
+            "allowed_globus_groups"
+        ] not in [
+            [],
+            [mock_utils.MOCK_GROUP_UUID],
+        ]:
+            continue
 
-                        # Make sure POST requests fail when providing invalid inputs
-                        for invalid_params in self.invalid_params["batch"]:
-                            response = await self.client.post(
-                                url,
-                                data=json.dumps(invalid_params).encode("utf-8"),
-                                headers=headers,
-                                **self.kwargs,
-                            )
-                            self.assertEqual(response.status_code, 400)
+        # If the endpoint can be accessed by the mock access token ...
+        headers = PREMIUM_HEADERS
 
-                    # Make sure users can't access private endpoint if not in allowed groups
-                    if endpoint.allowed_globus_groups == [mock_utils.MOCK_GROUP_UUID]:
-                        response = await self.client.post(
-                            url,
-                            data=json.dumps(valid_params).encode("utf-8"),
-                            headers=self.headers,
-                            **self.kwargs,
-                        )
-                        self.assertEqual(response.status_code, 401)
+        # For each valid set of input parameters ...
+        for valid_params in VALID_PARAMS["batch"]:
+            # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
+            valid_params["model"] = endpoint["model"]
+
+            # Overwrite the input file to make it unique (otherwise will encounter "already used" error)
+            valid_params["input_file"] = f"/path/{str(uuid.uuid4())}"
+
+            # Make sure POST requests succeed
+            BatchInferenceViewTestCase.template_test(
+                "good_batch_post_request", url, valid_params, headers
+            )
+
+            # Make sure users can't access private endpoint if not in allowed groups
+            if endpoint["allowed_globus_groups"] == [mock_utils.MOCK_GROUP_UUID]:
+                BatchInferenceViewTestCase.template_test(
+                    "inaccessible_post_request", url, valid_params
+                )
+
+        # Make sure POST requests fail when providing invalid inputs
+        for invalid_params in INVALID_PARAMS["batch"]:
+            BatchInferenceViewTestCase.template_test(
+                "invalid_post_request", url, invalid_params, headers
+            )

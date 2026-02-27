@@ -1,7 +1,7 @@
 import json
+
 from resource_server_async.tests import (
     DB_ENDPOINTS,
-    HEADERS,
     INVALID_PARAMS,
     KWARGS,
     PREMIUM_HEADERS,
@@ -13,16 +13,15 @@ from resource_server_async.tests import (
     get_wrong_endpoint_urls,
     mock_utils,
 )
+from resource_server_async.tests.mixins import (
+    EndpointPostTestsMixin,
+    HeaderFailuresTestMixin,
+)
 
 
-class InferenceViewTestCase(ResourceServerTestCase):
-    async def unsupported_post_request(self, endpoint):
-        """
-        Make sure POST requests fail when targetting an unsupported cluster, framework, or openai endpoint.
-        """
-        response = await CLIENT.post(endpoint, headers=HEADERS)
-        self.assertEqual(response.status_code, 400)
-
+class InferenceViewTestCase(
+    EndpointPostTestsMixin, HeaderFailuresTestMixin, ResourceServerTestCase
+):
     async def good_post_request(self, endpoint, valid_params, headers):
         """
         Make sure valid POST requests succeed.
@@ -39,43 +38,6 @@ class InferenceViewTestCase(ResourceServerTestCase):
         response_data = get_response_json(response)
         self.assertEqual(response_data, mock_utils.MOCK_RESPONSE)
 
-    async def invalid_post_request(self, endpoint, invalid_params, headers):
-        """
-        Make sure POST requests fail when providing invalid inputs.
-        """
-        response = await CLIENT.post(
-            endpoint,
-            data=json.dumps(invalid_params).encode("utf-8"),
-            headers=headers,
-            **KWARGS,
-        )
-        self.assertEqual(response.status_code, 400)
-
-    async def inaccessible_post_request(self, endpoint, valid_params):
-        """
-        Make sure users can't access private endpoint if not in allowed groups.
-        """
-        response = await CLIENT.post(
-            endpoint,
-            data=json.dumps(valid_params).encode("utf-8"),
-            headers=HEADERS,
-            **KWARGS,
-        )
-        self.assertEqual(response.status_code, 401)
-
-    async def non_post_request(self, endpoint):
-        """
-        Make sure non-POST requests are not allowed.
-        """
-        for method in [
-            CLIENT.get,
-            CLIENT.put,
-            CLIENT.delete,
-        ]:
-            with self.subTest(method=method):
-                response = await method(endpoint)
-                self.assertEqual(response.status_code, 405)
-
 
 # Template tests
 for endpoint in get_wrong_endpoint_urls():
@@ -90,9 +52,7 @@ for endpoint in DB_ENDPOINTS:
 
     # For each URL (openai endpoint) ...
     for openai_endpoint, url in url_dict.items():
-        InferenceViewTestCase.template_test(
-            "verify_headers_failures", url=url, method=CLIENT.post
-        )
+        InferenceViewTestCase.template_test("verify_headers_failures", url, CLIENT.post)
         InferenceViewTestCase.template_test(
             "non_post_request",
             url,

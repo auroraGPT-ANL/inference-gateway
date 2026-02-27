@@ -11,15 +11,12 @@ import httpx
 from resource_server_async import api
 from resource_server_async.endpoints import globus_compute, direct_api, metis
 import json
-import logging
 import copy
 
 # Tools to test with Django Ninja
 from django.test import TestCase
 from ninja.testing import TestAsyncClient
 from resource_server_async.api import router
-
-log = logging.getLogger(__name__)
 
 # Overwrite log data initialization
 api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
@@ -269,32 +266,6 @@ class ResourceServerTestCase(TestCase):
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()
-
-    # Verify headers failures
-    async def verify_headers_failures(self, url=None, method=None):
-        """
-        Make sure POST requests fail if something is wrong with the authentication.
-        """
-
-        # Should fail (not authenticated, missing token)
-        headers = mock_utils.get_mock_headers(access_token="")
-        response = await method(url, headers=headers)
-        self.assertEqual(response.status_code, 400)
-
-        # Should fail (not a bearer token)
-        headers = mock_utils.get_mock_headers(access_token=ACTIVE_TOKEN, bearer=False)
-        response = await method(url, headers=headers)
-        self.assertEqual(response.status_code, 400)
-
-        # Should fail (not a valid token)
-        headers = mock_utils.get_mock_headers(access_token=INVALID_TOKEN, bearer=True)
-        response = await method(url, headers=headers)
-        self.assertEqual(response.status_code, 401)
-
-        # Should fail (expired token)
-        headers = mock_utils.get_mock_headers(access_token=EXPIRED_TOKEN, bearer=True)
-        response = await method(url, headers=headers)
-        self.assertEqual(response.status_code, 401)
 
     @classmethod
     def template_test(cls, test_name, *args, **kwargs):

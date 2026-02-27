@@ -6,11 +6,11 @@ from resource_server_async.tests import (
     ResourceServerTestCase,
     get_response_json,
 )
-
+from resource_server_async.tests.mixins import HeaderFailuresTestMixin
 import resource_server_async.tests.mock_utils as mock_utils
 
 
-class EndpointsViewTestCase(ResourceServerTestCase):
+class EndpointsViewTestCase(HeaderFailuresTestMixin, ResourceServerTestCase):
     # Define the targeted Django URL
     url = "/list-endpoints"
 
@@ -73,7 +73,7 @@ class EndpointsViewTestCase(ResourceServerTestCase):
 # Template tests
 # Make sure GET requests fail if something is wrong with the authentication
 EndpointsViewTestCase.template_test(
-    "verify_headers_failures", url=EndpointsViewTestCase.url, method=CLIENT.get
+    "verify_headers_failures", EndpointsViewTestCase.url, CLIENT.get
 )
 
 # For valid tokens with and without premium access ...
