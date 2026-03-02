@@ -1024,6 +1024,17 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             if cached_payload:
                 return JsonResponse(cached_payload)
 
+        # Create mock auth object to pass to get_jobs
+        from resource_server_async.models import User
+        mock_auth_data = {
+            "id": "ALCF-dashboard-id",
+            "name": "ALCF-dashboard-name",
+            "username": "ALCF-dashboard-username",
+            "idp_id": "ALCF-dashboard-idp-id",
+            "idp_name": "ALCF-dashboard-idp-name",
+        }
+        mock_auth = User(**mock_auth_data)
+
         # Get the jobs response from the cluster wrapper
         wrapper_response: ClusterWrapperResponse = async_to_sync(get_cluster_wrapper)(
             cluster
@@ -1031,7 +1042,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         if wrapper_response.cluster:
             jobs_response: GetJobsResponse = async_to_sync(
                 wrapper_response.cluster.get_jobs
-            )()
+            )(mock_auth)
             err: str = jobs_response.error_message
             cluster_status: Jobs = jobs_response.jobs
         else:
