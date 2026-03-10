@@ -37,6 +37,7 @@ All configuration is done through environment variables, typically stored in a `
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
+| `USE_SQLITE` | No | `False` | Quick toggle to use SQLite as the database backend (development only) |
 | `POSTGRES_DB` | Yes | - | Database name |
 | `POSTGRES_USER` | Yes | - | Database user |
 | `POSTGRES_PASSWORD` | Yes | - | Database password |
