@@ -2,6 +2,7 @@ import asyncio
 import time
 from django.conf import settings
 import globus_sdk
+from globus_sdk import TransferClient
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
@@ -24,7 +25,7 @@ executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 # Get authenticated Compute Client using secret
 # NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
 @cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
-def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
+def get_compute_client_from_globus_app() -> Client:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
 
@@ -46,6 +47,19 @@ def get_compute_client_from_globus_app() -> globus_sdk.GlobusHTTPResponse:
         )
     except Exception as e:
         raise ResourceServerError("Exception in creating client. Error", e)
+
+
+@cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
+def get_transfer_client() -> TransferClient:
+    confidential_client = globus_sdk.ConfidentialAppAuthClient(
+        client_id=settings.SERVICE_ACCOUNT_ID,
+        client_secret=settings.SERVICE_ACCOUNT_SECRET,
+    )
+    cc_authorizer = globus_sdk.ClientCredentialsAuthorizer(
+        confidential_client, globus_sdk.TransferClient.scopes.all
+    )
+    # create a new client
+    return TransferClient(authorizer=cc_authorizer)
 
 
 # Get authenticated Compute Executor using existing client

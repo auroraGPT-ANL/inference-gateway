@@ -6,7 +6,7 @@
             "cluster_name": "sophia",
             "cluster_adapter": "resource_server_async.clusters.globus_compute.GlobusComputeCluster",
             "frameworks": [
-                "vllm"
+                "vllm", "sam3service"
             ],
             "openai_endpoints": [
                 "chat/completions",

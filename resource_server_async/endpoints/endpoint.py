@@ -14,8 +14,12 @@ class BaseModelWithError(BaseModel):
     error_code: Optional[int] = Field(default=None)
 
 
+class SubmitTaskAsyncResponse(BaseModelWithError):
+    task_id: Optional[str] = Field(default=None)
+
+
 class SubmitTaskResponse(BaseModelWithError):
-    result: Optional[str] = Field(default=None)
+    result: Any = Field(default=None)
     task_id: Optional[str] = Field(default=None)
 
 

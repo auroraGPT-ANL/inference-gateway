@@ -838,5 +838,21 @@
            "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
        }
      }
-   }
+   },
+   {
+        "model": "resource_server_async.endpoint",
+        "pk": 53,
+        "fields": {
+            "endpoint_slug": "sophia-sam3service-sam3",
+            "cluster": "sophia",
+            "framework": "sam3service",
+            "model": "sam3",
+            "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
+            "config": {
+                "api_port": 8000,
+                "endpoint_uuid": "6699c6a0-2ce3-4798-b85c-3e65d93b68dd",
+                "function_uuid": "c5653f2c-98c8-4dd3-800d-ef7439c7e140"
+            }
+        }
+    }
 ]

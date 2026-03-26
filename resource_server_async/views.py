@@ -25,7 +25,9 @@ from utils.pydantic_models.db_models import (
     UserPydantic,
 )
 from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
+from utils.globus_utils import get_transfer_client
 from resource_server_async.clusters.cluster import Jobs, JobInfo, BaseCluster
+from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
 from resource_server_async.utils import (
     extract_prompt,
     validate_request_body,
@@ -54,6 +56,7 @@ log.info("Utils functions loaded.")
 # Django database
 # from resource_server.models import FederatedEndpoint
 from resource_server_async.models import BatchLog, Cluster, Endpoint
+from resource_server_async.schemas.sam3 import Sam3Request
 
 # Django Ninja API
 from resource_server_async.api import api, router
@@ -111,6 +114,64 @@ async def get_list_endpoints(request):
 
     # Return list of frameworks and models
     return await get_response(json.dumps(all_endpoints), 200, request)
+
+
+@router.put("/data/staging")
+def ensure_staging_area(request):
+    """
+    Idempotent user request to create a staging area for the inference service.
+
+    A temporary directory named with the user's principal ID is created and
+    read/write ACLs are granted to the user to initiate data transfers.
+    """
+    principal_id = request.user.id
+    collection_id = settings.DATA_STAGING_GLOBUS_COLLECTION_ID
+    staging_path = f"/user-staging/{principal_id}/"
+
+    log.info(f"User {principal_id=} requesting staging area in {collection_id=}")
+
+    tc = get_transfer_client()
+
+    try:
+        tc.operation_mkdir(collection_id, staging_path)
+        log.info(f"staging directory {staging_path=} created")
+    except tc.error_class as e:
+        if "exists" not in str(e).lower():
+            raise
+        log.info(f"staging directory {staging_path=} already exists")
+
+    existing_rules = tc.endpoint_acl_list(collection_id)
+    acl_rule_id = next(
+        (
+            r
+            for r in existing_rules
+            if r["principal"] == principal_id and r["path"] == staging_path
+        ),
+        None,
+    )
+
+    if acl_rule_id is None:
+        acl_result = tc.add_endpoint_acl_rule(
+            collection_id,
+            dict(
+                DATA_TYPE="access",
+                principal_type="identity",
+                principal=principal_id,
+                path=staging_path,
+                permissions="rw",
+            ),
+        )
+        acl_rule_id = acl_result["access_id"]
+        log.info(f"Granted rw access via {acl_rule_id=}")
+    else:
+        log.info(f"Staging area {acl_rule_id=} already exists for {principal_id=}")
+
+    return {
+        "collection_id": collection_id,
+        "path": staging_path,
+        "acl_rule_id": acl_rule_id,
+        "principal": principal_id,
+    }
 
 
 # List running and queue models (GET)
@@ -642,6 +703,99 @@ async def post_inference(
     # If not streaming, return the complete response and automate database operations
     else:
         return await get_response(task_response.result, 200, request)
+
+
+# Inference (POST)
+@router.post("/sophia/sam3service/process")
+async def sam3_infer(request, payload: Sam3Request):
+    """
+    Submit single-image inference request to SAM3 Globus Compute endpoint.
+    """
+    # Get cluster wrapper from database
+    response = await get_cluster_wrapper("sophia")
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    cluster: BaseCluster = response.cluster
+
+    # Error if the cluster is under maintenance
+    response = cluster.check_maintenance()
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
+    framework = "sam3service"
+    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
+    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
+
+    # Get endpoint wrapper from database
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    endpoint: GlobusComputeEndpoint = response.endpoint
+
+    # Block access if the user is not allowed to use the endpoint
+    response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if (response.is_authorized == False) or response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    # Submit task
+    data = payload.model_dump(exclude={"weights_dir_override"})
+    config = (
+        {"sam3_weights_dir": str(payload.weights_dir_override)}
+        if payload.weights_dir_override
+        else None
+    )
+
+    task_response = await endpoint.submit_task_async(data, endpoint_config=config)
+
+    # Display error message if any
+    if task_response.error_message:
+        return await get_response(
+            task_response.error_message, task_response.error_code, request
+        )
+
+    return await get_response(task_response.model_dump(), 200, request)
+
+
+@router.get("/sophia/sam3service/tasks/{task_id}")
+async def sam3_get_task_result(request, task_id: str):
+    # Get cluster wrapper from database
+    response = await get_cluster_wrapper("sophia")
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+    cluster: BaseCluster = response.cluster
+
+    # Error if the cluster is under maintenance
+    response = cluster.check_maintenance()
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
+    framework = "sam3service"
+    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
+    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
+
+    # Get endpoint wrapper from database
+    response = await get_endpoint_wrapper(endpoint_slug)
+    if response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    endpoint: GlobusComputeEndpoint = response.endpoint
+
+    # Block access if the user is not allowed to use the endpoint
+    response = endpoint.check_permission(request.auth, request.user_group_uuids)
+    if (response.is_authorized == False) or response.error_message:
+        return await get_response(response.error_message, response.error_code, request)
+
+    task_response = await endpoint.get_task_result(task_id)
+    # Display error message if any
+    if task_response.error_message:
+        return await get_response(
+            task_response.model_dump_json(), task_response.error_code, request
+        )
+
+    return await get_response(task_response.model_dump_json(), 200, request)
 
 
 # Streaming server endpoints (integrated into Django)
