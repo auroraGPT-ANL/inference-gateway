@@ -381,7 +381,7 @@ def validate_access_token(request):
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         error_message = "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers."
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
 
     # Make sure the bearer flag is mentioned
     try:
@@ -390,16 +390,16 @@ def validate_access_token(request):
             return ATVResponse(
                 is_valid=False,
                 error_message="Error: Authorization type should be Bearer.",
-                error_code=400,
+                error_code=401,
             )
     except (AttributeError, ValueError):
         error_message = (
             "Error: Auth only allows header type Authorization: Bearer <token>."
         )
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
     except Exception as e:
         error_message = f"Error: Something went wrong while reading headers. {e}"
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=400)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
 
     # Introspect the access token
     introspection, user_groups, error_message = introspect_token(bearer_token)
@@ -431,7 +431,7 @@ def validate_access_token(request):
         successful, user, error_message = check_session_info(introspection, user_groups)
         if not successful:
             return ATVResponse(
-                is_valid=False, error_message=error_message, error_code=403
+                is_valid=False, error_message=error_message, error_code=401
             )
 
         # Make sure the authenticated user comes from an allowed domain
@@ -440,7 +440,7 @@ def validate_access_token(request):
             successful, error_message = check_globus_policies(introspection)
             if not successful:
                 return ATVResponse(
-                    is_valid=False, error_message=error_message, error_code=403
+                    is_valid=False, error_message=error_message, error_code=401
                 )
 
     # Make sure the user is part of a per-IdP authorized group (if any)
@@ -448,14 +448,14 @@ def validate_access_token(request):
         user, user_groups
     )
     if not successful:
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=403)
+        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
         successful, error_message = check_globus_groups(user_groups)
         if not successful:
             return ATVResponse(
-                is_valid=False, error_message=error_message, error_code=403
+                is_valid=False, error_message=error_message, error_code=401
             )
 
     # Make sure the user's identity can be recorded
@@ -463,7 +463,7 @@ def validate_access_token(request):
         return ATVResponse(
             is_valid=False,
             error_message="Error: Username could not be recovered.",
-            error_code=403,
+            error_code=401,
         )
     
     # Make sure the user's identity is valid
@@ -472,7 +472,7 @@ def validate_access_token(request):
         return ATVResponse(
             is_valid=False,
             error_message=f"Error: Username {user.username} includes non-authorized characters.",
-            error_code=403,
+            error_code=401,
         )
 
     # Return valid token response

@@ -51,7 +51,7 @@ class GlobalAuth(HttpBearer):
         auth = request.headers.get("Authorization")
         if not auth:
             raise HttpError(
-                400,
+                401,
                 "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers.",
             )
         return await self.authenticate(
