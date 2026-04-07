@@ -123,7 +123,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         if check_managers:
             # Extract whether managers are deployed on the online endpoint
             try:
-                resources_ready = int(endpoint_status["details"]["managers"]) > 0
+                resources_ready = int(endpoint_status.get("details", {}).get("managers", 0)) > 0
             except Exception as e:
                 return GetEndpointStatusResponse(
                     error_message=f"Error: Cannot parse endpoint status: {e}",
