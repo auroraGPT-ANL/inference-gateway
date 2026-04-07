@@ -74,12 +74,12 @@ class HeaderFailuresTestMixin(TestCase):
         # Should fail (not authenticated, missing token)
         headers = mock_utils.get_mock_headers(access_token="")
         response = await method(endpoint, headers=headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
 
         # Should fail (not a bearer token)
         headers = mock_utils.get_mock_headers(access_token=ACTIVE_TOKEN, bearer=False)
         response = await method(endpoint, headers=headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
 
         # Should fail (not a valid token)
         headers = mock_utils.get_mock_headers(access_token=INVALID_TOKEN, bearer=True)
