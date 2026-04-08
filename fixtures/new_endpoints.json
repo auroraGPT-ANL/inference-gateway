@@ -794,13 +794,7 @@
              "api_port": 8000,
              "endpoint_uuid": "2793fa62-7c71-490a-ae58-2965a67f6856",
              "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
-         },
-         "allowed_globus_groups": [
-             "1e943dcd-32ae-11f1-b41c-0e1cdb0e3035"
-         ],
-         "allowed_domains": [
-            "alcf.anl.gov"
-         ]
+         }
      }
    },
    {
@@ -816,13 +810,7 @@
              "api_port": 8001,
              "endpoint_uuid": "2793fa62-7c71-490a-ae58-2965a67f6856",
              "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
-         },
-         "allowed_globus_groups": [
-             "1e943dcd-32ae-11f1-b41c-0e1cdb0e3035"
-         ],
-         "allowed_domains": [
-            "alcf.anl.gov"
-         ]
+         }
      }
    },
    {
@@ -838,13 +826,7 @@
              "api_port": 8000,
              "endpoint_uuid": "ab48d8a0-d8fa-4ad2-b1f8-df3e1cc23849",
              "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
-         },
-         "allowed_globus_groups": [
-             "1e943dcd-32ae-11f1-b41c-0e1cdb0e3035"
-         ],
-         "allowed_domains": [
-            "alcf.anl.gov"
-         ]
+         }
      }
    }
 ]
