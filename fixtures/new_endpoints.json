@@ -761,7 +761,7 @@
     },
     {
      "model": "resource_server_async.endpoint",
-     "pk": 48,
+     "pk": 45,
      "fields": {
          "endpoint_slug": "sophia-vllm-nvidianemotron-3-super-120b",
          "cluster": "sophia",
