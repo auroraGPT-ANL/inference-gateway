@@ -10,7 +10,7 @@ environment = os.getenv("ENV", "production")
 bind = "0.0.0.0:7000"
 
 # Maximum response time above which Gunicorn sends a timeout error
-timeout = 1800
+timeout = 60
 
 # Graceful timeout for worker shutdown
 graceful_timeout = 30
@@ -31,8 +31,8 @@ backlog = 2048
 worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
-workers = 5  # Reduced to 5 for our VM
-threads = 4  # Increase threads per worker for better concurrency
+workers = 5
+threads = 1
 worker_connections = 1000  # Maximum number of simultaneous clients per worker
 
 # Worker lifecycle settings
