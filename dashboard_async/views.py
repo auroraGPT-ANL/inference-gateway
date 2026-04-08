@@ -1026,6 +1026,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
         # Create mock auth object to pass to get_jobs
         from resource_server_async.models import User
+
         mock_auth_data = {
             "id": "ALCF-dashboard-id",
             "name": "ALCF-dashboard-name",

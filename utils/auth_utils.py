@@ -352,12 +352,17 @@ def extract_service_account_client(introspection: dict, client_groups: List[str]
     iss = introspection.get("iss", "")
 
     # Skip client recognition if not enough details
-    if len(client_id) == 0 or len(username) == 0 or len(domain) == 0 or len(name) == 0 or len(iss) == 0:
+    if (
+        len(client_id) == 0
+        or len(username) == 0
+        or len(domain) == 0
+        or len(name) == 0
+        or len(iss) == 0
+    ):
         return None
 
     # If this is an authorized Globus service account client ...
     if username in settings.AUTHORIZED_GLOBUS_SERVICE_USERNAMES:
-        
         # Create and return the User object
         return UserPydantic(
             id=client_id,
@@ -368,10 +373,11 @@ def extract_service_account_client(introspection: dict, client_groups: List[str]
             idp_name=iss,
             auth_service=AuthService.GLOBUS.value,
         )
-    
+
     # Return nothing if this is not an authorized Globus client
     else:
         return None
+
 
 # Validate access token sent by user
 def validate_access_token(request):
@@ -416,7 +422,7 @@ def validate_access_token(request):
         return ATVResponse(
             is_valid=False, error_message="Error: Access token expired.", error_code=401
         )
-    
+
     # Try to identify an authorized Globus service account client
     try:
         user = extract_service_account_client(introspection, user_groups)
@@ -426,7 +432,6 @@ def validate_access_token(request):
 
     # If the token is NOT from an authorized Globus client ...
     if user is None:
-
         # Make sure the authentication was made by an authorized identity provider
         successful, user, error_message = check_session_info(introspection, user_groups)
         if not successful:
@@ -465,7 +470,7 @@ def validate_access_token(request):
             error_message="Error: Username could not be recovered.",
             error_code=403,
         )
-    
+
     # Make sure the user's identity is valid
     # TODO: Add more checks here
     if "<" in user.username or ">" in user.username:

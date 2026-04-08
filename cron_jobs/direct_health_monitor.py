@@ -218,7 +218,9 @@ async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optiona
     # Get the jobs response from the cluster wrapper
     wrapper_response: ClusterWrapperResponse = await get_cluster_wrapper("sophia")
     if wrapper_response.cluster:
-        jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs(mock_auth)
+        jobs_response: GetJobsResponse = await wrapper_response.cluster.get_jobs(
+            mock_auth
+        )
         del mock_auth
         error_message = jobs_response.error_message
         error_code = jobs_response.error_code
