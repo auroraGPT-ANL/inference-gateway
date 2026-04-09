@@ -772,13 +772,7 @@
              "api_port": 8000,
              "endpoint_uuid": "449a591b-05f7-4878-ae61-19902db78f0c",
              "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
-         },
-         "allowed_globus_groups": [
-             "1e943dcd-32ae-11f1-b41c-0e1cdb0e3035"
-         ],
-         "allowed_domains": [
-            "alcf.anl.gov"
-         ]
+         }
      }
    },
    {
@@ -827,6 +821,22 @@
              "endpoint_uuid": "ab48d8a0-d8fa-4ad2-b1f8-df3e1cc23849",
              "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
          }
+     }
+   },
+   {
+   "model": "resource_server_async.endpoint",
+   "pk": 52,
+   "fields": {
+       "endpoint_slug": "sophia-vllm-arcee-aitrinity-large-thinking-w4a16",
+       "cluster": "sophia",
+       "framework": "vllm",
+       "model": "arcee-ai/Trinity-Large-Thinking-W4A16",
+       "endpoint_adapter": "resource_server_async.endpoints.globus_compute.GlobusComputeEndpoint",
+       "config": {
+           "api_port": 8000,
+           "endpoint_uuid": "4dd22021-44d8-4cbe-8c5b-7a1df9c2e538",
+           "function_uuid": "31acd824-edf6-4f53-933c-63b3b75bdbea"
+       }
      }
    }
 ]
