@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.core.cache import cache
+from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -17,6 +18,9 @@ from resource_server_async.models import (
 )
 from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
+)
+from resource_server_async.models import (
+    RequestMetrics as AsyncRequestMetrics,
 )
 from resource_server_async.models import (
     User as AsyncUser,
@@ -345,8 +349,6 @@ def get_realtime_metrics(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
-
         # Refined breakdown of requests using HTTP status codes:
         # - Successful: status_code 200-299 or 0 (all successful requests)
         # - Failed Auth: status_code = 401 OR 403 OR (status_code >= 300 AND no RequestLog)
@@ -355,141 +357,88 @@ def get_realtime_metrics(request, cluster: str = "all"):
         #   - No RequestLog with error status = failed before reaching inference (likely auth/validation)
         # - Failed Inference: Has RequestLog AND status_code >= 300 AND status_code NOT IN (401, 403)
         #   - These reached inference but failed during processing
-        #
-        # OPTIMIZED: Use single JOIN-based query instead of correlated subqueries for better performance
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                # Cluster-filtered query using INNER JOIN - only count requests that reached this cluster
-                cursor.execute(
-                    """
-                    SELECT
-                        COUNT(*)::bigint AS total_all_requests,
-                        COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful_requests,
-                        COUNT(*) FILTER (WHERE al.status_code IN (401, 403)) AS auth_failures,
-                        COUNT(*) FILTER (WHERE al.status_code >= 300 AND al.status_code NOT IN (401, 403)) AS failed_inference,
-                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm WHERE rm.cluster = %s) AS total_tokens
-                    FROM resource_server_async_accesslog al
-                    INNER JOIN resource_server_async_requestlog rl
-                        ON rl.access_log_id = al.id AND rl.cluster = %s
-                    """,
-                    [cluster.lower(), cluster.lower()],
-                )
-            else:
-                # Non-filtered query using LEFT JOIN - much faster than correlated subqueries
-                cursor.execute(
-                    """
-                    WITH access_with_request AS (
-                        SELECT
-                            al.id,
-                            al.status_code,
-                            CASE WHEN rl.id IS NOT NULL THEN 1 ELSE 0 END AS has_request_log
-                        FROM resource_server_async_accesslog al
-                        LEFT JOIN resource_server_async_requestlog rl
-                            ON rl.access_log_id = al.id
-                    )
-                    SELECT
-                        COUNT(*)::bigint AS total_all_requests,
-                        COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
-                        COUNT(*) FILTER (WHERE (
-                            status_code IN (401, 403)
-                            OR (has_request_log = 0 AND status_code >= 300)
-                        )) AS auth_failures,
-                        COUNT(*) FILTER (WHERE has_request_log = 1 AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
-                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
-                    FROM access_with_request
-                    """
-                )
-            row = cursor.fetchone()
-            (
-                total_all_requests,
-                successful_requests,
-                auth_failures,
-                failed_inference,
-                total_tokens,
-            ) = row
+        access_log_set = AsyncAccessLog.objects
+        request_metrics_set = AsyncRequestMetrics.objects
+        unique_users_set = AsyncUser.objects
+        if cluster and cluster.lower() != "all":
+            access_log_set = access_log_set.filter(request_log__cluster__iexact=cluster)
+            request_metrics_set = request_metrics_set.filter(cluster__iexact=cluster)
+            unique_users_set = unique_users_set.filter(
+                access_logs__request_log__cluster__iexact=cluster
+            )
+
+        request_counts = access_log_set.aggregate(
+            all=Count("id"),
+            successful=Count(
+                "id",
+                filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+            ),
+            auth_failures=Count(
+                "id",
+                filter=~Q(status_code__in=(401, 403))
+                | Q(request_log__isnull=True) & Q(status_code__gte=300),
+            ),
+            failed_inference=Count(
+                "id",
+                filter=Q(request_log__isnull=False)
+                & Q(status_code__gte=300)
+                & ~Q(status_code__in=(401, 403)),
+            ),
+        )
+        metrics_counts = request_metrics_set.aggregate(total_tokens=Sum("total_tokens"))
 
         # Success rate calculation:
         # - Numerator: Successful requests (AccessLog with 200-299)
         # - Denominator: All requests that reached inference (successful + failed_inference)
         # - Excludes: Auth failures (never reached inference)
-        total_inference_requests = successful_requests + failed_inference
+        total_inference_requests = (
+            request_counts["successful"] + request_counts["failed_inference"]
+        )
 
         # Success rate based on real request/response (not auth failures)
         success_rate = (
-            (successful_requests / total_inference_requests)
-            if total_inference_requests and total_inference_requests > 0
-            else 0.0
+            request_counts["successful"] / total_inference_requests
+            if total_inference_requests > 0
+            else 0
         )
 
         # Unique users: count users who have requests in this cluster
         try:
-            if cluster and cluster.lower() != "all":
-                unique_users = (
-                    AsyncUser.objects.filter(
-                        access_logs__request_log__cluster=cluster.lower()
-                    )
-                    .distinct()
-                    .count()
-                )
-            else:
-                unique_users = AsyncUser.objects.count()
+            unique_users = unique_users_set.distinct().count()
         except Exception:
             # Fallback to 0 on any ORM error
             unique_users = 0
 
-        # OPTIMIZED: Per-model aggregates directly from RequestMetrics (with cluster filter if needed)
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT model,
-                           COUNT(*)::bigint AS total_requests,
-                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
-                           COALESCE(SUM(total_tokens), 0) AS total_tokens
-                    FROM resource_server_async_requestmetrics
-                    WHERE cluster = %s
-                    GROUP BY model
-                    ORDER BY total_requests DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT model,
-                           COUNT(*)::bigint AS total_requests,
-                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
-                           COALESCE(SUM(total_tokens), 0) AS total_tokens
-                    FROM resource_server_async_requestmetrics
-                    GROUP BY model
-                    ORDER BY total_requests DESC
-                    """
-                )
-            per_model = [
-                {
-                    "model": row[0],
-                    "total_requests": int(row[1] or 0),
-                    "successful": int(row[2] or 0),
-                    "failed": int(row[3] or 0),
-                    "total_tokens": int(row[4] or 0),
-                }
-                for row in cursor.fetchall()
-            ]
+        # Per-model aggregates directly from RequestMetrics
+        per_model_counts = list(
+            request_metrics_set.values("model")
+            .annotate(
+                total_requests=Count("request"),
+                successful=Count(
+                    "request",
+                    filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "request",
+                    filter=Q(status_code__isnull=True) | Q(status_code__gte=300),
+                ),
+                total_tokens=Sum("total_tokens"),
+            )
+            .order_by("total_requests")
+        )
 
         result = {
             "totals": {
-                "total_tokens": int(total_tokens or 0),
-                "total_requests": int(total_all_requests or 0),
+                "total_tokens": int(metrics_counts["total_tokens"] or 0),
+                "total_requests": int(request_counts["all"] or 0),
                 "total_inference_requests": int(total_inference_requests or 0),
-                "successful": int(successful_requests or 0),
-                "failed": int(failed_inference or 0),
-                "auth_failures": int(auth_failures or 0),
+                "successful": int(request_counts["successful"] or 0),
+                "failed": int(request_counts["failed_inference"] or 0),
+                "auth_failures": int(request_counts["auth_failures"] or 0),
                 "success_rate": success_rate,
                 "unique_users": int(unique_users or 0),
             },
-            "per_model": per_model,
+            "per_model": per_model_counts,
             "time_bounds": None,
         }
 
