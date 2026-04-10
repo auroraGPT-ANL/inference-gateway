@@ -3,7 +3,12 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.core.cache import cache
-from django.db.models import Count, Q, Sum
+from django.db.models import (
+    Count,
+    FilteredRelation,
+    Q,
+    Sum,
+)
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -18,6 +23,9 @@ from resource_server_async.models import (
 )
 from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
+)
+from resource_server_async.models import (
+    RequestLog as AsyncRequestLog,
 )
 from resource_server_async.models import (
     RequestMetrics as AsyncRequestMetrics,
@@ -604,34 +612,25 @@ def get_users_per_model(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        request_log_set = (
+            AsyncRequestLog.objects.annotate(
+                user=FilteredRelation(
+                    "access_log",
+                    condition=Q(access_log__user__isnull=False)
+                    & ~Q(access_log__user__exact=""),
+                )
+            )
+            .values("model")
+            .annotate(
+                user_count=Count("access_log__user", distinct=True),
+            )
+            .order_by("user_count")
+        )
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
-                    FROM resource_server_async_requestlog rl
-                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                    WHERE al.user_id IS NOT NULL AND al.user_id <> '' AND rl.cluster = %s
-                    GROUP BY rl.model
-                    ORDER BY user_count DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
-                    FROM resource_server_async_requestlog rl
-                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                    WHERE al.user_id IS NOT NULL AND al.user_id <> ''
-                    GROUP BY rl.model
-                    ORDER BY user_count DESC
-                    """
-                )
-            rows = cursor.fetchall()
-        result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        if cluster and cluster.lower() != "all":
+            request_log_set = request_log_set.filter(Q(cluster__iexact=cluster))
+
+        result = list(request_log_set)
 
         # Cache for 30 seconds
         cache.set(cache_key, result, timeout=30)
