@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.core.cache import cache
 from django.db.models import (
+    F,
     Count,
     FilteredRelation,
     Q,
@@ -1049,50 +1050,30 @@ def get_requests_per_user(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        requests_per_user_set = (
+            AsyncAccessLog.objects.values(
+                name=F("user__name"), username=F("user__username")
+            )
+            .annotate(
+                total=Count("id"),
+                successful=Count(
+                    "id",
+                    filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "id",
+                    filter=Q(status_code__isnull=True) | Q(status_code__gte=300),
+                ),
+            )
+            .order_by("-total")
+        )
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT u.name, u.username,
-                           COUNT(*)::bigint AS total,
-                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
-                    FROM resource_server_async_accesslog al
-                    JOIN resource_server_async_user u ON u.id = al.user_id
-                    JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
-                    WHERE rl.cluster = %s
-                    GROUP BY u.name, u.username
-                    ORDER BY total DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT u.name, u.username,
-                           COUNT(*)::bigint AS total,
-                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
-                    FROM resource_server_async_accesslog al
-                    JOIN resource_server_async_user u ON u.id = al.user_id
-                    GROUP BY u.name, u.username
-                    ORDER BY total DESC
-                    """
-                )
-            rows = cursor.fetchall()
+        if cluster and cluster.lower() != "all":
+            requests_per_user_set = requests_per_user_set.filter(
+                request_log__cluster__iexact=cluster
+            )
 
-        result = [
-            {
-                "name": r[0],
-                "username": r[1],
-                "total": int(r[2] or 0),
-                "successful": int(r[3] or 0),
-                "failed": int(r[4] or 0),
-            }
-            for r in rows
-        ]
+        result = list(requests_per_user_set)
 
         # Cache for 60 seconds
         cache.set(cache_key, result, timeout=60)
