@@ -614,15 +614,15 @@ def get_users_per_model(request, cluster: str = "all"):
 
         request_log_set = (
             AsyncRequestLog.objects.annotate(
-                user=FilteredRelation(
+                filtered_log=FilteredRelation(
                     "access_log",
                     condition=Q(access_log__user__isnull=False)
                     & ~Q(access_log__user__exact=""),
-                )
+                ),
             )
             .values("model")
             .annotate(
-                user_count=Count("access_log__user", distinct=True),
+                user_count=Count("filtered_log__user", distinct=True),
             )
             .order_by("user_count")
         )
