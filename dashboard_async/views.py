@@ -432,7 +432,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 ),
                 total_tokens=Sum("total_tokens"),
             )
-            .order_by("total_requests")
+            .order_by("-total_requests")
         )
 
         result = {
@@ -624,7 +624,7 @@ def get_users_per_model(request, cluster: str = "all"):
             .annotate(
                 user_count=Count("filtered_log__user", distinct=True),
             )
-            .order_by("user_count")
+            .order_by("-user_count")
         )
 
         if cluster and cluster.lower() != "all":
