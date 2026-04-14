@@ -180,6 +180,10 @@ class MockGlobusComputeExecutor:
     def submit_to_registered_function(self, function_uuid, args=None):
         return MockFuture()
 
+    @property
+    def client(self):
+        return MockGlobusComputeClient()
+
 
 # Mock get_globus_client function
 def get_globus_client():
