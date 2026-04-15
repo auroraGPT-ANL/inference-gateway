@@ -1,5 +1,4 @@
 import logging
-import sys
 from typing import TypedDict
 
 import typer
@@ -15,7 +14,7 @@ from .sam3 import cli as sam3_cli
 
 
 logger = logging.getLogger(__name__)
-console = Console()
+console = Console(stderr=True)
 
 
 class CliState(TypedDict, total=False):
@@ -39,7 +38,7 @@ def main(
     logging.basicConfig(
         level="INFO",
         format="%(name)s:%(lineno)d %(message)s",
-        handlers=[RichHandler(stream=sys.stderr)],
+        handlers=[RichHandler(console=console)],
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     _cli_state["client"] = InferenceClient(base_url)
@@ -63,7 +62,7 @@ def ls_jobs(cluster: str) -> None:
     client = _cli_state["client"]
 
     jobs = client.clusters(cluster).get_jobs()
-    console.print(jobs)
+    print(jobs)
 
 
 @cli.command()
@@ -95,13 +94,12 @@ def chat(
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
                 token = chunk.choices[0].delta.content
-                console.print(token, end="", highlight=False)
+                print(token, end="")
                 collected.append(token)
 
         if not collected:
-            console.print(str(response))
+            print(str(response))
 
-        console.print()  # final newline
     else:
         with console.status("[dim]Thinking…[/dim]", spinner="dots"):
             response = oai.chat.completions.create(
@@ -111,7 +109,7 @@ def chat(
                 max_tokens=max_tokens,
             )
         text = response.choices[0].message.content
-        console.print(Markdown(text))
+        print(Markdown(text))
 
 
 @cli.command()
