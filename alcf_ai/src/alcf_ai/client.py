@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,10 @@ from pydantic import BaseModel
 from .auth import get_inference_authorizer
 from .resources import ClusterResource, Sam3Resource
 from .transfer import TransferResult, run_globus_transfer
+
+DEFAULT_BASE_URL = os.environ.get(
+    "inference_base_url", "https://inference-api.alcf.anl.gov/resource_server/"
+)
 
 
 class AutoGlobusAuth(Auth):
@@ -27,9 +32,12 @@ class StagingAreaResponse(BaseModel):
 class InferenceClient(Client):
     def __init__(
         self,
-        base_url: str = "https://inference-api.alcf.anl.gov/resource_server/",
+        base_url: str | None = None,
         timeout: Timeout = Timeout(10.0, read=30.0),
     ) -> None:
+        if base_url is None:
+            base_url = DEFAULT_BASE_URL
+
         super().__init__(
             auth=AutoGlobusAuth(),
             base_url=base_url,

@@ -10,7 +10,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import requests
 import smart_open
 import typer
 from PIL.Image import Image, fromarray, open as imopen
@@ -262,7 +261,6 @@ def submit_batch(
     client = _cli_state["client"]
 
     dataset_path = dataset_path.expanduser().resolve()
-    assert dataset_path.is_file()
 
     logger.info(f"Staging in {dataset_path}")
     stagein = client.stage_in(collection_id, dataset_path, dataset_path.name)

@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import TypedDict
 
 import typer
@@ -11,6 +12,7 @@ from typer import Typer
 from .auth import cli as auth_cli
 from .client import InferenceClient
 from .sam3 import cli as sam3_cli
+
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -29,7 +31,7 @@ cli.add_typer(sam3_cli, name="sam3", help="Use the SAM3 image segmentation servi
 
 @cli.callback()
 def main(
-    base_url: str = "https://inference-api.alcf.anl.gov/resource_server/",
+    base_url: str | None = None,
 ) -> None:
     """
     Inference Gateway CLI
