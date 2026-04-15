@@ -1,5 +1,5 @@
 import logging
-import os
+import sys
 from typing import TypedDict
 
 import typer
@@ -37,7 +37,9 @@ def main(
     Inference Gateway CLI
     """
     logging.basicConfig(
-        level="INFO", format="%(name)s:%(lineno)d %(message)s", handlers=[RichHandler()]
+        level="INFO",
+        format="%(name)s:%(lineno)d %(message)s",
+        handlers=[RichHandler(stream=sys.stderr)],
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     _cli_state["client"] = InferenceClient(base_url)
