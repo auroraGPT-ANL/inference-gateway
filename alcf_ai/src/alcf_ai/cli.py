@@ -100,6 +100,8 @@ def chat(
         if not collected:
             print(str(response))
 
+        print("")
+
     else:
         with console.status("[dim]Thinking…[/dim]", spinner="dots"):
             response = oai.chat.completions.create(
