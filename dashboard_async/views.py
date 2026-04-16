@@ -607,7 +607,7 @@ def _parse_series_window(window: str):
 
 
 @router.get("/analytics/users-per-model")
-def get_users_per_model(request, cluster: str = "all"):
+async def get_users_per_model(request, cluster: str = "all"):
     """Get unique users per model with caching to reduce DB load."""
     try:
         # Check cache first (5 minute TTL)
@@ -634,7 +634,7 @@ def get_users_per_model(request, cluster: str = "all"):
         if cluster and cluster.lower() != "all":
             request_log_set = request_log_set.filter(Q(cluster__iexact=cluster))
 
-        result = list(request_log_set)
+        result = [r async for r in request_log_set]
 
         # Cache for 30 seconds
         cache.set(cache_key, result, timeout=30)
