@@ -349,7 +349,7 @@ def analytics_realtime_view(request):
 
 
 @router.get("/analytics/metrics")
-def get_realtime_metrics(request, cluster: str = "all"):
+async def get_realtime_metrics(request, cluster: str = "all"):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
         # Check cache first (include cluster in cache key)
@@ -376,7 +376,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 access_logs__request_log__cluster__iexact=cluster
             )
 
-        request_counts = access_log_set.aggregate(
+        request_counts = await access_log_set.aaggregate(
             all=Count("id"),
             successful=Count(
                 "id",
@@ -394,7 +394,9 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 & ~Q(status_code__in=(401, 403)),
             ),
         )
-        metrics_counts = request_metrics_set.aggregate(total_tokens=Sum("total_tokens"))
+        metrics_counts = await request_metrics_set.aaggregate(
+            total_tokens=Sum("total_tokens")
+        )
 
         # Success rate calculation:
         # - Numerator: Successful requests (AccessLog with 200-299)
@@ -413,14 +415,15 @@ def get_realtime_metrics(request, cluster: str = "all"):
 
         # Unique users: count users who have requests in this cluster
         try:
-            unique_users = unique_users_set.distinct().count()
+            unique_users = await unique_users_set.distinct().acount()
         except Exception:
             # Fallback to 0 on any ORM error
             unique_users = 0
 
         # Per-model aggregates directly from RequestMetrics
-        per_model_counts = list(
-            request_metrics_set.values("model")
+        per_model_counts = [
+            c
+            async for c in request_metrics_set.values("model")
             .annotate(
                 total_requests=Count("request"),
                 successful=Count(
@@ -434,7 +437,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 total_tokens=Sum("total_tokens"),
             )
             .order_by("-total_requests")
-        )
+        ]
 
         result = {
             "totals": {
