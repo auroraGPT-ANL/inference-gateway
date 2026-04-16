@@ -187,7 +187,9 @@ class GlobusComputeEndpoint(BaseEndpoint):
         try:
             gce = await self.prepare_executor()
         except EndpointError as e:
-            return SubmitTaskResponse(error_message=e, error_code=e.error_code)
+            return SubmitTaskResponse(
+                error_message=e.error_message, error_code=e.error_code
+            )
 
         # Add API port to the input data
         try:
@@ -226,7 +228,9 @@ class GlobusComputeEndpoint(BaseEndpoint):
         try:
             gce = await self.prepare_executor()
         except EndpointError as e:
-            return SubmitTaskAsyncResponse(error_message=e, error_code=e.error_code)
+            return SubmitTaskAsyncResponse(
+                error_message=e.error_message, error_code=e.error_code
+            )
 
         gcc = gce.client
         batch = gcc.create_batch(user_endpoint_config=endpoint_config)
@@ -244,7 +248,9 @@ class GlobusComputeEndpoint(BaseEndpoint):
         try:
             gce = await self.prepare_executor()
         except EndpointError as e:
-            return SubmitTaskResponse(error_message=e, error_code=e.error_code)
+            return SubmitTaskResponse(
+                error_message=e.error_message, error_code=e.error_code
+            )
 
         gcc = gce.client
 
