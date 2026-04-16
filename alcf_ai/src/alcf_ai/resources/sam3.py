@@ -141,10 +141,10 @@ class Sam3Resource(ClientResource):
         Poll on the SAM3 inference task for up to `timeout` seconds.
         """
         start = time.monotonic()
+        logger.info(f"Polling on inference {task_id=}")
         while time.monotonic() - start < timeout:
             try:
                 return self.get_task_result(task_id)
             except Sam3Resource.TaskPending:
-                logger.info(f"Inference {task_id=} still pending...")
-                time.sleep(5)
+                time.sleep(1)
         raise TimeoutError(f"{task_id=} not finished in {timeout=}")

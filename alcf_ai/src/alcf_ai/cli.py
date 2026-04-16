@@ -31,18 +31,19 @@ cli.add_typer(sam3_cli, name="sam3", help="Use the SAM3 image segmentation servi
 @cli.callback()
 def main(
     base_url: str | None = None,
+    log_level: str = "INFO",
 ) -> None:
     """
     Inference Gateway CLI
     """
     logging.basicConfig(
-        level="INFO",
+        level=log_level,
         format="%(name)s:%(lineno)d %(message)s",
         handlers=[RichHandler(console=console)],
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     _cli_state["client"] = InferenceClient(base_url)
-    logger.info(f"Using client: {_cli_state['client']}")
+    logger.debug(f"Using client: {_cli_state['client']}")
 
 
 @cli.command()

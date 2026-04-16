@@ -103,7 +103,7 @@ SECONDS=0
 
 for f in test-wds/*.tar
 do
-uvx alcf-ai sam3 submit-batch $SOURCE_COLLECTION $f --weights-dir-override $SAM3_FINETUNE >> batch-inference.log 2>&1 &
+uvx alcf-ai sam3 submit-batch $f --from-collection-id $SOURCE_COLLECTION --weights-dir-override $SAM3_FINETUNE >> batch-inference.log 2>&1 &
 done
 wait
 echo "Completed in $SECONDS seconds."
