@@ -1044,7 +1044,7 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
 # ========= Additional realtime endpoints =========
 @router.get("/analytics/requests-per-user")
-def get_requests_per_user(request, cluster: str = "all"):
+async def get_requests_per_user(request, cluster: str = "all"):
     """Overall requests per user (from AccessLog/User)."""
     try:
         # Check cache first (1 minute TTL)
@@ -1076,7 +1076,7 @@ def get_requests_per_user(request, cluster: str = "all"):
                 request_log__cluster__iexact=cluster
             )
 
-        result = list(requests_per_user_set)
+        result = [r async for r in requests_per_user_set]
 
         # Cache for 60 seconds
         cache.set(cache_key, result, timeout=60)
