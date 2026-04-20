@@ -43,6 +43,7 @@ dev = [
     "pyright[nodejs]",
     "ruff",
     "alcf-ai",
+    "pre-commit>=4.5.1",
 ]
 
 # Documentation dependencies:

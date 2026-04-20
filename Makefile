@@ -17,3 +17,6 @@ lint: sync
 
 lint-fix: sync
 	uv run ruff check --fix .
+
+install-dev: sync
+	pre-commit install
