@@ -4,9 +4,10 @@ from datetime import timedelta
 from django.contrib import messages
 from django.core.cache import cache
 from django.db.models import (
-    F,
     Count,
+    F,
     FilteredRelation,
+    Max,
     Q,
     Sum,
 )
@@ -645,7 +646,7 @@ async def get_users_per_model(request, cluster: str = "all"):
 
 
 @router.get("/analytics/users-table")
-def get_users_table(request, cluster: str = "all"):
+async def get_users_table(request, cluster: str = "all"):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
     try:
         # Check cache first (1 minute TTL)
@@ -654,61 +655,52 @@ def get_users_table(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        users_table_set = (
+            AsyncUser.objects.values("name", "username")
+            .annotate(
+                last_access=Max("access_logs__timestamp_request"),
+                successful=Count(
+                    "access_logs",
+                    filter=Q(access_logs__status_code__exact=0)
+                    | Q(access_logs__status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "access_logs",
+                    filter=Q(access_logs__status_code__isnull=True)
+                    | Q(access_logs__status_code__gte=300),
+                ),
+                last_failure=Max(
+                    "access_logs__timestamp_request",
+                    filter=Q(access_logs__status_code__isnull=True)
+                    | Q(access_logs__status_code__gte=300),
+                ),
+            )
+            .order_by(F("last_access").desc(nulls_last=True), "username")
+        )
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT
-                      u.name,
-                      u.username,
-                      MAX(al.timestamp_request) AS last_access,
-                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
-                    FROM resource_server_async_user u
-                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
-                    LEFT JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
-                    WHERE (rl.cluster = %s OR rl.cluster IS NULL)
-                    GROUP BY u.name, u.username
-                    HAVING COUNT(rl.id) > 0 OR COUNT(al.id) = 0
-                    ORDER BY last_access DESC NULLS LAST, u.username
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                      u.name,
-                      u.username,
-                      MAX(al.timestamp_request) AS last_access,
-                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
-                    FROM resource_server_async_user u
-                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
-                    GROUP BY u.name, u.username
-                    ORDER BY last_access DESC NULLS LAST, u.username
-                    """
-                )
-            rows = cursor.fetchall()
+        if cluster and cluster.lower() != "all":
+            users_table_set = users_table_set.filter(
+                Q(access_logs__request_log__cluster__iexact=cluster)
+                | Q(access_logs__request_log__cluster__isnull=True)
+            )
 
         results = []
-        for r in rows:
-            name, username, last_access, successful, failed, last_failure = r
-            total = int((successful or 0)) + int((failed or 0))
-            success_rate = (float(successful) / total) if total > 0 else 0.0
+        async for r in users_table_set:
+            total = int((r["successful"] or 0)) + int((r["failed"] or 0))
+            success_rate = (float(r["successful"]) / total) if total > 0 else 0.0
             results.append(
                 {
-                    "name": name,
-                    "username": username,
-                    "last_access": last_access.isoformat() if last_access else None,
-                    "successful": int(successful or 0),
-                    "failed": int(failed or 0),
+                    "name": r["name"],
+                    "username": r["username"],
+                    "last_access": r["last_access"].isoformat()
+                    if r["last_access"]
+                    else None,
+                    "successful": int(r["successful"] or 0),
+                    "failed": int(r["failed"] or 0),
                     "success_rate": success_rate,
-                    "last_failure": last_failure.isoformat() if last_failure else None,
+                    "last_failure": r["last_failure"].isoformat()
+                    if r["last_failure"]
+                    else None,
                 }
             )
 
