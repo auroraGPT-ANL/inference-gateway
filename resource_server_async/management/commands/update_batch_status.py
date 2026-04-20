@@ -34,5 +34,5 @@ class Command(BaseCommand):
                 print(
                     f"batch {batch.batch_id} updated from {batch_status_before} to {batch_status}."
                 )
-            except Exception as e:
+            except Exception:
                 pass

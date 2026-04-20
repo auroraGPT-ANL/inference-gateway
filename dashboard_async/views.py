@@ -1,26 +1,14 @@
-import json
 import logging
-import re
 from datetime import timedelta
 
 from django.contrib import messages
-from django.contrib.auth import views as auth_views
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.core.cache import cache
-from django.db.models import Avg, CharField, Count, F, OuterRef, Q, Subquery, Value
-from django.db.models.functions import TruncDay, TruncWeek
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
 from django.utils import timezone
-from django.utils.timezone import now
-from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
 from ninja.security import SessionAuth
 
-import utils.metis_utils as metis_utils
-from resource_server.models import Batch, Endpoint, Log
 from resource_server_async.models import (
     AccessLog as AsyncAccessLog,
 )
@@ -29,9 +17,6 @@ from resource_server_async.models import (
 )
 from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
-)
-from resource_server_async.models import (
-    RequestLog as AsyncRequestLog,
 )
 from resource_server_async.models import (
     User as AsyncUser,
@@ -164,7 +149,7 @@ def dashboard_callback_view(request):
     saved_state = request.session.get("oauth_state")
 
     if not state or state != saved_state:
-        log.warning(f"CSRF state mismatch")
+        log.warning("CSRF state mismatch")
         messages.error(request, "Invalid authentication state. Please try again.")
         request.session.pop("oauth_state", None)
         return render(request, "login.html", {"form": None})
@@ -229,8 +214,6 @@ def dashboard_callback_view(request):
 def dashboard_logout_view(request):
     """Logout and clear both local and Globus sessions."""
     from urllib.parse import urlencode
-
-    from django.conf import settings
 
     from dashboard_async.globus_auth import revoke_token
 
@@ -363,13 +346,6 @@ def get_realtime_metrics(request, cluster: str = "all"):
             return cached
 
         from django.db import connection
-
-        # Build cluster filter condition
-        cluster_filter = ""
-        cluster_params = []
-        if cluster and cluster.lower() != "all":
-            cluster_filter = "AND rl.cluster = %s"
-            cluster_params = [cluster.lower()]
 
         # Refined breakdown of requests using HTTP status codes:
         # - Successful: status_code 200-299 or 0 (all successful requests)
@@ -858,7 +834,7 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
                 )
             else:
                 cursor.execute(
-                    f"""
+                    """
                     WITH series AS (
                       SELECT generate_series(
                         date_trunc(%s, %s::timestamptz),
@@ -921,7 +897,7 @@ def get_model_series(request, model: str, window: str = "24h"):
         )
         with connection.cursor() as cursor:
             cursor.execute(
-                f"""
+                """
                 WITH series AS (
                   SELECT generate_series(
                     date_trunc(%s, %s::timestamptz),
@@ -1352,8 +1328,6 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
 def query_logs_custom(request):
     """Custom log query builder with flexible filters."""
     try:
-        import re as regex_module
-
         from django.db import connection
 
         # Parse query parameters

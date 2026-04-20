@@ -1166,7 +1166,7 @@ def format_streaming_error_for_openai(error_message: str):
         }
         return f"data: {json.dumps(fallback_error)}\n\n"
 
-    except Exception as e:
+    except Exception:
         # Ultimate fallback
         fallback_error = {
             "object": "error",

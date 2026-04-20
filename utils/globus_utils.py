@@ -200,7 +200,7 @@ async def submit_and_get_result(
     try:
         asyncio_future = asyncio.wrap_future(future)
         result = await asyncio.wait_for(asyncio_future, timeout=timeout)
-    except TimeoutError as e:
+    except TimeoutError:
         error_message = "Error: TimeoutError while attempting to access compute resources. Please try again later."
         return None, get_task_uuid(future), error_message, 408
     except Exception as e:

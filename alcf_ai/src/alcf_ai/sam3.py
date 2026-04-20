@@ -10,7 +10,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import requests
 import smart_open
 import typer
 from PIL.Image import Image, fromarray

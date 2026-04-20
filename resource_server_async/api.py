@@ -3,7 +3,6 @@ import uuid
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.cache import cache
 from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.errors import HttpError

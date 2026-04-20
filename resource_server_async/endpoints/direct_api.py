@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 from asgiref.sync import sync_to_async
@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
-    BaseModelWithError,
     SubmitStreamingTaskResponse,
     SubmitTaskResponse,
 )
@@ -153,7 +152,7 @@ class DirectAPIEndpoint(BaseEndpoint):
                 streaming_state["error"] = error_str
                 streaming_state["completed"] = True
                 error_chunk = {
-                    "id": f"chatcmpl-api-error",
+                    "id": "chatcmpl-api-error",
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": self.model,

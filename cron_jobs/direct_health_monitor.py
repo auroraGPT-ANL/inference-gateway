@@ -58,10 +58,9 @@ django.setup()
 # ---------------------------------------------------------------------------
 # Imports that require Django to be configured
 # ---------------------------------------------------------------------------
-from django.conf import settings  # noqa: E402
 
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
-from resource_server_async.clusters.cluster import GetJobsResponse, Jobs  # noqa: E402
+from resource_server_async.clusters.cluster import GetJobsResponse  # noqa: E402
 from resource_server_async.models import (
     Endpoint,  # noqa: E402
     User,
@@ -367,13 +366,6 @@ async def check_sophia_models() -> List[HealthRecord]:
             last_result = last_result_raw
 
         last_status = (last_result or {}).get("status")
-        last_health_elapsed = None
-        try:
-            last_health_elapsed = float((last_result or {}).get("elapsed", 0))
-        except (TypeError, ValueError):
-            last_health_elapsed = None
-
-        last_status_time = details.get("timestamp_last_result")
 
         if endpoint_state != "online":
             records.append(
@@ -568,9 +560,7 @@ async def check_metis_models() -> List[HealthRecord]:
 
     for model_entry in models:
         model_name = model_entry["model"]
-        endpoint_id = model_entry["endpoint_id"]
         model_info = model_entry["model_info"]
-        health_path = model_entry["health_path"]
 
         api_url = model_info.get("url")
         if not api_url:

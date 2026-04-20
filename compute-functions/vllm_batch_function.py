@@ -4,7 +4,6 @@ import globus_compute_sdk
 
 
 def chunked_vllm_inference_function(parameters):
-    import json
     import os
     import re
     import signal
@@ -107,7 +106,6 @@ def chunked_vllm_inference_function(parameters):
         "/lus/eagle/projects/argonne_tpc/inference-service-batch-results/",
     )
     chunk_size = model_params.get("chunk_size", 20000)
-    username = parameters.get("username", "anonymous")
     batch_id = parameters.get("batch_id", f"batch_{uuid.uuid4().hex[:6]}")
 
     if not (model_name and input_file):

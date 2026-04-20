@@ -2,7 +2,6 @@
 
 import os
 import sys
-from enum import Enum
 
 import django
 import requests

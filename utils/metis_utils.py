@@ -8,19 +8,13 @@ an API. This module provides utilities to:
 - Make direct API calls to Metis endpoints
 """
 
-import asyncio
 import json
 import logging
-import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import httpx
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.cache import cache
-from django.utils import timezone
-
-from resource_server_async.models import RequestLog
 
 log = logging.getLogger(__name__)
 

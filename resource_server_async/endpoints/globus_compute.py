@@ -567,7 +567,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         # Extract the Globus batch UUID from submission
         # Temporary: globus_batch_uuid not used
         try:
-            globus_batch_uuid = batch_response["request_id"]
+            _ = batch_response["request_id"]
         except Exception as e:
             return SubmitBatchResponse(
                 batch_id=batch_id,

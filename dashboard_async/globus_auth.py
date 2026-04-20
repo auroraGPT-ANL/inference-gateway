@@ -114,7 +114,7 @@ def validate_dashboard_token(access_token, groups_token=None):
     try:
         cached_result = cache.get(cache_key)
         if cached_result is not None:
-            log.debug(f"Using cached token validation result")
+            log.debug("Using cached token validation result")
             return cached_result
     except Exception as e:
         log.warning(f"Redis cache error for dashboard token validation: {e}")
@@ -328,7 +328,7 @@ def refresh_access_token(refresh_token):
     new_access_token = authorizer.get_authorization_header()
 
     # Get new token info
-    token_response = authorizer.check_expiration_time()
+    authorizer.check_expiration_time()
 
     return {
         "access_token": new_access_token.split(" ")[1],  # Remove 'Bearer ' prefix

@@ -24,7 +24,6 @@ logging.config.dictConfig(LOGGING_CONFIG)
 from resource_server_async.clusters.cluster import BaseCluster, JobInfo, Jobs
 from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
 from resource_server_async.utils import (
-    GetListEndpointsDataResponse,
     create_access_log,
     create_request_log,
     decode_request_body,
@@ -59,7 +58,7 @@ log.info("Utils functions loaded.")
 # from resource_server.models import FederatedEndpoint
 # Django Ninja API
 from resource_server_async.api import api, router
-from resource_server_async.models import BatchLog, Cluster, Endpoint
+from resource_server_async.models import BatchLog
 from resource_server_async.schemas.sam3 import Sam3Request
 
 # NOTE: All caching is now centralized in resource_server_async.utils

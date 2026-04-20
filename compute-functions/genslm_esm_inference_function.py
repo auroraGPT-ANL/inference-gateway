@@ -319,7 +319,6 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     """
     import json
     import time
-    from typing import Any
 
     # Explicit imports for globus compute
     from genslm_esm_globus_compute.globus_compute_fn import compute_embeddings

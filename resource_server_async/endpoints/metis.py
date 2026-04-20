@@ -1,8 +1,7 @@
-import json
 import logging
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 from resource_server_async.endpoints.endpoint import (
