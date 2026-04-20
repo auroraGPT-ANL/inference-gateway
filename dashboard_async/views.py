@@ -464,7 +464,7 @@ async def get_realtime_metrics(request, cluster: str = "all"):
 
 
 @router.get("/analytics/logs")
-def get_realtime_logs(
+async def get_realtime_logs(
     request, page: int = 0, per_page: int = 500, cluster: str = "all"
 ):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
@@ -474,34 +474,30 @@ def get_realtime_logs(
 
         # OPTIMIZED: LEFT JOIN semantics with metrics for pre-calculated latency
         # Utilize DB indexes: order by indexed timestamp_request desc, then status_code
-        qs = (
-            AsyncAccessLog.objects.select_related(
-                "user", "request_log", "request_log__metrics"
-            )  # Add metrics
-            .only(  # only pull these fields, defer everything else
-                "id",
-                "timestamp_request",
-                "status_code",
-                "api_route",
-                "error",
-                "user__id",
-                "user__name",
-                "user__username",
-                "user__idp_id",
-                "user__idp_name",
-                "user__auth_service",
-                "request_log__id",
-                "request_log__cluster",
-                "request_log__model",
-                "request_log__openai_endpoint",
-                "request_log__timestamp_compute_request",
-                "request_log__timestamp_compute_response",
-                "request_log__task_uuid",
-                "request_log__metrics__response_time_sec",  # Pre-calculated latency
-            )
-            .defer(  # explicitly defer heavy text fields
-                "request_log__prompt", "request_log__result"
-            )
+        qs = AsyncAccessLog.objects.select_related(
+            "user", "request_log", "request_log__metrics"
+        ).only(  # Add metrics  # only pull these fields, defer everything else
+            "id",
+            "timestamp_request",
+            "status_code",
+            "api_route",
+            "error",
+            "user__id",
+            "user__name",
+            "user__username",
+            "user__idp_id",
+            "user__idp_name",
+            "user__auth_service",
+            "request_log__id",
+            "request_log__cluster",
+            "request_log__model",
+            "request_log__openai_endpoint",
+            "request_log__timestamp_compute_request",
+            "request_log__timestamp_compute_response",
+            "request_log__task_uuid",
+            "request_log__metrics__response_time_sec",  # Pre-calculated latency
+            "request_log__prompt",  # Expensive fields are lazy-loaded
+            "request_log__result",
         )
 
         # Filter by cluster if specified
@@ -513,7 +509,7 @@ def get_realtime_logs(
         sliced = qs[start_index:end_index]
 
         results = []
-        for al in sliced:
+        async for al in sliced:
             rl = getattr(al, "request_log", None)
             user = getattr(al, "user", None)
 
