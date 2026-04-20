@@ -1,16 +1,17 @@
+# Tool to log access requests
+import logging
+from typing import Dict, List
+
+from django.core.cache import cache
+
 from resource_server_async.clusters.cluster import (
     BaseCluster,
     GetJobsResponse,
-    Jobs,
     JobInfo,
+    Jobs,
 )
 from resource_server_async.models import User
 from utils import metis_utils
-from typing import Dict, List
-from django.core.cache import cache
-
-# Tool to log access requests
-import logging
 
 log = logging.getLogger(__name__)
 

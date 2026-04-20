@@ -1,16 +1,17 @@
-import globus_compute_sdk
 import json
+
+import globus_compute_sdk
 
 
 def chunked_vllm_inference_function(parameters):
+    import json
     import os
-    import subprocess
-    import uuid
-    import time
     import re
     import signal
+    import subprocess
     import sys
-    import json
+    import time
+    import uuid
     from datetime import datetime
 
     # ---------------------------

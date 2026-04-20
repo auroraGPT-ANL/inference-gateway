@@ -7,10 +7,11 @@ Usage:
     python manage.py clear_cache --pattern endpoint:*  # Clear specific pattern
 """
 
-from django.core.management.base import BaseCommand
-from django.core.cache import cache
-from django.conf import settings
 import logging
+
+from django.conf import settings
+from django.core.cache import cache
+from django.core.management.base import BaseCommand
 
 log = logging.getLogger(__name__)
 

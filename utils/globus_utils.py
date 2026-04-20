@@ -1,14 +1,14 @@
 import asyncio
+import logging
 import time
-from django.conf import settings
+
 import globus_sdk
-from globus_sdk import TransferClient
+from cachetools import TTLCache, cached
+from django.conf import settings
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
-from cachetools import TTLCache, cached
-
-import logging
+from globus_sdk import TransferClient
 
 log = logging.getLogger(__name__)
 

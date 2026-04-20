@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, AfterValidator, model_validator
-from typing import List, Optional, Union, Dict, Annotated, Any
 from enum import Enum
+from typing import Annotated, Any, Dict, List, Optional, Union
+
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 # Extra validation for the metadata field

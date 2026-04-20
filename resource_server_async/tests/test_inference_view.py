@@ -1,13 +1,13 @@
 import json
 
 from resource_server_async.tests import (
+    CLIENT,
     DB_ENDPOINTS,
     INVALID_PARAMS,
     KWARGS,
     PREMIUM_HEADERS,
     VALID_PARAMS,
     ResourceServerTestCase,
-    CLIENT,
     get_endpoint_urls,
     get_response_json,
     get_wrong_endpoint_urls,

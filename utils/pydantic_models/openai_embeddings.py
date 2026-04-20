@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional, Union
 from enum import Enum
+from typing import List, Optional, Union
+
+from pydantic import BaseModel, Field, model_validator
 
 
 # Extention of the Pydantic BaseModel that prevent extra attributes

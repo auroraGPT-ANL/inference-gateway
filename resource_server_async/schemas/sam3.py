@@ -1,6 +1,7 @@
-from ninja import Schema
-from typing import Literal
 from pathlib import Path
+from typing import Literal
+
+from ninja import Schema
 
 
 class Sam3Request(Schema):

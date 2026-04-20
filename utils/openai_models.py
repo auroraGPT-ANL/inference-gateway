@@ -15,13 +15,13 @@ from typing import Dict, List, Optional, Union
 from pydantic import (
     AnyUrl,
     BaseModel,
+    ConfigDict,
     Extra,
     Field,
+    RootModel,
     confloat,
     conint,
-    RootModel,
     field_validator,
-    ConfigDict,
 )
 
 

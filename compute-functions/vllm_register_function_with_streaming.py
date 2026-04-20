@@ -3,11 +3,12 @@ import requests
 
 
 def vllm_inference_function(parameters):
-    import socket
-    import os
-    import time
-    import requests
     import json
+    import os
+    import socket
+    import time
+
+    import requests
     from requests.exceptions import RequestException
 
     # Constants

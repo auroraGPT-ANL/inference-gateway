@@ -1,8 +1,9 @@
 import os
 import re
 import time
-import globus_sdk
+
 import globus_compute_sdk
+import globus_sdk
 from dotenv import load_dotenv
 
 load_dotenv(override=True)

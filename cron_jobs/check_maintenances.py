@@ -2,9 +2,10 @@
 
 import os
 import sys
+from enum import Enum
+
 import django
 import requests
-from enum import Enum
 
 # Setup Django environment to access cache
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,7 +13,6 @@ sys.path.insert(0, BASE_DIR)
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "inference_gateway.settings")
 django.setup()
 from django.core.cache import cache
-
 
 # ===================
 # ALCF cluster status

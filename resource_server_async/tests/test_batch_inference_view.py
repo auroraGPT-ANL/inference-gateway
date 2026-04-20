@@ -1,6 +1,7 @@
 import json
 import uuid
 
+import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async.tests import (
     CLIENT,
     DB_ENDPOINTS,
@@ -16,7 +17,6 @@ from resource_server_async.tests.mixins import (
     EndpointPostTestsMixin,
     HeaderFailuresTestMixin,
 )
-import resource_server_async.tests.mock_utils as mock_utils
 
 
 class BatchInferenceViewTestCase(

@@ -1,9 +1,10 @@
 from django.urls import path
+
 from dashboard_async.views import (
-    api,
     analytics_realtime_view,
-    dashboard_login_view,
+    api,
     dashboard_callback_view,
+    dashboard_login_view,
     dashboard_logout_view,
 )
 

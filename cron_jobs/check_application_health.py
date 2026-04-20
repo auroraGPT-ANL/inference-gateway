@@ -12,17 +12,18 @@ This script checks the health of the Inference Gateway application by:
 Designed to run as a cron job every 5 minutes.
 """
 
-import os
-import sys
 import json
 import logging
-import subprocess
-import requests
+import os
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from urllib.parse import urljoin
+import subprocess
+import sys
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from urllib.parse import urljoin
+
+import requests
 
 # Add parent directory to path to import Django modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,8 +37,9 @@ django.setup()
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from resource_server.models import Endpoint
+
 import utils.globus_utils as globus_utils
+from resource_server.models import Endpoint
 
 # Setup logging
 logging.basicConfig(

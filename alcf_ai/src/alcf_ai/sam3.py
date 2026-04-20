@@ -13,10 +13,11 @@ import numpy.typing as npt
 import requests
 import smart_open
 import typer
-from PIL.Image import Image, fromarray, open as imopen
+from PIL.Image import Image, fromarray
+from PIL.Image import open as imopen
 
-from .resources.sam3 import Sam3ImageResult
 from .auth import STAGING_COLLECTION_ROOT
+from .resources.sam3 import Sam3ImageResult
 
 NDArray = npt.NDArray[Any]
 
@@ -110,8 +111,8 @@ def plot_bbox(
     text=None,
     ax=None,
 ):
-    import matplotlib.pyplot as plt
     import matplotlib.patches as patches
+    import matplotlib.pyplot as plt
 
     if box_format == "XYXY":
         x, y, x2, y2 = box
@@ -179,8 +180,8 @@ def to_pil(arr: NDArray) -> Image:
 
 
 def preview_sam3_result(arr: NDArray, result: Sam3ImageResult, path: Path):
-    from matplotlib.colors import to_rgb
     import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgb
 
     plt.figure(figsize=(12, 8))
 

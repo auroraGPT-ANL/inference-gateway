@@ -1,31 +1,41 @@
+import json
+import logging
+import re
 from datetime import timedelta
-from django.db.models import Count, Avg, F, Q, Subquery, OuterRef, Value, CharField
-from django.db.models.functions import TruncWeek, TruncDay
-from django.utils.timezone import now
+
+from django.contrib import messages
+from django.contrib.auth import views as auth_views
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.core.cache import cache
+from django.db.models import Avg, CharField, Count, F, OuterRef, Q, Subquery, Value
+from django.db.models.functions import TruncDay, TruncWeek
+from django.http import HttpRequest, JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse_lazy
 from django.utils import timezone
+from django.utils.timezone import now
 from django.utils.translation.trans_real import accept_language_re
 from ninja import NinjaAPI, Router
 from ninja.security import SessionAuth
-from django.http import JsonResponse, HttpRequest
-from django.core.cache import cache
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth import views as auth_views
-from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.urls import reverse_lazy
-import json
-from resource_server.models import Endpoint, Log, Batch
+
+import utils.metis_utils as metis_utils
+from resource_server.models import Batch, Endpoint, Log
 from resource_server_async.models import (
-    User as AsyncUser,
     AccessLog as AsyncAccessLog,
-    RequestLog as AsyncRequestLog,
+)
+from resource_server_async.models import (
     BatchLog as AsyncBatchLog,
+)
+from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
 )
-import re
-import logging
-import utils.metis_utils as metis_utils
+from resource_server_async.models import (
+    RequestLog as AsyncRequestLog,
+)
+from resource_server_async.models import (
+    User as AsyncUser,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +45,9 @@ class DjangoSessionAuth(SessionAuth):
     """Use Globus session authentication for API endpoints."""
 
     def authenticate(self, request: HttpRequest, key):
-        from dashboard_async.globus_auth import validate_dashboard_token
         import time
+
+        from dashboard_async.globus_auth import validate_dashboard_token
 
         # Check for Globus tokens in session
         if "globus_tokens" not in request.session:
@@ -217,9 +228,11 @@ def dashboard_callback_view(request):
 
 def dashboard_logout_view(request):
     """Logout and clear both local and Globus sessions."""
-    from dashboard_async.globus_auth import revoke_token
-    from django.conf import settings
     from urllib.parse import urlencode
+
+    from django.conf import settings
+
+    from dashboard_async.globus_auth import revoke_token
 
     # Revoke Globus tokens if present
     if "globus_tokens" in request.session:
@@ -256,12 +269,13 @@ def globus_login_required(view_func):
     Decorator to require Globus authentication for dashboard views.
     Validates Globus token from session and refreshes if needed.
     """
-    from functools import wraps
-    from dashboard_async.globus_auth import (
-        validate_dashboard_token,
-        refresh_access_token,
-    )
     import time
+    from functools import wraps
+
+    from dashboard_async.globus_auth import (
+        refresh_access_token,
+        validate_dashboard_token,
+    )
 
     @wraps(view_func)
     def wrapped_view(request, *args, **kwargs):
@@ -1011,11 +1025,12 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """
     try:
         from asgiref.sync import async_to_sync
-        from resource_server_async.utils import (
-            get_cluster_wrapper,
-            ClusterWrapperResponse,
-        )
+
         from resource_server_async.clusters.cluster import GetJobsResponse, Jobs
+        from resource_server_async.utils import (
+            ClusterWrapperResponse,
+            get_cluster_wrapper,
+        )
 
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
@@ -1337,8 +1352,9 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
 def query_logs_custom(request):
     """Custom log query builder with flexible filters."""
     try:
-        from django.db import connection
         import re as regex_module
+
+        from django.db import connection
 
         # Parse query parameters
         rows = int(request.GET.get("rows", 10))

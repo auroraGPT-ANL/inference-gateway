@@ -1,4 +1,5 @@
 from rest_framework import serializers
+
 from utils import serializer_utils
 
 # TODO: overwrite is_valid or validate function to raise errors when passing extra parameters

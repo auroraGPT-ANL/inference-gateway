@@ -32,13 +32,12 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
-from django.utils.text import slugify
 
 import httpx
 import requests
 from asgiref.sync import sync_to_async
+from django.utils.text import slugify
 from dotenv import load_dotenv
-
 
 # ---------------------------------------------------------------------------
 # Django setup
@@ -61,13 +60,17 @@ django.setup()
 # ---------------------------------------------------------------------------
 from django.conf import settings  # noqa: E402
 
-from resource_server_async.models import Endpoint  # noqa: E402
-from resource_server_async.models import User
-from resource_server_async.utils import get_cluster_wrapper, ClusterWrapperResponse  # noqa: E402
-from resource_server_async.clusters.cluster import GetJobsResponse, Jobs  # noqa: E402
-from utils import globus_utils, metis_utils  # noqa: E402
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
-
+from resource_server_async.clusters.cluster import GetJobsResponse, Jobs  # noqa: E402
+from resource_server_async.models import (
+    Endpoint,  # noqa: E402
+    User,
+)
+from resource_server_async.utils import (  # noqa: E402
+    ClusterWrapperResponse,
+    get_cluster_wrapper,
+)
+from utils import globus_utils, metis_utils  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging

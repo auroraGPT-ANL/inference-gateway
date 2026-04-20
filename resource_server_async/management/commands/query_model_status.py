@@ -1,9 +1,10 @@
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+
 from resource_server.models import ModelStatus
 from resource_server_async.utils import get_qstat_details
 from utils.globus_utils import get_compute_client_from_globus_app, get_compute_executor
-from asgiref.sync import async_to_sync
-from django.conf import settings
 
 
 # Django management command

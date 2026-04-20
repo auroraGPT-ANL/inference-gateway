@@ -2,12 +2,13 @@
 Globus OAuth2 authentication utilities for dashboard.
 """
 
-import globus_sdk
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from cachetools import TTLCache, cached
 import hashlib
 import logging
+
+import globus_sdk
+from cachetools import TTLCache, cached
+from django.conf import settings
+from django.contrib.auth import get_user_model
 
 log = logging.getLogger(__name__)
 
@@ -278,7 +279,7 @@ def check_group_membership(groups_token, user_id, group_id):
 
     # Cache miss - check with Globus API
     try:
-        from globus_sdk import GroupsClient, AccessTokenAuthorizer
+        from globus_sdk import AccessTokenAuthorizer, GroupsClient
 
         authorizer = AccessTokenAuthorizer(groups_token)
         groups_client = GroupsClient(authorizer=authorizer)

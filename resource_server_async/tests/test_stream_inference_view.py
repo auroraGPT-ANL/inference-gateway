@@ -1,5 +1,6 @@
 import json
 
+import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async.tests import (
     ALLOWED_OPENAI_ENDPOINTS,
     CLIENT,
@@ -10,7 +11,6 @@ from resource_server_async.tests import (
     ResourceServerTestCase,
     get_response_json,
 )
-import resource_server_async.tests.mock_utils as mock_utils
 
 
 class StreamInferenceViewTestCase(ResourceServerTestCase):

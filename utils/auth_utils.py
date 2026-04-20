@@ -1,17 +1,18 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from dataclasses import dataclass, field
-from resource_server_async.models import AuthService, User
-from utils.pydantic_models.db_models import UserPydantic
-from django.conf import settings
-import globus_sdk
+# Tool to log access requests
+import logging
 import time
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+import globus_sdk
 
 # Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached
+from django.conf import settings
+from pydantic import BaseModel, Field
 
-# Tool to log access requests
-import logging
+from resource_server_async.models import AuthService, User
+from utils.pydantic_models.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +47,9 @@ def introspect_token(bearer_token: str):
 
     Returns serializable data instead of Globus SDK objects.
     """
-    from django.core.cache import cache
     import hashlib
+
+    from django.core.cache import cache
 
     # Create cache key from token hash (don't store raw tokens in cache keys)
     # Store the entire hash to avoid collisions where different users would have the same last hash digits
