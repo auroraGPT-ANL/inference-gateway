@@ -73,9 +73,15 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Check Python syntax
-        run: |
-          uvx ruff check --select F821 --ignore F821 --target-version py312 .
+      - name: Lint
+        run: make lint
+
+      # To add in the future:
+      # -  name: Type check
+      #    run: make typecheck
+
+      -  name: Format Check
+         run: make format-check
 
       - name: Setup Django environment
         working-directory: ${{ env.WORKING_DIRECTORY }}
