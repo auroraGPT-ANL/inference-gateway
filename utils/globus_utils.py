@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import os
 
 import globus_sdk
 from cachetools import TTLCache, cached
@@ -9,6 +10,7 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
+
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 # Get authenticated Compute Client using secret
 # NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
 @cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
-def get_compute_client_from_globus_app() -> Client:
+def get_compute_client_from_globus_app(client_id_env_name: str = None, client_secret_env_name: str = None) -> Client:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
 
@@ -37,12 +39,19 @@ def get_compute_client_from_globus_app() -> Client:
         globus_compute_sdk.Client: Compute client to operate Globus Compute
     """
 
+    # Extract alternative Globus credentials
+    try:
+        client_id = os.environ.get(client_id_env_name, None) if client_id_env_name else settings.SERVICE_ACCOUNT_ID
+        client_secret = os.environ.get(client_secret_env_name, None) if client_secret else settings.SERVICE_ACCOUNT_SECRET
+    except Exception as e:
+        raise ResourceServerError("Could not retrieve Globus credentials from environment.")
+
     # Try to create and return the Compute client
     try:
         return Client(
             app=globus_sdk.ClientApp(
-                client_id=settings.SERVICE_ACCOUNT_ID,
-                client_secret=settings.SERVICE_ACCOUNT_SECRET,
+                client_id=client_id,
+                client_secret=client_secret,
             )
         )
     except Exception as e:
