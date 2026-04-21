@@ -621,7 +621,7 @@ def get_item_from_cache(cache_key):
     try:
         cached_item = cache.get(cache_key)
         if cached_item:
-            log.info(f"Retrieved {cache_key} from cache.")
+            log.debug(f"Retrieved {cache_key} from cache.")
             return cached_item
     except Exception as e:
         log.warning(f"Cache error for {cache_key}: {e}")
@@ -632,7 +632,7 @@ def cache_item(cache_key, data, ttl=3600):
     """Cache item data (60 minutes TTL by default)."""
     try:
         cache.set(cache_key, data, ttl)
-        log.info(f"Cached {cache_key}.")
+        log.debug(f"Cached {cache_key}.")
     except Exception as e:
         log.warning(f"Failed to cache {cache_key}: {e}")
 
@@ -641,7 +641,7 @@ def remove_item_from_cache(cache_key):
     """Remove item from cache"""
     try:
         cache.delete(cache_key)
-        log.info(f"Removed {cache_key} from cache.")
+        log.debug(f"Removed {cache_key} from cache.")
     except Exception as e:
         log.warning(f"Failed to remove {cache_key} from cache: {e}")
 
