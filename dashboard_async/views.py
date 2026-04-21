@@ -1196,7 +1196,7 @@ def get_batch_model_summary(request, model: str):
 
 
 @router.get("/analytics/batch-logs")
-def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
+async def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     """Paginated batch logs from Async tables with user info and duration."""
     try:
         start_index = page * per_page
@@ -1206,7 +1206,7 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
         )
         sliced = qs[start_index:end_index]
         results = []
-        for bl in sliced:
+        async for bl in sliced:
             access = getattr(bl, "access_log", None)
             user = getattr(access, "user", None) if access else None
             duration = None
