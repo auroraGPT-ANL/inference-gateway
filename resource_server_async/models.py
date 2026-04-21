@@ -320,6 +320,14 @@ class Endpoint(models.Model):
     # Example: ["anl.gov", "alcf.anl.gov"]
     allowed_domains = StrListJSONField(default=list, blank=True)
 
+    # tokens/minute rate limit for the model (total usage by all users).
+    # Set to 0 to disable.
+    tpm_model = models.IntegerField(default=100_000)
+
+    # tokens/minute rate limit for the model per-user.
+    # Set to 0 to disable.
+    tpm_user = models.IntegerField(default=60_000)
+
     # Extra configuration needed to instantiate the endpoint class
     # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
     config = models.TextField(blank=True)

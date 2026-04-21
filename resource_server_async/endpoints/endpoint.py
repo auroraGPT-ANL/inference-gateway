@@ -6,6 +6,7 @@ from django.http import StreamingHttpResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from resource_server_async.models import BatchLog, User
+from resource_server_async.rate_limiters import TokenLimiterCheck, TokenRateLimiter
 from utils.auth_utils import CheckPermissionResponse
 from utils.auth_utils import check_permission as auth_utils_check_permission
 from utils.pydantic_models.batch import BatchStatusEnum
@@ -64,6 +65,8 @@ class BaseEndpoint(ABC):
         framework: str,
         model: str,
         endpoint_adapter: str,
+        tpm_model: int,
+        tpm_user: int,
         allowed_globus_groups: List[str] = None,
         allowed_domains: List[str] = None,
     ):
@@ -76,6 +79,9 @@ class BaseEndpoint(ABC):
         self.__endpoint_adapter = endpoint_adapter
         self.__allowed_globus_groups = allowed_globus_groups
         self.__allowed_domains = allowed_domains
+        self.__token_limiter = BaseEndpoint.build_token_limiter(
+            cluster, framework, model, tpm_model, tpm_user
+        )
 
     # Check permission
     def check_permission(
@@ -96,6 +102,18 @@ class BaseEndpoint(ABC):
 
         # Return permission check result
         return CheckPermissionResponse(is_authorized=response.is_authorized)
+
+    def check_token_rate_limit(self, auth: User) -> TokenLimiterCheck:
+        if self.__token_limiter is None:
+            return TokenLimiterCheck(True, 0, 0)
+        return self.__token_limiter.check(auth.id)
+
+    def record_token_usage(self, auth: User | None, tokens: int) -> None:
+        if self.__token_limiter is None:
+            return
+
+        user_id = auth.id if auth is not None else None
+        self.__token_limiter.record(user_id, tokens)
 
     # Mandatory definitions
     # ---------------------
@@ -172,3 +190,26 @@ class BaseEndpoint(ABC):
     @property
     def allowed_domains(self):
         return self.__allowed_domains
+
+    @staticmethod
+    def build_token_limiter(
+        cluster: str, framework: str, model: str, tpm_model: int, tpm_user: int
+    ) -> TokenRateLimiter | None:
+        """
+        Builds a TokenRateLimiter; returns None if Redis client is not available
+        """
+        # TODO: utils.py is very large and imports code from everywhere else.
+        # Clean up utils to ensure imports are acyclic, then fix this
+        # deferred import:
+        from resource_server_async.utils import get_redis_client
+
+        redis = get_redis_client()
+        if redis is None:
+            return None
+
+        return TokenRateLimiter(
+            redis,
+            f"{cluster}:{framework}:{model}",
+            tpm_model=tpm_model,
+            tpm_user=tpm_user,
+        )

@@ -36,7 +36,6 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import httpx
 import requests
 from asgiref.sync import sync_to_async
-from django.utils.text import slugify
 from dotenv import load_dotenv
 
 # ---------------------------------------------------------------------------
@@ -578,8 +577,7 @@ async def check_metis_models() -> List[HealthRecord]:
         # token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
         from resource_server_async.utils import get_endpoint_wrapper
 
-        endpoint_slug = slugify(" ".join(["metis", "api", model_name.lower()]))
-        response = await get_endpoint_wrapper(endpoint_slug)
+        response = await get_endpoint_wrapper("metis", "api", model_name)
         try:
             api_key_env_name = response.endpoint.config.api_key_env_name
             token = os.environ.get(api_key_env_name, None)

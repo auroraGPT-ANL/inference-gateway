@@ -8,7 +8,6 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
-from django.utils.text import slugify
 from ninja import Query
 
 log = logging.getLogger(__name__)
@@ -261,10 +260,9 @@ async def get_jobs(request, cluster: str):
                 # For each model ...
                 for model in models:
                     # Extract the underlying endpoint wrapper for this model
-                    endpoint_slug = slugify(
-                        " ".join([block.Cluster, block.Framework, model.lower()])
+                    response = await get_endpoint_wrapper(
+                        block.Cluster, block.Framework, model
                     )
-                    response = await get_endpoint_wrapper(endpoint_slug)
 
                     # Continue if the endpoint does not exist to ignore test/dev running jobs
                     if response.error_message:
@@ -323,27 +321,38 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
             request,
         )
 
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(
-        " ".join([cluster.cluster_name, framework, batch_data["model"].lower()])
-    )
-
     # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
+    response = await get_endpoint_wrapper(
+        cluster.cluster_name, framework, batch_data["model"]
+    )
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     endpoint = response.endpoint
+    assert endpoint is not None
 
     # Error if batch is disabled for this endpoint
     if not endpoint.has_batch_enabled():
         return await get_response(
-            f"Error: Batch is unavailable for endpoint {endpoint_slug}", 501, request
+            f"Error: Batch is unavailable for endpoint {endpoint.endpoint_slug}",
+            501,
+            request,
         )
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
+
+    # Return 429 status if TPM limits are exceeded
+    tpm_check = endpoint.check_token_rate_limit(request.auth)
+    if not tpm_check.allow:
+        err = {
+            "error": "Tokens/minute limit exceeded",
+            "global_model_usage": tpm_check.usage_model,
+            "user_model_usage": tpm_check.usage_user,
+        }
+        log.info(f"Endpoint {endpoint.endpoint_slug} rate-limited: {tpm_check}")
+        return await get_response(err, 429, request)
 
     # Reject request if the allowed quota per user would be exceeded
     try:
@@ -634,24 +643,32 @@ async def post_inference(
     # Check if streaming is requested
     stream = data["model_params"].get("stream", False)
 
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(
-        " ".join(
-            [cluster.cluster_name, framework, data["model_params"]["model"].lower()]
-        )
-    )
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
     # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
+    response = await get_endpoint_wrapper(
+        cluster.cluster_name, framework, data["model_params"]["model"]
+    )
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
     endpoint = response.endpoint
+    assert endpoint is not None
+
+    log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
+
+    # Return 429 status if TPM limits are exceeded
+    tpm_check = endpoint.check_token_rate_limit(request.auth)
+    if not tpm_check.allow:
+        err = {
+            "error": "Tokens/minute limit exceeded",
+            "global_model_usage": tpm_check.usage_model,
+            "user_model_usage": tpm_check.usage_user,
+        }
+        log.info(f"Endpoint {endpoint.endpoint_slug} rate-limited: {tpm_check}")
+        return await get_response(err, 429, request)
 
     # Initialize the request log data for the database entry
     request.request_log_data = RequestLogPydantic(
@@ -722,17 +739,16 @@ async def sam3_infer(request, payload: Sam3Request):
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
 
-    # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
-    framework = "sam3service"
-    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
     # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
+    response = await get_endpoint_wrapper(cluster.cluster_name, "sam3service", "sam3")
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
 
+    assert response.endpoint is not None and isinstance(
+        response.endpoint, GlobusComputeEndpoint
+    )
     endpoint: GlobusComputeEndpoint = response.endpoint
+    log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
@@ -771,17 +787,15 @@ async def sam3_get_task_result(request, task_id: str):
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
 
-    # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
-    framework = "sam3service"
-    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
+    response = await get_endpoint_wrapper(cluster.cluster_name, "sam3service", "sam3")
     if response.error_message:
         return await get_response(response.error_message, response.error_code, request)
 
+    assert response.endpoint is not None and isinstance(
+        response.endpoint, GlobusComputeEndpoint
+    )
     endpoint: GlobusComputeEndpoint = response.endpoint
+    log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
     response = endpoint.check_permission(request.auth, request.user_group_uuids)
@@ -1010,7 +1024,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
             error_message = f"Error: User not authorized to access any target for model '{requested_model}'."
             error_code = 401
             raise ValueError(error_message)
-        
+
         log.info(f"Found {len(accessible_targets)} accessible targets for federated model {requested_model}.")
 
         # Get Globus Compute client (needed for status checks)
@@ -1037,7 +1051,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
             if len(gc_error) > 0:
                 log.warning(f"Could not get Globus status for {endpoint_slug}: {gc_error}. Skipping.")
                 continue
-            
+
             is_online = gc_status["status"] == "online"
             model_job_status = "unknown" # e.g., running, queued, stopped, unknown
             free_nodes = -1 # Default to unknown
@@ -1056,14 +1070,14 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
                         try:
                              qstat_data = json.loads(qstat_result_str)
                              qstat_cache[cluster] = {
-                                 "error": False, 
+                                 "error": False,
                                  "data": qstat_data,
                                  "free_nodes": qstat_data.get('cluster_status', {}).get('free_nodes', -1)
                              }
                         except json.JSONDecodeError:
                             log.warning(f"Could not parse qstat JSON for cluster {cluster}. Status checks degraded.")
                             qstat_cache[cluster] = {"error": True, "data": {}, "free_nodes": -1}
-                
+
                 # Parse cached qstat data for this specific model/endpoint
                 if not qstat_cache[cluster]["error"]:
                     qstat_data = qstat_cache[cluster]["data"]
@@ -1082,7 +1096,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
                         if found_in_qstat: break # Found in qstat overall
                     if not found_in_qstat:
                          model_job_status = "stopped" # qstat ran, but model not listed
-            
+
             elif not is_online:
                  model_job_status = "offline" # Globus endpoint itself is offline
 
@@ -1098,7 +1112,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         priority1_queued = [t for t in targets_with_status if t["job_status"] == "queued"]
         priority2_online_free = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] > 0]
         priority3_online_other = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] <= 0]
-        
+
         # TODO: Add smarter selection within priorities (e.g., load balancing, lowest queue)
         # For now, just take the first available in priority order.
 
@@ -1164,7 +1178,7 @@ async def post_federated_inference(request, openai_endpoint: str, *args, **kwarg
         return await get_response(f"Error confirming status for selected endpoint {selected_endpoint['endpoint_slug']}: {final_error}", 500, request)
     if not final_status["status"] == "online":
         return await get_response(f"Error: Selected endpoint {selected_endpoint['endpoint_slug']} went offline before submission.", 503, request)
-    
+
     resources_ready = int(final_status["details"].get("managers", 0)) > 0
 
     # Initialize the request log data for the database entry

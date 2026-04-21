@@ -74,6 +74,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         framework: str,
         model: str,
         endpoint_adapter: str,
+        tpm_model: int,
+        tpm_user: int,
         allowed_globus_groups: List[str] = None,
         allowed_domains: List[str] = None,
         config: dict = None,
@@ -90,6 +92,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
             framework,
             model,
             endpoint_adapter,
+            tpm_model,
+            tpm_user,
             allowed_globus_groups,
             allowed_domains,
         )

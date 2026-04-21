@@ -954,6 +954,14 @@ async def _upsert_request_metrics_auto(
     except Exception as e:
         log.error(f"Error upserting RequestMetrics: {e}")
 
+    endpoint = (
+        await get_endpoint_wrapper(
+            request_obj.cluster, request_obj.framework, request_obj.model
+        )
+    ).endpoint
+    if endpoint is not None:
+        endpoint.record_token_usage(access_obj.user, int(total_tokens or 0))
+
 
 def _extract_usage_tokens_from_result(result_str: str):
     prompt_tokens = None
@@ -1026,6 +1034,7 @@ def _upsert_batch_metrics(
         "completed_at": batch_obj.completed_at,
     }
     obj, _ = BatchMetrics.objects.update_or_create(batch=batch_obj, defaults=defaults)
+
     return obj
 
 
@@ -1044,13 +1053,13 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
     """Update batch database entry and return the modified BatchLog instance data."""
 
     # Get endpoint wrapper from database
-    endpoint_slug = slugify(" ".join([batch.cluster, batch.framework, batch.model]))
-    response = await get_endpoint_wrapper(endpoint_slug)
+    response = await get_endpoint_wrapper(batch.cluster, batch.framework, batch.model)
     if response.error_message:
         return UpdateBatchResponse(
             error_message=response.error_message, error_code=response.error_code
         )
     endpoint = response.endpoint
+    assert endpoint is not None
 
     # Get latest batch status
     response = await endpoint.get_batch_status(batch)
@@ -1098,6 +1107,8 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
                 )
             except Exception as e:
                 log.error(f"Error upserting BatchMetrics: {e}")
+
+            endpoint.record_token_usage(batch.access_log.user, int(total_tokens or 0))
 
         # Update entry in the database
         try:
@@ -1548,8 +1559,12 @@ class EndpointWrapperResponse(BaseModel):
 
 
 # Get endpoint wrapper
-async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
+async def get_endpoint_wrapper(
+    cluster: str, framework: str, model: str
+) -> EndpointWrapperResponse:
     """Extract the endpoint from the database and return its underlying wrapper object."""
+
+    endpoint_slug = slugify(f"{cluster} {framework} {model.lower()}")
 
     # Try to get endpoint wrapper from Redis cache first
     endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
@@ -1755,7 +1770,9 @@ async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
                     cluster=cluster.cluster_name
                 ):
                     # Get endpoint wrapper from database
-                    response = await get_endpoint_wrapper(endpoint.endpoint_slug)
+                    response = await get_endpoint_wrapper(
+                        endpoint.cluster, endpoint.framework, endpoint.model
+                    )
                     if response.error_message:
                         return GetListEndpointsDataResponse(
                             error_message=response.error_message,
