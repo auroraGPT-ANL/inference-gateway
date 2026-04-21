@@ -42,7 +42,7 @@ def get_compute_client_from_globus_app(client_id_env_name: str = None, client_se
     # Extract alternative Globus credentials
     try:
         client_id = os.environ.get(client_id_env_name, None) if client_id_env_name else settings.SERVICE_ACCOUNT_ID
-        client_secret = os.environ.get(client_secret_env_name, None) if client_secret else settings.SERVICE_ACCOUNT_SECRET
+        client_secret = os.environ.get(client_secret_env_name, None) if client_secret_env_name else settings.SERVICE_ACCOUNT_SECRET
     except Exception as e:
         raise ResourceServerError("Could not retrieve Globus credentials from environment.")
 
