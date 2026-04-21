@@ -3,6 +3,7 @@ import logging
 import time
 import os
 
+from django.conf import settings
 import globus_sdk
 from cachetools import TTLCache, cached
 from django.conf import settings
