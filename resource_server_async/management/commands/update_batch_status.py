@@ -1,7 +1,8 @@
+from asgiref.sync import async_to_sync
 from django.core.management.base import BaseCommand, CommandError
+
 from resource_server.models import Batch
 from resource_server_async.utils import update_batch_status_result
-from asgiref.sync import async_to_sync
 
 
 # Django management command
@@ -33,5 +34,5 @@ class Command(BaseCommand):
                 print(
                     f"batch {batch.batch_id} updated from {batch_status_before} to {batch_status}."
                 )
-            except Exception as e:
+            except Exception:
                 pass

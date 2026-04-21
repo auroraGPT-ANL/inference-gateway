@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from typing import Iterable, List, Optional, Tuple
-import hashlib
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from django.utils.timezone import now
 
-from resource_server.models import Log as LegacyLog
 from resource_server.models import Endpoint as LegacyEndpoint
+from resource_server.models import Log as LegacyLog
 from resource_server_async.models import (
-    User,
     AccessLog,
-    RequestLog,
     AuthService,
+    RequestLog,
+    User,
 )
 
 

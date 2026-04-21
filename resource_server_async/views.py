@@ -1,65 +1,65 @@
-from ninja import Query
-from asgiref.sync import sync_to_async
-from django.conf import settings
-import uuid
 import json
-from django.utils import timezone
-from django.utils.text import slugify
-from django.http import JsonResponse, HttpResponse
 
 # Tool to log access requests
 import logging
+import uuid
+
+from asgiref.sync import sync_to_async
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
+from django.utils.text import slugify
+from ninja import Query
 
 log = logging.getLogger(__name__)
 
 # Force Uvicorn to add timestamps in the Gunicorn access log
 import logging.config
+
 from logging_config import LOGGING_CONFIG
 
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-from utils.pydantic_models.db_models import (
-    RequestLogPydantic,
-    BatchLogPydantic,
-    UserPydantic,
-)
-from utils.pydantic_models.batch import BatchStatusEnum, BatchListFilter
-from utils.globus_utils import get_transfer_client
-from resource_server_async.clusters.cluster import Jobs, JobInfo, BaseCluster
+from resource_server_async.clusters.cluster import BaseCluster, JobInfo, Jobs
 from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
 from resource_server_async.utils import (
-    extract_prompt,
-    validate_request_body,
-    validate_batch_body,
-    update_batch,
-    decode_request_body,
-    # Streaming functions
-    store_streaming_data,
-    set_streaming_status,
-    set_streaming_error,
-    set_streaming_metadata,
-    validate_streaming_request_security,
-    # Response functions
-    get_response,
     create_access_log,
     create_request_log,
+    decode_request_body,
+    extract_prompt,
+    get_cluster_wrapper,
     # Wrapper function
     get_endpoint_wrapper,
-    get_cluster_wrapper,
     get_list_endpoints_data,
-    GetListEndpointsDataResponse,
+    # Response functions
+    get_response,
+    set_streaming_error,
+    set_streaming_metadata,
+    set_streaming_status,
+    # Streaming functions
+    store_streaming_data,
+    update_batch,
+    validate_batch_body,
+    validate_request_body,
+    validate_streaming_request_security,
+)
+from utils.globus_utils import get_transfer_client
+from utils.pydantic_models.batch import BatchListFilter, BatchStatusEnum
+from utils.pydantic_models.db_models import (
+    BatchLogPydantic,
+    RequestLogPydantic,
+    UserPydantic,
 )
 
 log.info("Utils functions loaded.")
 
 # Django database
 # from resource_server.models import FederatedEndpoint
-from resource_server_async.models import BatchLog, Cluster, Endpoint
-from resource_server_async.schemas.sam3 import Sam3Request
-
 # Django Ninja API
 from resource_server_async.api import api, router
+from resource_server_async.models import BatchLog
+from resource_server_async.schemas.sam3 import Sam3Request
 
 # NOTE: All caching is now centralized in resource_server_async.utils
 # Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache

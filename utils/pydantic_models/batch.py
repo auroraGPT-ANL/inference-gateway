@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
-from ninja import FilterSchema
 from enum import Enum
 from typing import Optional
+
+from ninja import FilterSchema
+from pydantic import BaseModel, Field
 
 
 # Batch status

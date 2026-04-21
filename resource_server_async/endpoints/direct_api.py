@@ -1,22 +1,23 @@
 import asyncio
 import json
-import time
+import logging
 import os
+import time
+from typing import Dict, List, Optional
+
 import httpx
 from asgiref.sync import sync_to_async
-from django.utils import timezone
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from pydantic import BaseModel, Field
-from typing import Any, Optional, Dict, List
-from resource_server_async.utils import create_streaming_response_headers
-from resource_server_async.models import RequestLog
+
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
-    BaseModelWithError,
-    SubmitTaskResponse,
     SubmitStreamingTaskResponse,
+    SubmitTaskResponse,
 )
-import logging
+from resource_server_async.models import RequestLog
+from resource_server_async.utils import create_streaming_response_headers
 
 log = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ class DirectAPIEndpoint(BaseEndpoint):
                 streaming_state["error"] = error_str
                 streaming_state["completed"] = True
                 error_chunk = {
-                    "id": f"chatcmpl-api-error",
+                    "id": "chatcmpl-api-error",
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": self.model,

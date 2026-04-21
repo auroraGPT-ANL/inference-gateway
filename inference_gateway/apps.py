@@ -1,8 +1,8 @@
 import globus_sdk
-from ninja.constants import NOT_SET_TYPE
 from django.apps import AppConfig
-from django.core.exceptions import ImproperlyConfigured
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from ninja.constants import NOT_SET_TYPE
 
 
 class AuthCheckConfig(AppConfig):
@@ -56,7 +56,7 @@ class AuthCheckConfig(AppConfig):
             )
 
         # Make sure the auth check is enforced to all routes within the API
-        from resource_server_async.api import api, GlobalAuth
+        from resource_server_async.api import GlobalAuth, api
 
         if (
             not hasattr(api, "auth")

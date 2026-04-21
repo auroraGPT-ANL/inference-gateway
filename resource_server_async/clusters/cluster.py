@@ -1,12 +1,14 @@
+import logging
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional
+
 from django.core.cache import cache
 from pydantic import BaseModel, Field
-from abc import ABC, abstractmethod
-from typing import List, Optional, Dict
-from resource_server_async.models import User
-from utils.auth_utils import check_permission as auth_utils_check_permission
-from utils.auth_utils import CheckPermissionResponse
+
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
-import logging
+from resource_server_async.models import User
+from utils.auth_utils import CheckPermissionResponse
+from utils.auth_utils import check_permission as auth_utils_check_permission
 
 log = logging.getLogger(__name__)
 

@@ -2,12 +2,13 @@
 Globus OAuth2 authentication utilities for dashboard.
 """
 
-import globus_sdk
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from cachetools import TTLCache, cached
 import hashlib
 import logging
+
+import globus_sdk
+from cachetools import TTLCache, cached
+from django.conf import settings
+from django.contrib.auth import get_user_model
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def validate_dashboard_token(access_token, groups_token=None):
     try:
         cached_result = cache.get(cache_key)
         if cached_result is not None:
-            log.debug(f"Using cached token validation result")
+            log.debug("Using cached token validation result")
             return cached_result
     except Exception as e:
         log.warning(f"Redis cache error for dashboard token validation: {e}")
@@ -278,7 +279,7 @@ def check_group_membership(groups_token, user_id, group_id):
 
     # Cache miss - check with Globus API
     try:
-        from globus_sdk import GroupsClient, AccessTokenAuthorizer
+        from globus_sdk import AccessTokenAuthorizer, GroupsClient
 
         authorizer = AccessTokenAuthorizer(groups_token)
         groups_client = GroupsClient(authorizer=authorizer)
@@ -327,7 +328,7 @@ def refresh_access_token(refresh_token):
     new_access_token = authorizer.get_authorization_header()
 
     # Get new token info
-    token_response = authorizer.check_expiration_time()
+    authorizer.check_expiration_time()
 
     return {
         "access_token": new_access_token.split(" ")[1],  # Remove 'Bearer ' prefix

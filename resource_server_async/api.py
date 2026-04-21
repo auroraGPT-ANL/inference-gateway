@@ -1,13 +1,14 @@
 import uuid
+
+from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.utils import timezone
-from django.core.cache import cache
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from ninja import NinjaAPI, Router
-from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
-from asgiref.sync import sync_to_async
+from ninja.throttling import AnonRateThrottle, AuthRateThrottle
+
 from resource_server_async.models import User
 from resource_server_async.utils import create_access_log, is_cached
 from utils.auth_utils import validate_access_token

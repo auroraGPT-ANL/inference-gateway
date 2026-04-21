@@ -2,9 +2,9 @@ import globus_compute_sdk
 
 
 def qstat_inference_function():
+    import json
     import os
     import re
-    import json
     import subprocess
 
     def run_command(cmd):

@@ -12,7 +12,6 @@ from .auth import cli as auth_cli
 from .client import InferenceClient
 from .sam3 import cli as sam3_cli
 
-
 logger = logging.getLogger(__name__)
 console = Console(stderr=True)
 

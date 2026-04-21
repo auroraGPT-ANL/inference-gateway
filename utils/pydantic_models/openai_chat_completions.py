@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, AfterValidator, model_validator
-from typing import List, Optional, Union, Dict, Annotated, Any
 from enum import Enum
+from typing import Annotated, Any, Dict, List, Optional, Union
+
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 # Extra validation for the metadata field
@@ -253,7 +254,7 @@ class ResponseFormat(BaseModelExtraForbid):
     def set_dynamic_content_type(cls, values):
         # Check if type was provided
         if "type" not in values:
-            raise ValueError(f"'type' must be provided.")
+            raise ValueError("'type' must be provided.")
 
         # Validate the input type
         response_type = values.get("type")
@@ -435,7 +436,7 @@ class UserMessageContent(BaseModelExtraForbid):
         # Check if type was provided
         if "type" not in values:
             raise ValueError(
-                f"'type' must be provided in each user message content item."
+                "'type' must be provided in each user message content item."
             )
 
         # Validate the input type
@@ -481,7 +482,7 @@ class AssistantMessageContent(BaseModelExtraForbid):
         # Check if type was provided
         if "type" not in values:
             raise ValueError(
-                f"'type' must be provided in each assistant message content item."
+                "'type' must be provided in each assistant message content item."
             )
 
         # Validate the input type
@@ -542,7 +543,7 @@ class Message(BaseModelExtraForbid):
     def set_dynamic_message_role(cls, values):
         # Check if role was provided
         if "role" not in values:
-            raise ValueError(f"'role' must be provided in each message object.")
+            raise ValueError("'role' must be provided in each message object.")
 
         # Validate the input role
         input_role = values.get("role")

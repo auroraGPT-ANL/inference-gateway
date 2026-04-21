@@ -1,6 +1,6 @@
-from django.apps import AppConfig
-from django.core.cache import cache
 import logging
+
+from django.apps import AppConfig
 
 log = logging.getLogger(__name__)
 

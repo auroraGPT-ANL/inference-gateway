@@ -1,8 +1,9 @@
 import uuid
-from django.db import models
-from django.utils.timezone import now
-from django.utils.text import slugify
+
 from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils.text import slugify
+from django.utils.timezone import now
 
 
 # Supported authentication origins

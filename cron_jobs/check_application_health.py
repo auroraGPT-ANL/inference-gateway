@@ -12,17 +12,16 @@ This script checks the health of the Inference Gateway application by:
 Designed to run as a cron job every 5 minutes.
 """
 
-import os
-import sys
 import json
 import logging
-import subprocess
-import requests
+import os
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from urllib.parse import urljoin
+import subprocess
+import sys
 from datetime import datetime
+from email.mime.text import MIMEText
+
+import requests
 
 # Add parent directory to path to import Django modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,11 +32,11 @@ import django
 
 django.setup()
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from resource_server.models import Endpoint
+
 import utils.globus_utils as globus_utils
+from resource_server.models import Endpoint
 
 # Setup logging
 logging.basicConfig(
@@ -282,7 +281,7 @@ class ApplicationHealthChecker:
                 log.info(f"Authenticating as {self.smtp_user}...")
                 server.login(self.smtp_user, self.smtp_password)
 
-            log.info(f"Sending email...")
+            log.info("Sending email...")
             server.sendmail(self.alert_email_from, self.alert_email_to, msg.as_string())
             server.quit()
 
@@ -303,7 +302,7 @@ class ApplicationHealthChecker:
             log.info(f"Writing email content to {email_file}")
             with open(email_file, "w") as f:
                 f.write(email_content)
-            log.info(f"✓ Email content written successfully")
+            log.info("✓ Email content written successfully")
 
             # Send email using sendmail
             recipients = " ".join(self.alert_email_to)
@@ -324,7 +323,7 @@ class ApplicationHealthChecker:
                 log.info(
                     f"✓ Alert email queued successfully via sendmail to {recipients}"
                 )
-                log.info(f"⚠️  NOTE: Check mail queue with 'mailq' to verify delivery")
+                log.info("⚠️  NOTE: Check mail queue with 'mailq' to verify delivery")
                 return True
             else:
                 log.error(
@@ -349,7 +348,7 @@ class ApplicationHealthChecker:
             log.info("All application components are healthy. No alert email needed.")
             return
 
-        log.warning(f"⚠️  APPLICATION UNHEALTHY - Attempting to send alert email")
+        log.warning("⚠️  APPLICATION UNHEALTHY - Attempting to send alert email")
 
         if not self.alert_email_to or not any(self.alert_email_to):
             log.error(

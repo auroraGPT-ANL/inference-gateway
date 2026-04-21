@@ -1,14 +1,13 @@
 import logging
-from time import perf_counter
 from dataclasses import dataclass
-from pathlib import Path
 from datetime import datetime
-from typing import Any
-import httpx
+from pathlib import Path
+from time import perf_counter
 
 import globus_sdk
+import httpx
 
-from .auth import STAGING_COLLECTION_ID, get_transfer_authorizer, get_https_authorizer
+from .auth import STAGING_COLLECTION_ID, get_https_authorizer, get_transfer_authorizer
 
 logger = logging.getLogger(__name__)
 

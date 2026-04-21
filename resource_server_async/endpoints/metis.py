@@ -1,14 +1,15 @@
-import json
-from pydantic import BaseModel, Field
-from typing import Any, Optional, List
+import logging
+from typing import Any, List, Optional
+
+from pydantic import BaseModel
+
+from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 from resource_server_async.endpoints.endpoint import (
     BaseModelWithError,
-    SubmitTaskResponse,
     SubmitStreamingTaskResponse,
+    SubmitTaskResponse,
 )
-from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 from utils.metis_utils import fetch_metis_status, find_metis_model
-import logging
 
 log = logging.getLogger(__name__)
 

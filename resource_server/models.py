@@ -1,8 +1,8 @@
+import uuid
+
 from django.db import models
 from django.utils.text import slugify
-import uuid
 from django.utils.timezone import now
-from django.core.exceptions import ValidationError
 
 
 # Details of a given Globus Compute endpoint

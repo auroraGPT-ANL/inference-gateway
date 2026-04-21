@@ -1,45 +1,47 @@
-import uuid
-import json
-import logging
-import redis
-import time
-import asyncio
-import re
 import ast
-import secrets
+import asyncio
 import hmac
 import importlib
+import json
+import logging
+import re
+import secrets
+import time
+import uuid
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
+
+import redis
+from asgiref.sync import sync_to_async
+from cachetools import TTLCache
+from django.conf import settings
 from django.core.cache import cache
 from django.forms.models import model_to_dict
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
-from django.conf import settings
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
-from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from pydantic import BaseModel, ConfigDict, Field
+from rest_framework.exceptions import ValidationError
+
+from resource_server_async.clusters.cluster import BaseCluster
+from resource_server_async.endpoints.endpoint import BaseEndpoint
+from resource_server_async.models import (
+    AccessLog,
+    BatchLog,
+    BatchMetrics,
+    Cluster,
+    Endpoint,
+    RequestLog,
+    RequestMetrics,
+)
 from utils.pydantic_models.batch import BatchPydantic, BatchStatusEnum
 from utils.pydantic_models.db_models import (
     AccessLogPydantic,
-    RequestLogPydantic,
     BatchLogPydantic,
+    RequestLogPydantic,
 )
-from rest_framework.exceptions import ValidationError
-from asgiref.sync import sync_to_async
-from cachetools import TTLCache
-from resource_server_async.models import (
-    AccessLog,
-    RequestLog,
-    BatchLog,
-    RequestMetrics,
-    BatchMetrics,
-    Endpoint,
-    Cluster,
-)
-from resource_server_async.endpoints.endpoint import BaseEndpoint
-from resource_server_async.clusters.cluster import BaseCluster
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
+from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 
 log = logging.getLogger(__name__)  # Add logger
 
@@ -1164,7 +1166,7 @@ def format_streaming_error_for_openai(error_message: str):
         }
         return f"data: {json.dumps(fallback_error)}\n\n"
 
-    except Exception as e:
+    except Exception:
         # Ultimate fallback
         fallback_error = {
             "object": "error",

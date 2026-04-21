@@ -1,6 +1,8 @@
 import json
+
 from django.test import TestCase
 
+import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async.tests import (
     ACTIVE_TOKEN,
     CLIENT,
@@ -9,7 +11,6 @@ from resource_server_async.tests import (
     INVALID_TOKEN,
     KWARGS,
 )
-import resource_server_async.tests.mock_utils as mock_utils
 
 
 class EndpointPostTestsMixin(TestCase):

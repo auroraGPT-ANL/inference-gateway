@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from .auth import get_inference_authorizer
 from .resources import ClusterResource, Sam3Resource
-from .transfer import TransferResult, run_globus_transfer, https_put_to_collection
+from .transfer import TransferResult, https_put_to_collection, run_globus_transfer
 
 DEFAULT_BASE_URL = os.environ.get(
     "inference_base_url", "https://inference-api.alcf.anl.gov/resource_server/"

@@ -1,14 +1,14 @@
 import asyncio
+import logging
 import time
-from django.conf import settings
+
 import globus_sdk
-from globus_sdk import TransferClient
+from cachetools import TTLCache, cached
+from django.conf import settings
 from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
-from cachetools import TTLCache, cached
-
-import logging
+from globus_sdk import TransferClient
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ async def submit_and_get_result(
     try:
         asyncio_future = asyncio.wrap_future(future)
         result = await asyncio.wait_for(asyncio_future, timeout=timeout)
-    except TimeoutError as e:
+    except TimeoutError:
         error_message = "Error: TimeoutError while attempting to access compute resources. Please try again later."
         return None, get_task_uuid(future), error_message, 408
     except Exception as e:

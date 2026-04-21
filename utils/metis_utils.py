@@ -10,15 +10,11 @@ an API. This module provides utilities to:
 
 import json
 import logging
-import time
+from typing import Dict, Optional, Tuple
+
 import httpx
-import asyncio
-from django.utils import timezone
-from asgiref.sync import sync_to_async
 from django.conf import settings
-from typing import Dict, Tuple, Optional, List
 from django.core.cache import cache
-from resource_server_async.models import RequestLog
 
 log = logging.getLogger(__name__)
 

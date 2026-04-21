@@ -1,17 +1,18 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from dataclasses import dataclass, field
-from resource_server_async.models import AuthService, User
-from utils.pydantic_models.db_models import UserPydantic
-from django.conf import settings
-import globus_sdk
+# Tool to log access requests
+import logging
 import time
+from dataclasses import field
+from typing import List, Optional
+
+import globus_sdk
 
 # Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached
+from django.conf import settings
+from pydantic import BaseModel, Field
 
-# Tool to log access requests
-import logging
+from resource_server_async.models import AuthService, User
+from utils.pydantic_models.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +47,9 @@ def introspect_token(bearer_token: str):
 
     Returns serializable data instead of Globus SDK objects.
     """
-    from django.core.cache import cache
     import hashlib
+
+    from django.core.cache import cache
 
     # Create cache key from token hash (don't store raw tokens in cache keys)
     # Store the entire hash to avoid collisions where different users would have the same last hash digits
@@ -219,7 +221,7 @@ def check_globus_groups(user_groups):
 
     # Deny access if authenticated user is not part of any of the allowed Globus Groups
     else:
-        return False, f"Error: User is not a member of an allowed Globus Group."
+        return False, "Error: User is not a member of an allowed Globus Group."
 
 
 # Check Session Info
@@ -283,7 +285,7 @@ def check_session_info(introspection, user_groups):
         user_str = ", ".join(user_str)
         if len(user_str) == 0:
             user_str = "Unknown (no active session found)"
-    except Exception as e:
+    except Exception:
         user_str = "could not recover user identity"
 
     # Revoke access if authentication did not come from authorized provider
@@ -510,7 +512,7 @@ def check_permission(
         if len(set(user_group_uuids) & set(allowed_globus_groups)) == 0:
             return CheckPermissionResponse(
                 is_authorized=False,
-                error_message=f"Error: Permission denied due to Globus Group restrictions.",
+                error_message="Error: Permission denied due to Globus Group restrictions.",
                 error_code=401,
             )
 
@@ -529,7 +531,7 @@ def check_permission(
         if user_domain not in allowed_domains:
             return CheckPermissionResponse(
                 is_authorized=False,
-                error_message=f"Error: Permission denied due to IdP domain restrictions.",
+                error_message="Error: Permission denied due to IdP domain restrictions.",
                 error_code=401,
             )
 

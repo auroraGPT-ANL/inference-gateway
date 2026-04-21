@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import torch
-from genslm_esm.data import FastaDataset
-from genslm_esm.data import GenslmEsmcDataCollator
-from genslm_esm.modeling import GenslmEsmcModel
-from genslm_esm.modeling import GenslmEsmcModelOutput
-from parsl_object_registry import clear_torch_cuda_memory_callback
-from parsl_object_registry import register
-from pydantic import Field
-from pydantic import SecretStr
-from pydantic_settings import BaseSettings
-from pydantic_settings import SettingsConfigDict
+from genslm_esm.data import FastaDataset, GenslmEsmcDataCollator
+from genslm_esm.modeling import GenslmEsmcModel, GenslmEsmcModelOutput
+from parsl_object_registry import clear_torch_cuda_memory_callback, register
+from pydantic import Field, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoModel
-from transformers import AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 
 
 ########################################################
@@ -326,7 +319,6 @@ def embeddings_gc_fn(parameters: dict[str, Any]) -> str:
     """
     import json
     import time
-    from typing import Any
 
     # Explicit imports for globus compute
     from genslm_esm_globus_compute.globus_compute_fn import compute_embeddings

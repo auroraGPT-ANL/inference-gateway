@@ -1,5 +1,5 @@
-from typing import List
 import re
+from typing import List
 
 
 class BackendUtilsError(Exception):

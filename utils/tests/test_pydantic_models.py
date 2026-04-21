@@ -1,10 +1,12 @@
+import json
+
+from pydantic import ValidationError
+from rest_framework.test import APITestCase
+
+from utils.pydantic_models.batch import BatchPydantic
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
 from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
 from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
-from utils.pydantic_models.batch import BatchPydantic
-from pydantic import ValidationError
-from rest_framework.test import APITestCase
-import json
 
 # Constants
 COMPLETIONS = "completions"

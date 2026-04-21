@@ -3,11 +3,11 @@ import requests
 
 
 def vllm_inference_function(parameters):
-    import socket
-    import os
-    import time
-    import requests
     import json
+    import os
+    import socket
+    import time
+
     from requests.exceptions import RequestException
 
     # Constants
@@ -147,7 +147,7 @@ def vllm_inference_function(parameters):
             use_fresh_session=True,
         )
         if success:
-            print(f"[STREAMING] Done signal sent successfully")
+            print("[STREAMING] Done signal sent successfully")
             return True
         return False
 
@@ -301,7 +301,7 @@ def vllm_inference_function(parameters):
                                 chunks_sent += len(batch_buffer)
                             else:
                                 failed_sends += len(batch_buffer)
-                                print(f"[STREAMING] Failed to send final batch")
+                                print("[STREAMING] Failed to send final batch")
 
                         # Send completion to streaming server
                         done_success = send_done_to_streaming_server(
@@ -314,7 +314,7 @@ def vllm_inference_function(parameters):
 
                         if not done_success:
                             print(
-                                f"[STREAMING] WARNING: Done signal failed, but continuing..."
+                                "[STREAMING] WARNING: Done signal failed, but continuing..."
                             )
 
                         break

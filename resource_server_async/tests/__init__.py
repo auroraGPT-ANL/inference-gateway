@@ -1,22 +1,24 @@
-from inspect import iscoroutinefunction
+import asyncio
+import copy
+import json
 import re
+from inspect import iscoroutinefunction
 from typing import override
+
+import httpx
 from django.conf import settings
 from django.core.management import call_command
-import asyncio
-import utils.auth_utils as auth_utils
-import utils.globus_utils as globus_utils
-import resource_server_async.tests.mock_utils as mock_utils
-import httpx
-from resource_server_async import api
-from resource_server_async.endpoints import globus_compute, direct_api, metis
-import json
-import copy
 
 # Tools to test with Django Ninja
 from django.test import TestCase
 from ninja.testing import TestAsyncClient
+
+import resource_server_async.tests.mock_utils as mock_utils
+import utils.auth_utils as auth_utils
+import utils.globus_utils as globus_utils
+from resource_server_async import api
 from resource_server_async.api import router
+from resource_server_async.endpoints import direct_api, globus_compute, metis
 
 # Overwrite log data initialization
 api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
@@ -114,7 +116,7 @@ INVALID_PARAMS["health"] = {}
 INVALID_PARAMS["metrics"] = {}
 
 # Collect available clusters and endpoints from database
-with open("fixtures/new_endpoints.json") as json_file:
+with open("fixtures/endpoints.json") as json_file:
     DB_ENDPOINTS = [e["fields"] for e in json.load(json_file)]
 with open("fixtures/clusters.json") as json_file:
     DB_CLUSTERS = [c["fields"] for c in json.load(json_file)]
@@ -262,7 +264,7 @@ class ResourceServerTestCase(TestCase):
         """
 
         # Fill Django test database
-        call_command("loaddata", "fixtures/new_endpoints.json")
+        call_command("loaddata", "fixtures/endpoints.json")
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()
