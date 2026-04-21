@@ -1,6 +1,7 @@
 import logging
 from datetime import timedelta
 
+from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.core.cache import cache
 from django.db.models import (
@@ -893,30 +894,36 @@ def get_model_series(request, model: str, window: str = "24h"):
 
 
 @router.get("/analytics/model/box")
-def get_model_box(request, model: str, window: str = "24h"):
+async def get_model_box(request, model: str, window: str = "24h"):
     try:
         from django.db import connection
 
         delta, _ = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  AVG(throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  AVG(response_time_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
-                FROM resource_server_async_requestmetrics
-                WHERE model = %s AND timestamp_compute_request >= %s AND timestamp_compute_request <= %s
-                  AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
-                """,
-                [model, start_ts, end_ts],
-            )
-            row = cursor.fetchone()
+
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      AVG(throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      AVG(response_time_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
+                    FROM resource_server_async_requestmetrics
+                    WHERE model = %s AND timestamp_compute_request >= %s AND timestamp_compute_request <= %s
+                      AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
+                    """,
+                    [model, start_ts, end_ts],
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
+
         return {
             "throughput": {
                 "mean": float(row[0] or 0.0),
