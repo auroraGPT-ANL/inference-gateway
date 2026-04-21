@@ -17,7 +17,12 @@ from resource_server_async.endpoints.endpoint import (
     SubmitTaskResponse,
 )
 from resource_server_async.models import RequestLog
-from resource_server_async.utils import create_streaming_response_headers
+from resource_server_async.utils import (
+    SubmitHTTPXCallResponse,
+    create_streaming_response_headers,
+    httpx_call_methods,
+    submit_httpx_call,
+)
 
 log = logging.getLogger(__name__)
 
@@ -70,42 +75,24 @@ class DirectAPIEndpoint(BaseEndpoint):
     async def submit_task(self, data: dict) -> SubmitTaskResponse:
         """Submits a single interactive task to the compute resource."""
 
-        # Create an async HTTPx client
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.config.api_request_timeout
-            ) as client:
-                # Make a call to the API with input data
-                response = await client.post(
-                    self.config.api_url, json=data, headers=self.__headers
-                )
+        # Submit call to API
+        httpx_response: SubmitHTTPXCallResponse = await submit_httpx_call(
+            self.config.api_url,
+            data=data,
+            headers=self.__headers,
+            timeout=self.config.api_request_timeout,
+            method=httpx_call_methods.post,
+        )
 
-                # Return error if something went wrong
-                if response.status_code != 200:
-                    return SubmitTaskResponse(
-                        error_message=f"Error: Could not send API call to {self.config.api_url}: {response.text.strip()}",
-                        error_code=response.status_code,
-                    )
+        # Send error if any
+        if httpx_response.error_message:
+            return SubmitTaskResponse(
+                error_message=httpx_response.error_message,
+                error_code=httpx_response.error_code,
+            )
 
-                # Return result if API call worked
-                return SubmitTaskResponse(result=response.text)
-
-        # Errors
-        except httpx.TimeoutException:
-            return SubmitTaskResponse(
-                error_message=f"Error: Timeout calling API at {self.config.api_url} (timeout: {self.config.api_request_timeout})",
-                error_code=504,
-            )
-        except httpx.HTTPError as e:
-            return SubmitTaskResponse(
-                error_message=f"Error: HTTP error calling API at {self.config.api_url}: {e}",
-                error_code=500,
-            )
-        except Exception as e:
-            return SubmitTaskResponse(
-                error_message=f"Error: Unexpected error calling API: {e}",
-                error_code=500,
-            )
+        # Return response from the API call
+        return SubmitTaskResponse(result=httpx_response.result)
 
     # Call stream API
     async def submit_streaming_task(
