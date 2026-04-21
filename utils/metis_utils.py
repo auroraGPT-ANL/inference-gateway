@@ -8,13 +8,17 @@ an API. This module provides utilities to:
 - Make direct API calls to Metis endpoints
 """
 
-import json
 import logging
 from typing import Dict, Optional, Tuple
 
-import httpx
 from django.conf import settings
 from django.core.cache import cache
+
+from resource_server_async.utils import (
+    SubmitHTTPXCallResponse,
+    httpx_call_methods,
+    submit_httpx_call,
+)
 
 log = logging.getLogger(__name__)
 
@@ -57,35 +61,23 @@ async def fetch_metis_status(use_cache: bool = True) -> Tuple[Optional[Dict], st
 
     # Fetch from API
     status_url = get_metis_status_url()
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(status_url)
-            response.raise_for_status()
-            status_data = response.json()
+    httpx_response: SubmitHTTPXCallResponse = await submit_httpx_call(
+        status_url,
+        timeout=30,
+        method=httpx_call_methods.get,
+    )
 
-            # Cache the result
-            if use_cache:
-                cache.set(cache_key, status_data, METIS_STATUS_CACHE_TTL)
+    # Send error if any
+    if httpx_response.error_message:
+        return None, httpx_response.error_message
 
-            log.info(f"Successfully fetched Metis status from {status_url}")
-            return status_data, ""
+    # Extract data
+    status_data = httpx_response.result
 
-    except httpx.TimeoutException:
-        error_msg = f"Timeout fetching Metis status from {status_url}"
-        log.error(error_msg)
-        return None, error_msg
-    except httpx.HTTPError as e:
-        error_msg = f"HTTP error fetching Metis status: {e}"
-        log.error(error_msg)
-        return None, error_msg
-    except json.JSONDecodeError as e:
-        error_msg = f"Invalid JSON response from Metis status endpoint: {e}"
-        log.error(error_msg)
-        return None, error_msg
-    except Exception as e:
-        error_msg = f"Unexpected error fetching Metis status: {e}"
-        log.error(error_msg)
-        return None, error_msg
+    # Cache and return result
+    if use_cache:
+        cache.set(cache_key, status_data, METIS_STATUS_CACHE_TTL)
+    return status_data, ""
 
 
 def find_metis_model(
