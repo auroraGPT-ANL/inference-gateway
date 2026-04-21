@@ -8,8 +8,10 @@ import re
 import secrets
 import time
 import uuid
-from typing import Optional
+from enum import Enum
+from typing import Any, Optional
 
+import httpx
 import redis
 from asgiref.sync import sync_to_async
 from cachetools import TTLCache
@@ -1798,3 +1800,72 @@ async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
 
     # Return the endpoint list data
     return GetListEndpointsDataResponse(all_endpoints=all_endpoints)
+
+
+# Typing and data formatting for submit_httpx_call
+class httpx_call_methods(Enum):
+    post = "post"
+    get = "get"
+
+
+class SubmitHTTPXCallResponse(BaseModel):
+    error_message: Optional[str] = Field(default=None)
+    error_code: Optional[int] = Field(default=None)
+    result: Optional[Any] = Field(default=None)
+
+
+# Submit httpx call
+async def submit_httpx_call(
+    url: str,
+    data: dict = None,
+    headers: dict = {"Content-Type": "application/json"},
+    timeout: int = 60,
+    method: httpx_call_methods = None,
+) -> SubmitHTTPXCallResponse:
+    """Make async POST/GET requests using httpx."""
+
+    # Create async client
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # Make a call and wait for the response
+            if method == httpx_call_methods.get:
+                response = await client.get(url, headers=headers)
+            elif method == httpx_call_methods.post:
+                response = await client.post(url, json=data, headers=headers)
+            else:
+                return SubmitHTTPXCallResponse(
+                    error_message=f"Error: method {method} not supported to submit with HTTPx.",
+                    error_code=500,
+                )
+
+            # Return error if something went wrong
+            if response.status_code != 200:
+                return SubmitHTTPXCallResponse(
+                    error_message=f"Error: Could not send HTTPx call to {url}: {response.text.strip()}",
+                    error_code=response.status_code,
+                )
+
+            # Return retuls if HTTPx call worked
+            return SubmitHTTPXCallResponse(result=response.json())
+
+    # Errors
+    except httpx.TimeoutException:
+        return SubmitHTTPXCallResponse(
+            error_message=f"Error: Timeout calling {url} (timeout: {timeout})",
+            error_code=504,
+        )
+    except httpx.HTTPError as e:
+        return SubmitHTTPXCallResponse(
+            error_message=f"Error: HTTPx error calling {url}: {e}",
+            error_code=500,
+        )
+    except json.JSONDecodeError as e:
+        return SubmitHTTPXCallResponse(
+            error_message=f"Invalid JSON response from {url}: {e}",
+            error_code=500,
+        )
+    except Exception as e:
+        return SubmitHTTPXCallResponse(
+            error_message=f"Error: Unexpected error calling {url}: {e}",
+            error_code=500,
+        )
