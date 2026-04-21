@@ -1163,28 +1163,32 @@ def get_batch_overview(request):
 
 
 @router.get("/analytics/batch/model-summary")
-def get_batch_model_summary(request, model: str):
+async def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
     try:
         from django.db import connection
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  AVG(throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  AVG(response_time_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
-                FROM resource_server_async_batchmetrics
-                WHERE model = %s
-                  AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
-                """,
-                [model],
-            )
-            row = cursor.fetchone()
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      AVG(throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      AVG(response_time_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
+                    FROM resource_server_async_batchmetrics
+                    WHERE model = %s
+                      AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
+                    """,
+                    [model],
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
         return {
             "throughput": {
                 "mean": float(row[0] or 0.0),
