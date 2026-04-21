@@ -2,22 +2,19 @@
 import logging
 from typing import Dict, List
 
-from django.core.cache import cache
-
 from resource_server_async.clusters.cluster import (
-    BaseCluster,
-    GetJobsResponse,
     JobInfo,
     Jobs,
 )
-from resource_server_async.models import User
+from resource_server_async.clusters.direct_api import DirectAPICluster
+from resource_server_async.utils import SubmitHTTPXCallResponse
 from utils import metis_utils
 
 log = logging.getLogger(__name__)
 
 
 # Metis implementation of a BaseCluster
-class MetisCluster(BaseCluster):
+class MetisCluster(DirectAPICluster):
     """Metis implementation of BaseCluster."""
 
     # Class initialization
@@ -33,6 +30,7 @@ class MetisCluster(BaseCluster):
         config: Dict = None,
     ):
         # Initialize the rest of the common attributes
+        config["status_url"] = metis_utils.get_metis_status_url()
         super().__init__(
             id,
             cluster_name,
@@ -41,27 +39,17 @@ class MetisCluster(BaseCluster):
             openai_endpoints,
             allowed_globus_groups,
             allowed_domains,
+            config,
         )
 
-    # Get jobs
-    async def get_jobs(self, auth: User) -> GetJobsResponse:
-        """Provides a status of the cluster as a whole, including which models are running."""
-
-        # Redis cache key
-        cache_key = f"qstat_details:{auth.username}:{auth.id}:{self.cluster_name}"
-
-        # Try to get qstat details from Redis
-        try:
-            cached_result = cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
-        except Exception as e:
-            log.warning(f"Redis cache error for cluster status: {e}")
+    # Get formatted cluster status
+    async def get_formatted_status(self) -> SubmitHTTPXCallResponse:
+        """Fetch and return cluster status. Can be overwritten to format output."""
 
         # Metis uses a status API instead of qstat
         metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
         if error_msg:
-            return GetJobsResponse(error_message=error_msg, error_code=503)
+            return SubmitHTTPXCallResponse(error_message=error_msg, error_code=503)
 
         # Declare data structure
         formatted = Jobs()
@@ -106,25 +94,10 @@ class MetisCluster(BaseCluster):
 
         # Error if something went wrong
         except Exception as e:
-            return GetJobsResponse(
+            return SubmitHTTPXCallResponse(
                 error_message=f"Error: Something went wrong in Metis get_jobs: {e}",
                 error_code=500,
             )
 
-        # Build response
-        try:
-            response = GetJobsResponse(jobs=formatted)
-        except Exception as e:
-            return GetJobsResponse(
-                error_message=f"Error: Could not generate GetJobsResponse: {e}",
-                error_code=500,
-            )
-
-        # Cache the result for 60 seconds
-        try:
-            cache.set(cache_key, response, 60)
-        except Exception as e:
-            log.warning(f"Failed to cache cluster status: {e}")
-
-        # Return jobs result
-        return response
+        # Return formatted status
+        return SubmitHTTPXCallResponse(result=formatted)
