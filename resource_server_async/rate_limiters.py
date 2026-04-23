@@ -1,4 +1,3 @@
-import time
 from typing import NamedTuple
 
 from redis import Redis
@@ -27,9 +26,8 @@ class TokenRateLimiter:
         self.tpm_user = tpm_user
 
     def _keys(self, user_id: str | None) -> tuple[str, str]:
-        minute = int(time.monotonic() // 60)
-        model_key = f"{self.prefix}:{minute}"
-        user_key = f"{self.prefix}:{user_id}:{minute}"
+        model_key = self.prefix
+        user_key = f"{self.prefix}:{user_id}"
         return model_key, user_key
 
     def check(self, user_id: str) -> TokenLimiterCheck:
@@ -58,12 +56,12 @@ class TokenRateLimiter:
         model_key, user_key = self._keys(user_id)
         pipe = self.redis.pipeline(transaction=True)
 
+        pipe.set(model_key, 0, nx=True, ex=60)
         pipe.incrby(model_key, tokens)
-        pipe.expire(model_key, 120)  # 2x window so stragglers don't lose the key
 
         # Guard in case of anonymous usage:
         if user_id:
+            pipe.set(user_key, 0, nx=True, ex=60)
             pipe.incrby(user_key, tokens)
-            pipe.expire(user_key, 120)  # 2x window so stragglers don't lose the key
 
         pipe.execute()
