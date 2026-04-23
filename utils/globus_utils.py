@@ -11,7 +11,6 @@ from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
 
-
 log = logging.getLogger(__name__)
 
 
