@@ -106,8 +106,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         if gcc is None:
             try:
                 gcc = globus_utils.get_compute_client_from_globus_app(
-                    client_id_env_name=self.__config.client_id_env_name,
-                    client_secret_env_name=self.__config.client_secret_env_name,
+                    client_id_env_name=self.config.client_id_env_name,
+                    client_secret_env_name=self.config.client_secret_env_name,
                 )
             except Exception as e:
                 return GetEndpointStatusResponse(error_message=str(e), error_code=500)
@@ -172,8 +172,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         # Get Globus Compute client and executor
         try:
             gcc = globus_utils.get_compute_client_from_globus_app(
-                client_id_env_name=self.__config.client_id_env_name,
-                client_secret_env_name=self.__config.client_secret_env_name,
+                client_id_env_name=self.config.client_id_env_name,
+                client_secret_env_name=self.config.client_secret_env_name,
             )
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
