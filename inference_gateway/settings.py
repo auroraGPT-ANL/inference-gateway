@@ -16,7 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from inference_gateway.utils import textfield_to_strlist
+from inference_gateway.utils import textfield_to_strlist, BackendUtilsError, GlobusCredentials
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +43,17 @@ SERVICE_ACCOUNT_SECRET = os.getenv("SERVICE_ACCOUNT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
+# Overwrite Globus Compute credentials (ID/secret) for specific endpoint UUIDs
+credentials_overwrite = json.loads(os.getenv("GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES", "{}"))
+try:
+    GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES = {
+        key: GlobusCredentials(**value)
+        for key, value in credentials_overwrite.items()
+    }
+except Exception as e:
+    raise BackendUtilsError(
+        f"Could not load GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES into a dictionary. {e}"
+    )
 
 # Globus Dashboard Application Credentials
 GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")

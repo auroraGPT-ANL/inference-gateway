@@ -1,9 +1,15 @@
 import re
 from typing import List
+from pydantic import BaseModel
 
 
 class BackendUtilsError(Exception):
     pass
+
+
+class GlobusCredentials(BaseModel):
+    client_id: str
+    client_secret: str
 
 
 # Convert a text field into a list of strings
