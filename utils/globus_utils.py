@@ -77,7 +77,7 @@ def get_compute_client_from_globus_app(
     """
 
     # Use default credentials if not provided
-    # This is in case the function is call outside of get_compute_client_from_endpoint_id
+    # This is in case the function is called outside of get_compute_client_from_endpoint_id
     if client_id is None or client_secret is None:
         client_id = settings.SERVICE_ACCOUNT_ID
         client_secret = settings.SERVICE_ACCOUNT_SECRET
