@@ -343,17 +343,6 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
     if (response.is_authorized == False) or response.error_message:
         return await get_response(response.error_message, response.error_code, request)
 
-    # Return 429 status if TPM limits are exceeded
-    tpm_check = endpoint.check_token_rate_limit(request.auth)
-    if not tpm_check.allow:
-        err = {
-            "error": "Tokens/minute limit exceeded",
-            "global_model_usage": tpm_check.usage_model,
-            "user_model_usage": tpm_check.usage_user,
-        }
-        log.info(f"Endpoint {endpoint.endpoint_slug} rate-limited: {tpm_check}")
-        return await get_response(err, 429, request)
-
     # Reject request if the allowed quota per user would be exceeded
     try:
         number_of_active_batches = 0

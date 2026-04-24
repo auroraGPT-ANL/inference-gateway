@@ -1108,8 +1108,6 @@ async def update_batch(batch: BatchLog) -> UpdateBatchResponse:
             except Exception as e:
                 log.error(f"Error upserting BatchMetrics: {e}")
 
-            endpoint.record_token_usage(batch.access_log.user, int(total_tokens or 0))
-
         # Update entry in the database
         try:
             await update_database(db_object=batch)
