@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from typing import Optional
 
 import globus_sdk
 from cachetools import TTLCache, cached
@@ -9,7 +10,6 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -24,11 +24,9 @@ executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 
 
 # Get authenticated Compute Client from endpoint ID
-def get_compute_client_from_endpoint_id(
-    endpoint_id: str = None
-) -> Client:
+def get_compute_client_from_endpoint_id(endpoint_id: str = None) -> Client:
     """
-    Extract credentials for target endpoint and submit to 
+    Extract credentials for target endpoint and submit to
     get_compute_client_from_globus_app with the credentials
     to limit the number of cached Globus Clients and Executors.
     Having too many instances of Executors with the same credentials
@@ -42,13 +40,17 @@ def get_compute_client_from_endpoint_id(
     # Overwrite Globus credentials if needed
     if endpoint_id and endpoint_id in settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES:
         try:
-            client_id = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[endpoint_id].client_id
-            client_secret = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[endpoint_id].client_secret
+            client_id = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[
+                endpoint_id
+            ].client_id
+            client_secret = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[
+                endpoint_id
+            ].client_secret
         except Exception:
             raise ResourceServerError(
                 f"Could not retrieve Globus credentials from environment for endpoint {endpoint_id}."
             )
-        
+
     # Create and return the Globus Compute client
     return get_compute_client_from_globus_app(
         client_id=client_id,
