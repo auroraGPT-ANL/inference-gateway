@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import time
 
 import globus_sdk
@@ -10,6 +9,7 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskExecutionFailed
 from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -23,11 +23,45 @@ class ResourceServerError(Exception):
 executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 
 
+# Get authenticated Compute Client from endpoint ID
+def get_compute_client_from_endpoint_id(
+    endpoint_id: str = None
+) -> Client:
+    """
+    Extract credentials for target endpoint and submit to 
+    get_compute_client_from_globus_app with the credentials
+    to limit the number of cached Globus Clients and Executors.
+    Having too many instances of Executors with the same credentials
+    have degraded the performance in the past.
+    """
+
+    # Assign default Globus credentials
+    client_id = settings.SERVICE_ACCOUNT_ID
+    client_secret = settings.SERVICE_ACCOUNT_SECRET
+
+    # Overwrite Globus credentials if needed
+    if endpoint_id and endpoint_id in settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES:
+        try:
+            client_id = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[endpoint_id].client_id
+            client_secret = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[endpoint_id].client_secret
+        except Exception:
+            raise ResourceServerError(
+                f"Could not retrieve Globus credentials from environment for endpoint {endpoint_id}."
+            )
+        
+    # Create and return the Globus Compute client
+    return get_compute_client_from_globus_app(
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
 # Get authenticated Compute Client using secret
 # NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
 @cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
 def get_compute_client_from_globus_app(
-    client_id_env_name: str = None, client_secret_env_name: str = None
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
 ) -> Client:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
@@ -40,22 +74,11 @@ def get_compute_client_from_globus_app(
         globus_compute_sdk.Client: Compute client to operate Globus Compute
     """
 
-    # Extract alternative Globus credentials
-    try:
-        client_id = (
-            os.environ.get(client_id_env_name, None)
-            if client_id_env_name
-            else settings.SERVICE_ACCOUNT_ID
-        )
-        client_secret = (
-            os.environ.get(client_secret_env_name, None)
-            if client_secret_env_name
-            else settings.SERVICE_ACCOUNT_SECRET
-        )
-    except Exception:
-        raise ResourceServerError(
-            "Could not retrieve Globus credentials from environment."
-        )
+    # Use default credentials if not provided
+    # This is in case the function is call outside of get_compute_client_from_endpoint_id
+    if client_id is None or client_secret is None:
+        client_id = settings.SERVICE_ACCOUNT_ID
+        client_secret = settings.SERVICE_ACCOUNT_SECRET
 
     # Try to create and return the Compute client
     try:
