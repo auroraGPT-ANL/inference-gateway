@@ -50,8 +50,6 @@ class GlobusComputeEndpointConfig(BaseModel):
     function_uuid: str
     batch_endpoint_uuid: Optional[str] = Field(default=None)
     batch_function_uuid: Optional[str] = Field(default=None)
-    client_id_env_name: Optional[str] = Field(default=None)
-    client_secret_env_name: Optional[str] = Field(default=None)
 
 
 class EndpointError(Exception):
@@ -105,10 +103,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         # Get Globus Compute client
         if gcc is None:
             try:
-                gcc = globus_utils.get_compute_client_from_globus_app(
-                    client_id_env_name=self.config.client_id_env_name,
-                    client_secret_env_name=self.config.client_secret_env_name,
-                )
+                gcc = globus_utils.get_compute_client_from_endpoint_id(self.config.endpoint_uuid)
             except Exception as e:
                 return GetEndpointStatusResponse(error_message=str(e), error_code=500)
 
@@ -171,10 +166,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
     async def prepare_executor(self, for_batch: bool = False) -> Executor:
         # Get Globus Compute client and executor
         try:
-            gcc = globus_utils.get_compute_client_from_globus_app(
-                client_id_env_name=self.config.client_id_env_name,
-                client_secret_env_name=self.config.client_secret_env_name,
-            )
+            gcc = globus_utils.get_compute_client_from_endpoint_id(self.config.endpoint_uuid)
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
             raise EndpointError(error_code=500, error_message=str(e)) from e
