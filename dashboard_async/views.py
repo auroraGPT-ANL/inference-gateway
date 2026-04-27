@@ -365,11 +365,13 @@ async def get_realtime_metrics(request, cluster: str = "all"):
         request_metrics_set = AsyncRequestMetrics.objects
         unique_users_set = AsyncUser.objects
         if cluster and cluster.lower() != "all":
-            access_log_set = access_log_set.filter(request_log__cluster__iexact=cluster)
-            request_metrics_set = request_metrics_set.filter(cluster__iexact=cluster)
-            unique_users_set = unique_users_set.filter(
-                access_logs__request_log__cluster__iexact=cluster
+            access_log_set = access_log_set.select_related("request_log").filter(
+                request_log__cluster__iexact=cluster
             )
+            request_metrics_set = request_metrics_set.filter(cluster__iexact=cluster)
+            unique_users_set = unique_users_set.select_related(
+                "access_logs__request_log"
+            ).filter(access_logs__request_log__cluster__iexact=cluster)
 
         request_counts = await access_log_set.aaggregate(
             all=Count("id"),
