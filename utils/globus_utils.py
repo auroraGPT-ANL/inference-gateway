@@ -34,7 +34,7 @@ def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
     """
 
     # Overwrite Globus credentials if needed, or use default credentials otherwise
-    if (credentials := settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES.get(endpoint_id)):
+    if credentials := settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES.get(endpoint_id):
         client_id = credentials.client_id
         client_secret = credentials.client_secret
     else:
