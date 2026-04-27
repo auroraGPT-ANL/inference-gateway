@@ -610,7 +610,8 @@ async def get_users_per_model(request, cluster: str = "all"):
             return cached
 
         request_log_set = (
-            AsyncRequestLog.objects.annotate(
+            AsyncRequestLog.objects.select_related("access_log")
+            .annotate(
                 filtered_log=FilteredRelation(
                     "access_log",
                     condition=Q(access_log__user__isnull=False)
