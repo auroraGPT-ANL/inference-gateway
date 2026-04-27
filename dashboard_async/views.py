@@ -645,8 +645,17 @@ async def get_users_table(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
+        users_table_set = AsyncUser.objects.select_related("access_logs")
+        if cluster and cluster.lower() != "all":
+            users_table_set = users_table_set.select_related(
+                "access_logs__request_log"
+            ).filter(
+                Q(access_logs__request_log__cluster__iexact=cluster)
+                | Q(access_logs__request_log__cluster__isnull=True)
+            )
+
         users_table_set = (
-            AsyncUser.objects.values("name", "username")
+            users_table_set.values("name", "username")
             .annotate(
                 last_access=Max("access_logs__timestamp_request"),
                 successful=Count(
@@ -667,12 +676,6 @@ async def get_users_table(request, cluster: str = "all"):
             )
             .order_by(F("last_access").desc(nulls_last=True), "username")
         )
-
-        if cluster and cluster.lower() != "all":
-            users_table_set = users_table_set.filter(
-                Q(access_logs__request_log__cluster__iexact=cluster)
-                | Q(access_logs__request_log__cluster__isnull=True)
-            )
 
         results = []
         async for r in users_table_set:
