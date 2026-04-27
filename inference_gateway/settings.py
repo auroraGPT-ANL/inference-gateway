@@ -15,9 +15,9 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import TypeAdapter
 
 from inference_gateway.utils import (
-    BackendUtilsError,
     GlobusCredentials,
     textfield_to_strlist,
 )
@@ -48,17 +48,10 @@ GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
 # Overwrite Globus Compute credentials (ID/secret) for specific endpoint UUIDs
-credentials_overwrite = json.loads(
-    os.getenv("GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES", "{}")
+ta = TypeAdapter(dict[str, GlobusCredentials])
+GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES = ta.validate_json(
+    os.environ.get("GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES", "{}")
 )
-try:
-    GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES = {
-        key: GlobusCredentials(**value) for key, value in credentials_overwrite.items()
-    }
-except Exception as e:
-    raise BackendUtilsError(
-        f"Could not load GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES into a dictionary. {e}"
-    )
 
 # Globus Dashboard Application Credentials
 GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")
