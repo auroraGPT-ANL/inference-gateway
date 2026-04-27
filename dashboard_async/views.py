@@ -25,6 +25,9 @@ from resource_server_async.models import (
     BatchLog as AsyncBatchLog,
 )
 from resource_server_async.models import (
+    BatchMetrics as AsyncBatchMetrics,
+)
+from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
 )
 from resource_server_async.models import (
@@ -1095,35 +1098,27 @@ def get_batch_overview(request):
 
         # Try BatchMetrics
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(total_tokens),0) AS tokens,
-                           COALESCE(SUM(num_responses),0) AS requests,
-                           COUNT(*)::bigint AS total_jobs,
-                           COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
-                    FROM resource_server_async_batchmetrics
-                    """
-                )
-                row = cursor.fetchone()
-                if row is not None and any(row):
-                    total_tokens = int(row[0] or 0)
-                    total_requests = int(row[1] or 0)
-                    total_jobs = int(row[2] or 0)
-                    completed_jobs = int(row[3] or 0)
-                    success_rate = (
-                        (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
-                    )
-                    result = {
-                        "total_tokens": total_tokens,
-                        "total_requests": total_requests,
-                        "total_jobs": total_jobs,
-                        "completed_jobs": completed_jobs,
-                        "success_rate": success_rate,
-                    }
-                    # Cache for 60 seconds
-                    cache.set(cache_key, result, timeout=60)
-                    return result
+            row = AsyncBatchMetrics.objects.aggregate(
+                tokens=Sum("total_tokens"),
+                requests=Sum("num_responses"),
+                total_jobs=Count("*"),
+                completed_jobs=Count("*", filter=Q(status__exact="completed")),
+            )
+            total_tokens = int(row["tokens"] or 0)
+            total_requests = int(row["requests"] or 0)
+            total_jobs = int(row["total_jobs"] or 0)
+            completed_jobs = int(row["completed_jobs"] or 0)
+            success_rate = (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
+            result = {
+                "total_tokens": total_tokens,
+                "total_requests": total_requests,
+                "total_jobs": total_jobs,
+                "completed_jobs": completed_jobs,
+                "success_rate": success_rate,
+            }
+            # Cache for 60 seconds
+            cache.set(cache_key, result, timeout=60)
+            return result
         except Exception:
             pass
 
