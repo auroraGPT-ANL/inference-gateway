@@ -713,7 +713,7 @@ async def get_users_table(request, cluster: str = "all"):
 
 
 @router.get("/analytics/series")
-def get_overall_series(request, window: str = "24h", cluster: str = "all"):
+async def get_overall_series(request, window: str = "24h", cluster: str = "all"):
     try:
         from django.db import connection
 
@@ -732,92 +732,97 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
             cluster_filter = "AND rl.cluster = %s"
             cluster_params = [cluster.lower()]
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    f"""
-                    WITH series AS (
-                      SELECT generate_series(
-                        date_trunc(%s, %s::timestamptz),
-                        date_trunc(%s, %s::timestamptz),
-                        CASE %s
-                          WHEN 'minute' THEN interval '1 minute'
-                          WHEN 'hour' THEN interval '1 hour'
-                          WHEN 'day' THEN interval '1 day'
-                          WHEN 'week' THEN interval '1 week'
-                          WHEN 'month' THEN interval '1 month'
-                        END
-                      ) AS bucket
+        @sync_to_async
+        def _get_rows():
+            with connection.cursor() as cursor:
+                if cluster and cluster.lower() != "all":
+                    cursor.execute(
+                        f"""
+                        WITH series AS (
+                          SELECT generate_series(
+                            date_trunc(%s, %s::timestamptz),
+                            date_trunc(%s, %s::timestamptz),
+                            CASE %s
+                              WHEN 'minute' THEN interval '1 minute'
+                              WHEN 'hour' THEN interval '1 hour'
+                              WHEN 'day' THEN interval '1 day'
+                              WHEN 'week' THEN interval '1 week'
+                              WHEN 'month' THEN interval '1 month'
+                            END
+                          ) AS bucket
+                        )
+                        SELECT s.bucket,
+                               COALESCE(a.ok, 0) AS ok,
+                               COALESCE(a.fail, 0) AS fail
+                        FROM series s
+                        LEFT JOIN (
+                          SELECT date_trunc(%s, al.timestamp_request) AS bucket,
+                                 COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
+                                 COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
+                          FROM resource_server_async_accesslog al
+                          {cluster_join}
+                          WHERE al.timestamp_request >= %s AND al.timestamp_request <= %s {cluster_filter}
+                          GROUP BY bucket
+                        ) a ON a.bucket = s.bucket
+                        ORDER BY s.bucket
+                        """,
+                        [
+                            trunc_unit,
+                            start_ts,
+                            trunc_unit,
+                            end_ts,
+                            trunc_unit,
+                            trunc_unit,
+                            start_ts,
+                            end_ts,
+                        ]
+                        + cluster_params,
                     )
-                    SELECT s.bucket,
-                           COALESCE(a.ok, 0) AS ok,
-                           COALESCE(a.fail, 0) AS fail
-                    FROM series s
-                    LEFT JOIN (
-                      SELECT date_trunc(%s, al.timestamp_request) AS bucket,
-                             COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
-                             COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
-                      FROM resource_server_async_accesslog al
-                      {cluster_join}
-                      WHERE al.timestamp_request >= %s AND al.timestamp_request <= %s {cluster_filter}
-                      GROUP BY bucket
-                    ) a ON a.bucket = s.bucket
-                    ORDER BY s.bucket
-                    """,
-                    [
-                        trunc_unit,
-                        start_ts,
-                        trunc_unit,
-                        end_ts,
-                        trunc_unit,
-                        trunc_unit,
-                        start_ts,
-                        end_ts,
-                    ]
-                    + cluster_params,
-                )
-            else:
-                cursor.execute(
-                    """
-                    WITH series AS (
-                      SELECT generate_series(
-                        date_trunc(%s, %s::timestamptz),
-                        date_trunc(%s, %s::timestamptz),
-                        CASE %s
-                          WHEN 'minute' THEN interval '1 minute'
-                          WHEN 'hour' THEN interval '1 hour'
-                          WHEN 'day' THEN interval '1 day'
-                          WHEN 'week' THEN interval '1 week'
-                          WHEN 'month' THEN interval '1 month'
-                        END
-                      ) AS bucket
+                else:
+                    cursor.execute(
+                        """
+                        WITH series AS (
+                          SELECT generate_series(
+                            date_trunc(%s, %s::timestamptz),
+                            date_trunc(%s, %s::timestamptz),
+                            CASE %s
+                              WHEN 'minute' THEN interval '1 minute'
+                              WHEN 'hour' THEN interval '1 hour'
+                              WHEN 'day' THEN interval '1 day'
+                              WHEN 'week' THEN interval '1 week'
+                              WHEN 'month' THEN interval '1 month'
+                            END
+                          ) AS bucket
+                        )
+                        SELECT s.bucket,
+                               COALESCE(a.ok, 0) AS ok,
+                               COALESCE(a.fail, 0) AS fail
+                        FROM series s
+                        LEFT JOIN (
+                          SELECT date_trunc(%s, timestamp_request) AS bucket,
+                                 COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
+                                 COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
+                          FROM resource_server_async_accesslog
+                          WHERE timestamp_request >= %s AND timestamp_request <= %s
+                          GROUP BY bucket
+                        ) a ON a.bucket = s.bucket
+                        ORDER BY s.bucket
+                        """,
+                        [
+                            trunc_unit,
+                            start_ts,
+                            trunc_unit,
+                            end_ts,
+                            trunc_unit,
+                            trunc_unit,
+                            start_ts,
+                            end_ts,
+                        ],
                     )
-                    SELECT s.bucket,
-                           COALESCE(a.ok, 0) AS ok,
-                           COALESCE(a.fail, 0) AS fail
-                    FROM series s
-                    LEFT JOIN (
-                      SELECT date_trunc(%s, timestamp_request) AS bucket,
-                             COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
-                             COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
-                      FROM resource_server_async_accesslog
-                      WHERE timestamp_request >= %s AND timestamp_request <= %s
-                      GROUP BY bucket
-                    ) a ON a.bucket = s.bucket
-                    ORDER BY s.bucket
-                    """,
-                    [
-                        trunc_unit,
-                        start_ts,
-                        trunc_unit,
-                        end_ts,
-                        trunc_unit,
-                        trunc_unit,
-                        start_ts,
-                        end_ts,
-                    ],
-                )
-            rows = cursor.fetchall()
+                return cursor.fetchall()
+
+        rows = await _get_rows()
+
         # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
         return [
             {"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)}
