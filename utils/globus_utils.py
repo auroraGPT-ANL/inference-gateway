@@ -24,7 +24,7 @@ executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 
 
 # Get authenticated Compute Client from endpoint ID
-def get_compute_client_from_endpoint_id(endpoint_id: str = None) -> Client:
+def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
     """
     Extract credentials for target endpoint and submit to
     get_compute_client_from_globus_app with the credentials
@@ -38,7 +38,7 @@ def get_compute_client_from_endpoint_id(endpoint_id: str = None) -> Client:
     client_secret = settings.SERVICE_ACCOUNT_SECRET
 
     # Overwrite Globus credentials if needed
-    if endpoint_id and endpoint_id in settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES:
+    if endpoint_id in settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES:
         try:
             client_id = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[
                 endpoint_id
