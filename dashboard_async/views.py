@@ -1085,7 +1085,7 @@ async def get_requests_per_user(request, cluster: str = "all"):
 
 
 @router.get("/analytics/batch/overview")
-def get_batch_overview(request):
+async def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
     try:
         # Check cache first (1 minute TTL)
@@ -1098,7 +1098,7 @@ def get_batch_overview(request):
 
         # Try BatchMetrics
         try:
-            row = AsyncBatchMetrics.objects.aggregate(
+            row = await AsyncBatchMetrics.objects.aaggregate(
                 tokens=Sum("total_tokens"),
                 requests=Sum("num_responses"),
                 total_jobs=Count("*"),
@@ -1123,20 +1123,24 @@ def get_batch_overview(request):
             pass
 
         # Fallback to BatchLog parsing
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
-                                     THEN (result::jsonb -> 'metrics' ->> 'total_tokens')::bigint ELSE 0 END)),0) AS tokens,
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
-                                     THEN (result::jsonb -> 'metrics' ->> 'num_responses')::bigint ELSE 0 END)),0) AS requests,
-                  COUNT(*)::bigint AS total_jobs,
-                  COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
-                FROM resource_server_async_batchlog
-                """
-            )
-            row = cursor.fetchone()
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
+                                         THEN (result::jsonb -> 'metrics' ->> 'total_tokens')::bigint ELSE 0 END)),0) AS tokens,
+                      COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
+                                         THEN (result::jsonb -> 'metrics' ->> 'num_responses')::bigint ELSE 0 END)),0) AS requests,
+                      COUNT(*)::bigint AS total_jobs,
+                      COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
+                    FROM resource_server_async_batchlog
+                    """
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
         total_tokens = int(row[0] or 0)
         total_requests = int(row[1] or 0)
         total_jobs = int(row[2] or 0)
