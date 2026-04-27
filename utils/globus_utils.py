@@ -33,23 +33,13 @@ def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
     have degraded the performance in the past.
     """
 
-    # Assign default Globus credentials
-    client_id = settings.SERVICE_ACCOUNT_ID
-    client_secret = settings.SERVICE_ACCOUNT_SECRET
-
-    # Overwrite Globus credentials if needed
-    if endpoint_id in settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES:
-        try:
-            client_id = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[
-                endpoint_id
-            ].client_id
-            client_secret = settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES[
-                endpoint_id
-            ].client_secret
-        except Exception:
-            raise ResourceServerError(
-                f"Could not retrieve Globus credentials from environment for endpoint {endpoint_id}."
-            )
+    # Overwrite Globus credentials if needed, or use default credentials otherwise
+    if (credentials := settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES.get(endpoint_id)):
+        client_id = credentials.client_id
+        client_secret = credentials.client_secret
+    else:
+        client_id = settings.SERVICE_ACCOUNT_ID
+        client_secret = settings.SERVICE_ACCOUNT_SECRET
 
     # Create and return the Globus Compute client
     return get_compute_client_from_globus_app(
