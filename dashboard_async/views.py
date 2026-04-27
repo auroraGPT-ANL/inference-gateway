@@ -1,9 +1,14 @@
 import logging
+import secrets
+import time
 from datetime import timedelta
+from functools import wraps
+from urllib.parse import urlencode
 
 from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.core.cache import cache
+from django.db import connection
 from django.db.models import (
     Count,
     F,
@@ -18,6 +23,14 @@ from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.security import SessionAuth
 
+from dashboard_async.globus_auth import (
+    exchange_code_for_tokens,
+    get_authorization_url,
+    refresh_access_token,
+    revoke_token,
+    validate_dashboard_token,
+)
+from resource_server_async.clusters import BaseCluster
 from resource_server_async.models import (
     AccessLog as AsyncAccessLog,
 )
@@ -39,6 +52,7 @@ from resource_server_async.models import (
 from resource_server_async.models import (
     User as AsyncUser,
 )
+from resource_server_async.schemas.clusters import JobsByStatus
 
 log = logging.getLogger(__name__)
 
@@ -48,10 +62,6 @@ class DjangoSessionAuth(SessionAuth):
     """Use Globus session authentication for API endpoints."""
 
     def authenticate(self, request: HttpRequest, key):
-        import time
-
-        from dashboard_async.globus_auth import validate_dashboard_token
-
         # Check for Globus tokens in session
         if "globus_tokens" not in request.session:
             return None
@@ -94,8 +104,6 @@ api.add_router("/", router)
 
 def dashboard_login_view(request):
     """Initiate Globus OAuth2 login flow."""
-    from dashboard_async.globus_auth import validate_dashboard_token
-
     # Check if already authenticated via Globus
     if "globus_tokens" in request.session:
         tokens = request.session["globus_tokens"]
@@ -117,8 +125,6 @@ def dashboard_login_view(request):
     request.session.pop("next_url", None)
 
     # Generate new state for CSRF protection
-    import secrets
-
     state = secrets.token_urlsafe(32)
     request.session["oauth_state"] = state
     request.session["next_url"] = request.GET.get("next", "dashboard_analytics")
@@ -128,8 +134,6 @@ def dashboard_login_view(request):
     request.session.save()
 
     # Get Globus authorization URL
-    from dashboard_async.globus_auth import get_authorization_url
-
     auth_url = get_authorization_url(state=state)
 
     return redirect(auth_url)
@@ -137,10 +141,6 @@ def dashboard_login_view(request):
 
 def dashboard_callback_view(request):
     """Handle Globus OAuth2 callback."""
-    from dashboard_async.globus_auth import (
-        exchange_code_for_tokens,
-        validate_dashboard_token,
-    )
 
     # Check for errors from Globus
     error = request.GET.get("error")
@@ -231,9 +231,6 @@ def dashboard_callback_view(request):
 
 def dashboard_logout_view(request):
     """Logout and clear both local and Globus sessions."""
-    from urllib.parse import urlencode
-
-    from dashboard_async.globus_auth import revoke_token
 
     # Revoke Globus tokens if present
     if "globus_tokens" in request.session:
@@ -270,13 +267,6 @@ def globus_login_required(view_func):
     Decorator to require Globus authentication for dashboard views.
     Validates Globus token from session and refreshes if needed.
     """
-    import time
-    from functools import wraps
-
-    from dashboard_async.globus_auth import (
-        refresh_access_token,
-        validate_dashboard_token,
-    )
 
     @wraps(view_func)
     def wrapped_view(request, *args, **kwargs):
@@ -715,8 +705,6 @@ async def get_users_table(request, cluster: str = "all"):
 @router.get("/analytics/series")
 async def get_overall_series(request, window: str = "24h", cluster: str = "all"):
     try:
-        from django.db import connection
-
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
@@ -836,8 +824,6 @@ async def get_overall_series(request, window: str = "24h", cluster: str = "all")
 @router.get("/analytics/model/series")
 async def get_model_series(request, model: str, window: str = "24h"):
     try:
-        from django.db import connection
-
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
@@ -909,8 +895,6 @@ async def get_model_series(request, model: str, window: str = "24h"):
 @router.get("/analytics/model/box")
 async def get_model_box(request, model: str, window: str = "24h"):
     try:
-        from django.db import connection
-
         delta, _ = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
@@ -960,9 +944,6 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     Combines qstat job data (for Sophia/Polaris) or Metis API status with configured endpoints to mark offline models.
     """
     try:
-        from resource_server_async.clusters import BaseCluster
-        from resource_server_async.schemas.clusters import JobsByStatus
-
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
         if not refresh:
@@ -1104,8 +1085,6 @@ async def get_batch_overview(request):
         if cached is not None:
             return cached
 
-        from django.db import connection
-
         # Try BatchMetrics
         try:
             row = await AsyncBatchMetrics.objects.aaggregate(
@@ -1175,7 +1154,6 @@ async def get_batch_overview(request):
 async def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
     try:
-        from django.db import connection
 
         @sync_to_async
         def _get_row():
@@ -1255,8 +1233,6 @@ async def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
 async def query_logs_custom(request):
     """Custom log query builder with flexible filters."""
     try:
-        from django.db import connection
-
         # Parse query parameters
         rows = int(request.GET.get("rows", 10))
         rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
