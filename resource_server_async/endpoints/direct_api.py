@@ -9,6 +9,7 @@ import httpx
 from asgiref.sync import sync_to_async
 from django.http import StreamingHttpResponse
 from django.utils import timezone
+from httpx import TimeoutException
 from pydantic import BaseModel, Field
 
 from resource_server_async.endpoints.endpoint import (
@@ -16,12 +17,10 @@ from resource_server_async.endpoints.endpoint import (
     SubmitStreamingTaskResponse,
     SubmitTaskResponse,
 )
+from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import RequestLog
 from resource_server_async.utils import (
-    SubmitHTTPXCallResponse,
     create_streaming_response_headers,
-    httpx_call_methods,
-    submit_httpx_call,
 )
 
 log = logging.getLogger(__name__)
@@ -53,11 +52,14 @@ class DirectAPIEndpoint(BaseEndpoint):
         # Validate and assign endpoint configuration
         self.__config = DirectAPIEndpointConfig(**config)
 
-        # Build request headers with API key from environment variable
-        self.__headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {os.environ.get(self.__config.api_key_env_name, None)}",
-        }
+        # Create HTTPx async client
+        self.__httpx_client = AsyncHttpClient(
+            timeout=self.__config.api_request_timeout,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {os.environ.get(self.__config.api_key_env_name, None)}",
+            },
+        )
 
         # Initialize the rest of the common attributes
         super().__init__(
@@ -75,24 +77,22 @@ class DirectAPIEndpoint(BaseEndpoint):
     async def submit_task(self, data: dict) -> SubmitTaskResponse:
         """Submits a single interactive task to the compute resource."""
 
-        # Submit call to API
-        httpx_response: SubmitHTTPXCallResponse = await submit_httpx_call(
-            self.config.api_url,
-            data=data,
-            headers=self.__headers,
-            timeout=self.config.api_request_timeout,
-            method=httpx_call_methods.post,
-        )
-
-        # Send error if any
-        if httpx_response.error_message:
+        # Submit POST call and wait for the response
+        try:
+            response = await self.httpx_client.post(self.config.api_url, data=data)
+        except TimeoutException:
             return SubmitTaskResponse(
-                error_message=httpx_response.error_message,
-                error_code=httpx_response.error_code,
+                error_message=f"Error: Timeout calling {self.config.api_url}.",
+                error_code=504,
+            )
+        except Exception as e:
+            return SubmitTaskResponse(
+                error_message=f"Error: Unexpected error calling {self.config.api_url}: {e}",
+                error_code=500,
             )
 
         # Return response from the API call
-        return SubmitTaskResponse(result=httpx_response.result)
+        return SubmitTaskResponse(result=response)
 
     # Call stream API
     async def submit_streaming_task(
@@ -266,6 +266,11 @@ class DirectAPIEndpoint(BaseEndpoint):
     @property
     def config(self):
         return self.__config
+
+    # Read-only access to HTTPx client
+    @property
+    def httpx_client(self) -> AsyncHttpClient:
+        return self.__httpx_client
 
     # Overwrite function
     def set_api_url(self, api_url: str):
