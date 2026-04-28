@@ -2,13 +2,13 @@
 import logging
 from typing import Dict, List
 
+from django.core.cache import cache
+
 from resource_server_async.clusters.cluster import (
     JobInfo,
     Jobs,
 )
 from resource_server_async.clusters.direct_api import DirectAPICluster
-from resource_server_async.utils import SubmitHTTPXCallResponse
-from utils import metis_utils
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,6 @@ class MetisCluster(DirectAPICluster):
         config: Dict = None,
     ):
         # Initialize the rest of the common attributes
-        config["status_url"] = metis_utils.get_metis_status_url()
         super().__init__(
             id,
             cluster_name,
@@ -43,13 +42,22 @@ class MetisCluster(DirectAPICluster):
         )
 
     # Get formatted cluster status
-    async def get_formatted_status(self) -> SubmitHTTPXCallResponse:
+    async def get_status(self) -> Dict:
         """Fetch and return cluster status. Can be overwritten to format output."""
 
-        # Metis uses a status API instead of qstat
-        metis_status, error_msg = await metis_utils.fetch_metis_status(use_cache=True)
-        if error_msg:
-            return SubmitHTTPXCallResponse(error_message=error_msg, error_code=503)
+        # Redis cache key
+        cache_key = "metis_status_response"
+
+        # Try to get status details from Redis
+        try:
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+        except Exception as e:
+            log.warning(f"Redis cache error for metis_status_response: {e}")
+
+        # Get the raw status data
+        metis_status = await super().get_status()
 
         # Declare data structure
         formatted = Jobs()
@@ -61,43 +69,41 @@ class MetisCluster(DirectAPICluster):
         }
 
         # For each model in the Metis cluster status
+        for model_key, model_info in metis_status.items():
+            status = model_info.get("status", "Unknown")
+
+            # Extract model name and description
+            model_name = model_info.get("model", "")
+            description = model_info.get("description", "")
+            full_description = f"{model_name} - {description}"
+
+            # Do not expose sensitive fields like model_key, endpoint_id, or url to users
+            # Format consistently with Sophia/Polaris jobs output
+            job_entry = {
+                "Models": model_name,
+                "Framework": "api",
+                "Cluster": "metis",
+                "Model Status": "running" if status == "Live" else status.lower(),
+                "Description": full_description,
+                "Model Version": model_info.get("model_version", ""),
+            }
+            job_entry = JobInfo(**job_entry)
+
+            if status == "Live":
+                formatted.running.append(job_entry)
+                formatted.cluster_status["live_models"] += 1
+            elif status == "Stopped":
+                formatted.stopped.append(job_entry)
+                formatted.cluster_status["stopped_models"] += 1
+            else:
+                # Any other status goes to queued
+                formatted.queued.append(job_entry)
+
+        # Cache the result for 60 seconds
         try:
-            for model_key, model_info in metis_status.items():
-                status = model_info.get("status", "Unknown")
-
-                # Extract model name and description
-                model_name = model_info.get("model", "")
-                description = model_info.get("description", "")
-                full_description = f"{model_name} - {description}"
-
-                # Do not expose sensitive fields like model_key, endpoint_id, or url to users
-                # Format consistently with Sophia/Polaris jobs output
-                job_entry = {
-                    "Models": model_name,
-                    "Framework": "api",
-                    "Cluster": "metis",
-                    "Model Status": "running" if status == "Live" else status.lower(),
-                    "Description": full_description,
-                    "Model Version": model_info.get("model_version", ""),
-                }
-                job_entry = JobInfo(**job_entry)
-
-                if status == "Live":
-                    formatted.running.append(job_entry)
-                    formatted.cluster_status["live_models"] += 1
-                elif status == "Stopped":
-                    formatted.stopped.append(job_entry)
-                    formatted.cluster_status["stopped_models"] += 1
-                else:
-                    # Any other status goes to queued
-                    formatted.queued.append(job_entry)
-
-        # Error if something went wrong
+            cache.set(cache_key, formatted.model_dump(), 60)
         except Exception as e:
-            return SubmitHTTPXCallResponse(
-                error_message=f"Error: Something went wrong in Metis get_jobs: {e}",
-                error_code=500,
-            )
+            log.warning(f"Failed to cache metis_status_response: {e}")
 
         # Return formatted status
-        return SubmitHTTPXCallResponse(result=formatted)
+        return formatted.model_dump()
