@@ -2,18 +2,15 @@ import logging
 from typing import Dict, List, Optional
 
 from django.core.cache import cache
+from httpx import TimeoutException
 from pydantic import BaseModel, Field
 
 from resource_server_async.clusters.cluster import (
     BaseCluster,
     GetJobsResponse,
 )
+from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import User
-from resource_server_async.utils import (
-    SubmitHTTPXCallResponse,
-    httpx_call_methods,
-    submit_httpx_call,
-)
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +39,10 @@ class DirectAPICluster(BaseCluster):
         # Validate endpoint configuration
         self.__config = ClusterConfig(**config)
 
-        # Build request headers
-        self.__headers = {
-            "Content-Type": "application/json",
-        }
+        # Create HTTPx async client
+        self.__httpx_client = AsyncHttpClient(
+            timeout=self.__config.api_request_timeout,
+        )
 
         # Initialize the rest of the common attributes
         super().__init__(
@@ -59,16 +56,16 @@ class DirectAPICluster(BaseCluster):
         )
 
     # Get formatted cluster status
-    async def get_formatted_status(self) -> SubmitHTTPXCallResponse:
-        """Fetch and return cluster status. Can be overwritten to format output."""
+    async def get_status(self) -> Dict:
+        """
+        Fetch and return cluster status. This function assumes the
+        response from the cluster is already formatted. If you need
+        to overwrite this function to accomodate your cluster, please
+        see resource_server_async/clusters/metis.py.
+        """
 
-        # Get status from cluster
-        return await submit_httpx_call(
-            self.config.status_url,
-            headers=self.__headers,
-            timeout=self.config.api_request_timeout,
-            method=httpx_call_methods.get,
-        )
+        # Submit GET call and wait for the response
+        return await self.httpx_client.get(self.config.status_url)
 
     # Get jobs
     async def get_jobs(self, auth: User) -> GetJobsResponse:
@@ -86,18 +83,22 @@ class DirectAPICluster(BaseCluster):
             log.warning(f"Redis cache error for cluster status: {e}")
 
         # Get formatted cluster status
-        response: SubmitHTTPXCallResponse = await self.get_formatted_status()
-
-        # Send error if any
-        if response.error_message:
+        try:
+            response = await self.get_status()
+        except TimeoutException:
             return GetJobsResponse(
-                error_message=response.error_message,
-                error_code=response.error_code,
+                error_message=f"Error: Timeout calling {self.config.status_url}.",
+                error_code=504,
+            )
+        except Exception as e:
+            return GetJobsResponse(
+                error_message=f"Error: Unexpected error calling {self.config.status_url}: {e}",
+                error_code=500,
             )
 
         # Build response
         try:
-            response = GetJobsResponse(jobs=response.result)
+            response = GetJobsResponse(jobs=response)
         except Exception as e:
             return GetJobsResponse(
                 error_message=f"Error: Could not generate GetJobsResponse: {e}",
@@ -117,3 +118,8 @@ class DirectAPICluster(BaseCluster):
     @property
     def config(self) -> ClusterConfig:
         return self.__config
+
+    # Read-only access to HTTPx client
+    @property
+    def httpx_client(self) -> AsyncHttpClient:
+        return self.__httpx_client
