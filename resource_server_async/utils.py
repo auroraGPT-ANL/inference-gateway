@@ -8,10 +8,8 @@ import re
 import secrets
 import time
 import uuid
-from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
-import httpx
 import redis
 from asgiref.sync import sync_to_async
 from cachetools import TTLCache
@@ -730,7 +728,7 @@ async def get_response(content, code, request):
 
     # If this is an error, define the cache key to see whether the error occured recently (during high traffic)
     skip_database_operation = False
-    if code != 200:
+    if code >= 300:
         try:
             cache_key = request.auth.username + str(content) + str(code)
             skip_database_operation = is_cached(cache_key, create_empty=True)
@@ -1554,9 +1552,9 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
     """Extract the endpoint from the database and return its underlying wrapper object."""
 
     # Try to get endpoint wrapper from Redis cache first
-    endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
-    if endpoint_wrapper is not None:
-        return endpoint_wrapper
+    # endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
+    # if endpoint_wrapper is not None:
+    #    return endpoint_wrapper
 
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
@@ -1623,7 +1621,7 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
         )
 
     # Cache and return endpoint wrapper
-    cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
+    # cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
     return endpoint_wrapper
 
 
@@ -1642,9 +1640,9 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     """Extract the cluster from the database and return its underlying wrapper object."""
 
     # Try to get cluster wrapper from Redis cache first
-    cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
-    if cluster_wrapper is not None:
-        return cluster_wrapper
+    # cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
+    # if cluster_wrapper is not None:
+    #    return cluster_wrapper
 
     # Try to get cluster from Redis cache first
     cluster = get_cluster_from_cache(cluster_name)
@@ -1711,7 +1709,7 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
         )
 
     # Cache and return the cluster wrapper
-    cache_cluster_wrapper(cluster_name, cluster_wrapper)
+    # cache_cluster_wrapper(cluster_name, cluster_wrapper)
     return cluster_wrapper
 
 
@@ -1800,72 +1798,3 @@ async def get_list_endpoints_data(request) -> GetListEndpointsDataResponse:
 
     # Return the endpoint list data
     return GetListEndpointsDataResponse(all_endpoints=all_endpoints)
-
-
-# Typing and data formatting for submit_httpx_call
-class httpx_call_methods(Enum):
-    post = "post"
-    get = "get"
-
-
-class SubmitHTTPXCallResponse(BaseModel):
-    error_message: Optional[str] = Field(default=None)
-    error_code: Optional[int] = Field(default=None)
-    result: Optional[Any] = Field(default=None)
-
-
-# Submit httpx call
-async def submit_httpx_call(
-    url: str,
-    data: dict = None,
-    headers: dict = {"Content-Type": "application/json"},
-    timeout: int = 60,
-    method: httpx_call_methods = None,
-) -> SubmitHTTPXCallResponse:
-    """Make async POST/GET requests using httpx."""
-
-    # Create async client
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            # Make a call and wait for the response
-            if method == httpx_call_methods.get:
-                response = await client.get(url, headers=headers)
-            elif method == httpx_call_methods.post:
-                response = await client.post(url, json=data, headers=headers)
-            else:
-                return SubmitHTTPXCallResponse(
-                    error_message=f"Error: method {method} not supported to submit with HTTPx.",
-                    error_code=500,
-                )
-
-            # Return error if something went wrong
-            if response.status_code != 200:
-                return SubmitHTTPXCallResponse(
-                    error_message=f"Error: Could not send HTTPx call to {url}: {response.text.strip()}",
-                    error_code=response.status_code,
-                )
-
-            # Return retuls if HTTPx call worked
-            return SubmitHTTPXCallResponse(result=response.json())
-
-    # Errors
-    except httpx.TimeoutException:
-        return SubmitHTTPXCallResponse(
-            error_message=f"Error: Timeout calling {url} (timeout: {timeout})",
-            error_code=504,
-        )
-    except httpx.HTTPError as e:
-        return SubmitHTTPXCallResponse(
-            error_message=f"Error: HTTPx error calling {url}: {e}",
-            error_code=500,
-        )
-    except json.JSONDecodeError as e:
-        return SubmitHTTPXCallResponse(
-            error_message=f"Invalid JSON response from {url}: {e}",
-            error_code=500,
-        )
-    except Exception as e:
-        return SubmitHTTPXCallResponse(
-            error_message=f"Error: Unexpected error calling {url}: {e}",
-            error_code=500,
-        )
