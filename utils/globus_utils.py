@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from typing import Optional
 
 import globus_sdk
 from cachetools import TTLCache, cached
@@ -22,10 +23,38 @@ class ResourceServerError(Exception):
 executor_cache = TTLCache(maxsize=1024, ttl=60 * 10)
 
 
+# Get authenticated Compute Client from endpoint ID
+def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
+    """
+    Extract credentials for target endpoint and submit to
+    get_compute_client_from_globus_app with the credentials
+    to limit the number of cached Globus Clients and Executors.
+    Having too many instances of Executors with the same credentials
+    have degraded the performance in the past.
+    """
+
+    # Overwrite Globus credentials if needed, or use default credentials otherwise
+    if credentials := settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES.get(endpoint_id):
+        client_id = credentials.client_id
+        client_secret = credentials.client_secret
+    else:
+        client_id = settings.SERVICE_ACCOUNT_ID
+        client_secret = settings.SERVICE_ACCOUNT_SECRET
+
+    # Create and return the Globus Compute client
+    return get_compute_client_from_globus_app(
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
 # Get authenticated Compute Client using secret
 # NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
 @cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
-def get_compute_client_from_globus_app() -> Client:
+def get_compute_client_from_globus_app(
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
+) -> Client:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
 
@@ -37,12 +66,18 @@ def get_compute_client_from_globus_app() -> Client:
         globus_compute_sdk.Client: Compute client to operate Globus Compute
     """
 
+    # Use default credentials if not provided
+    # This is in case the function is called outside of get_compute_client_from_endpoint_id
+    if client_id is None or client_secret is None:
+        client_id = settings.SERVICE_ACCOUNT_ID
+        client_secret = settings.SERVICE_ACCOUNT_SECRET
+
     # Try to create and return the Compute client
     try:
         return Client(
             app=globus_sdk.ClientApp(
-                client_id=settings.SERVICE_ACCOUNT_ID,
-                client_secret=settings.SERVICE_ACCOUNT_SECRET,
+                client_id=client_id,
+                client_secret=client_secret,
             )
         )
     except Exception as e:

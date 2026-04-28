@@ -15,8 +15,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import TypeAdapter
 
-from inference_gateway.utils import textfield_to_strlist
+from inference_gateway.utils import (
+    GlobusCredentials,
+    textfield_to_strlist,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +47,11 @@ SERVICE_ACCOUNT_SECRET = os.getenv("SERVICE_ACCOUNT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
+# Overwrite Globus Compute credentials (ID/secret) for specific endpoint UUIDs
+ta = TypeAdapter(dict[str, GlobusCredentials])
+GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES = ta.validate_json(
+    os.environ.get("GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES", "{}")
+)
 
 # Flag to turn on the Debug logging for the Globus Compute executor
 GLOBUS_COMPUTE_EXECUTOR_DEBUG = os.getenv(
