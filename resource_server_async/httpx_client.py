@@ -7,8 +7,10 @@ class AsyncHttpClient:
     def __init__(
         self,
         timeout: float = 30.0,
-        headers: dict[str, str] = {"Content-Type": "application/json"},
+        headers: dict[str, str] | None = None,
     ):
+        if headers is None:
+            headers = {"Content-Type": "application/json"}
         self._client = httpx.AsyncClient(timeout=timeout, headers=headers)
 
     async def get(self, url: str) -> Dict[Any, Any]:
