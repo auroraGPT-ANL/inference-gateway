@@ -1,5 +1,5 @@
 [Unit]
-Description=Gunicorn async asgi instance of the inference gateway service
+Description=Gunicorn wsgi instance of the inference dashboard service
 After=network.target
 
 [Service]
@@ -7,8 +7,8 @@ User=webportal
 Group=webportal
 WorkingDirectory=/home/webportal/inference-gateway
 Environment=PATH=/home/webportal/inference-gateway/.venv/bin/
-Enivonment="PYTHONUNBUFFERED=1"
-ExecStart=/home/webportal/inference-gateway/.venv/bin/gunicorn -c gunicorn_asgi.config.py inference_gateway.asgi:application
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/webportal/inference-gateway/.venv/bin/gunicorn -c deploy/dashboard_wsgi.config.py dashboard_async.wsgi:application
 ExecReload=/bin/kill -s HUP $MAINPID
 KillMode=mixed
 TimeoutStopSec=5

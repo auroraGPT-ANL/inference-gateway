@@ -6,8 +6,6 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    # Dashboard with authentication
-    path("dashboard/", include("dashboard_async.urls")),
     # API documentation
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:

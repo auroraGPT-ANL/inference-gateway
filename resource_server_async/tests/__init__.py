@@ -116,7 +116,7 @@ INVALID_PARAMS["health"] = {}
 INVALID_PARAMS["metrics"] = {}
 
 # Collect available clusters and endpoints from database
-with open("fixtures/new_endpoints.json") as json_file:
+with open("fixtures/endpoints.json") as json_file:
     DB_ENDPOINTS = [e["fields"] for e in json.load(json_file)]
 with open("fixtures/clusters.json") as json_file:
     DB_CLUSTERS = [c["fields"] for c in json.load(json_file)]
@@ -264,7 +264,7 @@ class ResourceServerTestCase(TestCase):
         """
 
         # Fill Django test database
-        call_command("loaddata", "fixtures/new_endpoints.json")
+        call_command("loaddata", "fixtures/endpoints.json")
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()

@@ -103,7 +103,7 @@ SECONDS=0
 
 for f in test-wds/*.tar
 do
-uvx alcf-ai sam3 submit-batch $SOURCE_COLLECTION $f --weights-dir-override $SAM3_FINETUNE >> batch-inference.log 2>&1 &
+uvx alcf-ai sam3 submit-batch $f --from-collection-id $SOURCE_COLLECTION --weights-dir-override $SAM3_FINETUNE >> batch-inference.log 2>&1 &
 done
 wait
 echo "Completed in $SECONDS seconds."
@@ -113,6 +113,14 @@ You can preview the segmentation results in a batch by passing the paths to the 
 
 ```bash
 uvx  alcf-ai sam3 preview-batch-results shard-00004.tar shard-00004.results.tar
+```
+
+### Installing the latest client version
+
+You can force an install of the latest version and verify your local version using:
+
+```bash
+uvx alcf-ai@latest version
 ```
 
 
@@ -183,3 +191,12 @@ client.stage_out(
     dataset_path.with_suffix(".results.tar"),
 )
 ```
+
+## Using an alternate service URL
+
+The client with both programmatic and CLI usage defaults to the ALCF Inference Service production base url of
+<https://inference-api.alcf.anl.gov/resource_server/>.  This can be altered in a few ways:
+
+1. By exporting the `inference_base_url` environment variable
+2. From the CLI, passing an optional `--base-url` to the `alcf-ai` subcommand.
+3. From the Python client, passing the kwarg `InferenceClient(base_url="...")`

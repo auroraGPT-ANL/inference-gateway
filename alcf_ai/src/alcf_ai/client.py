@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -6,7 +7,11 @@ from pydantic import BaseModel
 
 from .auth import get_inference_authorizer
 from .resources import ClusterResource, Sam3Resource
-from .transfer import TransferResult, run_globus_transfer
+from .transfer import TransferResult, https_put_to_collection, run_globus_transfer
+
+DEFAULT_BASE_URL = os.environ.get(
+    "inference_base_url", "https://inference-api.alcf.anl.gov/resource_server/"
+)
 
 
 class AutoGlobusAuth(Auth):
@@ -27,9 +32,12 @@ class StagingAreaResponse(BaseModel):
 class InferenceClient(Client):
     def __init__(
         self,
-        base_url: str = "https://inference-api.alcf.anl.gov/resource_server/",
+        base_url: str | None = None,
         timeout: Timeout = Timeout(10.0, read=30.0),
     ) -> None:
+        if base_url is None:
+            base_url = DEFAULT_BASE_URL
+
         super().__init__(
             auth=AutoGlobusAuth(),
             base_url=base_url,
@@ -61,7 +69,9 @@ class InferenceClient(Client):
         resp.raise_for_status()
         return StagingAreaResponse.model_validate(resp.json())
 
-    def stage_in(self, from_collection_id: str, src: Path, dst: Path) -> TransferResult:
+    def stage_in(
+        self, src: Path, dst: Path, *, from_collection_id: str | None = None
+    ) -> TransferResult:
         if self._staging_area is None:
             self._staging_area = self.ensure_staging_area()
 
@@ -73,12 +83,17 @@ class InferenceClient(Client):
             )
         dst = Path(self._staging_area.path) / dst
 
-        return run_globus_transfer(
-            source_collection_id=from_collection_id,
-            source_path=src.as_posix(),
-            destination_collection_id=self._staging_area.collection_id,
-            destination_path=dst.as_posix(),
-        )
+        if from_collection_id is not None:
+            return run_globus_transfer(
+                source_collection_id=from_collection_id,
+                source_path=src.as_posix(),
+                destination_collection_id=self._staging_area.collection_id,
+                destination_path=dst.as_posix(),
+            )
+        else:
+            src = Path(src).expanduser().resolve()
+            assert src.is_file()
+            return https_put_to_collection(src, dst)
 
     def stage_out(self, to_collection_id: str, src: Path, dst: Path) -> TransferResult:
         if self._staging_area is None:

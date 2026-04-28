@@ -252,7 +252,9 @@ def write_wds_shard(
 
 @cli.command()
 def submit_batch(
-    collection_id: str, dataset_path: Path, weights_dir_override: Path | None = None
+    dataset_path: Path,
+    from_collection_id: str | None = None,
+    weights_dir_override: Path | None = None,
 ) -> None:
     """
     Submit a WebDataset-structured tar file for batch inference.
@@ -262,10 +264,11 @@ def submit_batch(
     client = _cli_state["client"]
 
     dataset_path = dataset_path.expanduser().resolve()
-    assert dataset_path.is_file()
 
     logger.info(f"Staging in {dataset_path}")
-    stagein = client.stage_in(collection_id, dataset_path, dataset_path.name)
+    stagein = client.stage_in(
+        dataset_path, dataset_path.name, from_collection_id=from_collection_id
+    )
     logger.info(f"Stage in complete: {stagein}")
 
     logger.info("Sending inference request...")
@@ -280,7 +283,7 @@ def submit_batch(
 
     logger.info(f"Staging out result file: {result.result_path}")
     stageout = client.stage_out(
-        collection_id,
+        from_collection_id,
         Path(result.result_path).name,
         dataset_path.with_suffix(".results.tar"),
     )
@@ -298,10 +301,14 @@ def submit_image(
     client = _cli_state["client"]
     logger.info("Sending request...")
 
-    if "://" not in image_uri:
-        image_uri = "file://" + Path(image_uri).resolve().as_posix()
+    if "://" not in image_uri and Path(image_uri).is_file():
+        logger.info(f"{image_uri} is a local file; staging in...")
+        stagein = client.stage_in(Path(image_uri), Path(image_uri).name)
+        process_uri = STAGING_COLLECTION_ROOT + str(stagein.destination_path)
+    else:
+        process_uri = image_uri
 
-    resp = client.sam3.submit_image(image_uri, prompt)
+    resp = client.sam3.submit_image(process_uri, prompt)
     result: Sam3ImageResult = client.sam3.poll_task_result(resp.task_id)
     logger.info(result.model_dump(exclude={"labelmap_npy"}))
 

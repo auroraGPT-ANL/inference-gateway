@@ -1,9 +1,15 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from time import perf_counter
 
 import globus_sdk
+import httpx
 
-from .auth import STAGING_COLLECTION_ID, get_transfer_authorizer
+from .auth import STAGING_COLLECTION_ID, get_https_authorizer, get_transfer_authorizer
+
+logger = logging.getLogger(__name__)
 
 
 class TransferError(Exception):
@@ -16,14 +22,14 @@ class TransferTimeout(TransferError):
 
 @dataclass
 class TransferResult:
-    task_id: str
-    bytes_transferred: int
     elapsed_seconds: float
-    effective_gbps: float
-    source_collection_id: str
     source_path: str
     destination_collection_id: str
     destination_path: str
+    task_id: str | None = None
+    bytes_transferred: int | None = None
+    effective_gbps: float | None = None
+    source_collection_id: str | None = None
 
 
 def run_globus_transfer(
@@ -97,4 +103,39 @@ def run_globus_transfer(
         source_path=source_path,
         destination_collection_id=destination_collection_id,
         destination_path=destination_path,
+    )
+
+
+def https_put_to_collection(local_path: Path, remote_path: Path) -> TransferResult:
+    """
+    HTTPS PUT a local file into the inference staging area.
+    """
+    transfer_auth = get_transfer_authorizer(f"{STAGING_COLLECTION_ID}:https")
+    tc = globus_sdk.TransferClient(authorizer=transfer_auth)
+
+    https_auth = get_https_authorizer(f"{STAGING_COLLECTION_ID}:https")
+
+    endpoint = tc.get_endpoint(STAGING_COLLECTION_ID)
+    https_server = endpoint["https_server"]
+    headers = {"Authorization": https_auth.get_authorization_header()}
+
+    local_path = Path(local_path).expanduser().resolve()
+    assert local_path.is_file()
+
+    start = perf_counter()
+    with open(local_path, "rb") as f:
+        r = httpx.put(
+            f"{https_server}/{Path(remote_path).as_posix().lstrip('/')}",
+            content=f,
+            headers=headers,
+            timeout=None,
+        )
+    r.raise_for_status()
+    elapsed = perf_counter() - start
+    return TransferResult(
+        elapsed_seconds=elapsed,
+        source_collection_id="local",
+        source_path=local_path.as_posix(),
+        destination_collection_id=STAGING_COLLECTION_ID,
+        destination_path=remote_path.as_posix(),
     )

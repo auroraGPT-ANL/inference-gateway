@@ -3,21 +3,19 @@
         "model": "resource_server_async.cluster",
         "pk": 1,
         "fields": {
-            "cluster_name": "sophia",
+            "cluster_name": "your-cluster",
             "cluster_adapter": "resource_server_async.clusters.globus_compute.GlobusComputeCluster",
             "frameworks": [
-                "vllm", "sam3service"
+                "vllm"
             ],
             "openai_endpoints": [
                 "chat/completions",
                 "completions",
-                "embeddings",
-                "health", 
-                "metrics"
+                "embeddings"
             ],
             "config": {
-                "qstat_endpoint_uuid": "23c852cb-e780-49d3-9103-5ef4b1fcfd1c",
-                "qstat_function_uuid": "a84d7f2f-6066-44ba-bd5e-344f760e474b"
+                "qstat_endpoint_uuid": "your-backend-globus-compute-qstat-endpoint-uuid",
+                "qstat_function_uuid": "your-backend-globus-compute-qstat-function-uuid"
             }
         }
     },
@@ -25,7 +23,7 @@
         "model": "resource_server_async.cluster",
         "pk": 2,
         "fields": {
-            "cluster_name": "metis",
+            "cluster_name": "your-other-cluster",
             "cluster_adapter": "resource_server_async.clusters.metis.MetisCluster",
             "frameworks": [
                 "api"

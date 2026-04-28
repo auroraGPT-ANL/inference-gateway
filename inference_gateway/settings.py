@@ -15,8 +15,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import TypeAdapter
 
-from inference_gateway.utils import textfield_to_strlist
+from inference_gateway.utils import (
+    GlobusCredentials,
+    textfield_to_strlist,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,38 +47,11 @@ SERVICE_ACCOUNT_SECRET = os.getenv("SERVICE_ACCOUNT_SECRET")
 GLOBUS_GROUP_MANAGER_ID = os.getenv("GLOBUS_GROUP_MANAGER_ID", "")
 GLOBUS_GROUP_MANAGER_SECRET = os.getenv("GLOBUS_GROUP_MANAGER_SECRET", "")
 
-
-# Globus Dashboard Application Credentials
-GLOBUS_DASHBOARD_APPLICATION_ID = os.getenv("GLOBUS_DASHBOARD_APPLICATION_ID")
-GLOBUS_DASHBOARD_APPLICATION_SECRET = os.getenv("GLOBUS_DASHBOARD_APPLICATION_SECRET")
-
-# Dashboard Globus OAuth settings
-GLOBUS_DASHBOARD_REDIRECT_URI = os.getenv(
-    "GLOBUS_DASHBOARD_REDIRECT_URI",
-    "http://localhost:8000/dashboard/callback",  # Update for production
+# Overwrite Globus Compute credentials (ID/secret) for specific endpoint UUIDs
+ta = TypeAdapter(dict[str, GlobusCredentials])
+GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES = ta.validate_json(
+    os.environ.get("GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES", "{}")
 )
-
-# Scopes needed for dashboard access
-GLOBUS_DASHBOARD_SCOPES = [
-    "openid",
-    "profile",
-    "email",
-    "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships",
-]
-
-# Dashboard-specific Globus Group requirement
-# Users must be members of this group to access the dashboard
-GLOBUS_DASHBOARD_GROUP = os.getenv("GLOBUS_DASHBOARD_GROUP", "")
-DASHBOARD_GROUP_ENABLED = len(GLOBUS_DASHBOARD_GROUP) > 0
-
-
-GLOBUS_DASHBOARD_POLICY_ID = os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
-# Extract Globus policies that will determine which domains get access
-GLOBUS_DASHBOARD_POLICIES = textfield_to_strlist(
-    os.getenv("GLOBUS_DASHBOARD_POLICY_ID", "")
-)
-NUMBER_OF_GLOBUS_DASHBOARD_POLICIES = len(GLOBUS_DASHBOARD_POLICIES)
-GLOBUS_DASHBOARD_POLICIES = ",".join(GLOBUS_DASHBOARD_POLICIES)
 
 # Flag to turn on the Debug logging for the Globus Compute executor
 GLOBUS_COMPUTE_EXECUTOR_DEBUG = os.getenv(
@@ -161,8 +138,6 @@ INSTALLED_APPS = [
     "resource_server",
     "resource_server_async",
     "drf_spectacular",
-    # 'dashboard',
-    "dashboard_async",
     # Configuration checks (mostly for making sure auth guards are in place)
     "inference_gateway.apps.AuthCheckConfig",
 ]
@@ -361,11 +336,6 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close (bet
 # CSRF cookie settings for production security
 CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
 CSRF_COOKIE_SAMESITE = "Lax"  # Match session cookie
-
-# Authentication settings for dashboard
-LOGIN_URL = "/dashboard/login/"
-LOGIN_REDIRECT_URL = "/dashboard/analytics"
-LOGOUT_REDIRECT_URL = "/dashboard/login/"
 
 # Streaming server configuration
 STREAMING_SERVER_HOST = os.environ.get(

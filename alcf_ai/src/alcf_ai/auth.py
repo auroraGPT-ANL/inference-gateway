@@ -1,3 +1,4 @@
+import logging
 import sys
 import time
 from datetime import timedelta
@@ -9,6 +10,8 @@ import globus_sdk.gare
 from globus_sdk.authorizers import GlobusAuthorizer
 from globus_sdk.scopes import GCSCollectionScopeBuilder, TransferScopes
 from typer import Option, Typer
+
+logger = logging.getLogger(__name__)
 
 
 class InferenceAuthError(Exception):
@@ -62,7 +65,7 @@ _collection_opt = Option(
 # Error handler to guide user through specific identity providers
 class DomainBasedErrorHandler:
     def __call__(self, app, error):
-        print(f"Encountered error '{error}', initiating login...")
+        logger.error(f"Encountered error '{error}', initiating login...")
         app.login(auth_params=GA_PARAMS)
 
 
@@ -75,21 +78,30 @@ def _build_scope_requirements(
     Always includes the gateway scope. When transfer_collection_id is provided,
     transfer scopes are added, optionally with the data_access dependency.
     """
+    # Transfer API Scope: initiate transfer tasks
+    transfer_scope = TransferScopes.make_mutable("all")
+
+    # HTTPS Scope: push files directly to an endpoint
+    https_scope = GCSCollectionScopeBuilder(STAGING_COLLECTION_ID).make_mutable(
+        "https", optional=True
+    )
+
+    # Gather scopes for inference, transfer, https
     scopes: dict = {
         GATEWAY_CLIENT_ID: [GATEWAY_SCOPE],
+        TRANSFER_RESOURCE_SERVER: [transfer_scope],
+        STAGING_COLLECTION_ID: https_scope,
     }
 
+    # The source collection may require `data_access` scope; add if needed:
     if transfer_collection_id is not None:
-        transfer_scope = TransferScopes.make_mutable("all")
-
-        if transfer_collection_id.endswith(":data_access"):
-            transfer_collection_id = transfer_collection_id.split(":")[0]
+        transfer_collection_id, *gcs_scopes = transfer_collection_id.split(":")
+        if "data_access" in gcs_scopes:
             data_access = GCSCollectionScopeBuilder(
                 transfer_collection_id
             ).make_mutable("data_access", optional=True)
             transfer_scope.add_dependency(data_access)
-
-        scopes[TRANSFER_RESOURCE_SERVER] = [transfer_scope]
+            scopes[transfer_collection_id] = [data_access]
 
     return scopes
 
@@ -120,6 +132,11 @@ def get_transfer_authorizer(transfer_collection_id: str) -> GlobusAuthorizer:
     """
     app = build_user_app(transfer_collection_id)
     return app.get_authorizer(TRANSFER_RESOURCE_SERVER)
+
+
+def get_https_authorizer(transfer_collection_id: str) -> GlobusAuthorizer:
+    app = build_user_app(transfer_collection_id)
+    return app.get_authorizer(transfer_collection_id.split(":")[0])
 
 
 def format_timedelta(td: timedelta, units: TimeUnit = TimeUnit.auto) -> str:
