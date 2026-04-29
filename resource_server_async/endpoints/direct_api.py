@@ -80,17 +80,19 @@ class DirectAPIEndpoint(BaseEndpoint):
         # Submit POST call and wait for the response
         try:
             response = await self.httpx_client.post(self.config.api_url, data=data)
-            if response.status_code == 429:
-                return SubmitTaskResponse(
-                    error_message=f"Error: Too many requests for upstream API {self.config.api_url}.",
-                    error_code=429,
-                )
-            response = response.json()
+
+        except httpx.HTTPStatusError as e:
+            return SubmitTaskResponse(
+                error_message=f"Error: Upstream returned {e.response.status_code}.",
+                error_code=e.response.status_code,
+            )
+
         except TimeoutException:
             return SubmitTaskResponse(
                 error_message=f"Error: Timeout calling {self.config.api_url}.",
                 error_code=504,
             )
+
         except Exception as e:
             return SubmitTaskResponse(
                 error_message=f"Error: Unexpected error calling {self.config.api_url}: {e}",

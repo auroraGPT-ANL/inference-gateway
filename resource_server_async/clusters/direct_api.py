@@ -56,7 +56,7 @@ class DirectAPICluster(BaseCluster):
         )
 
     # Get formatted cluster status
-    async def get_status(self):
+    async def get_status(self) -> Dict:
         """
         Fetch and return cluster status. This function assumes the
         response from the cluster is already formatted. If you need
@@ -65,8 +65,7 @@ class DirectAPICluster(BaseCluster):
         """
 
         # Submit GET call and wait for the response
-        response = await self.httpx_client.get(self.config.status_url)
-        return response.json()
+        return await self.httpx_client.get(self.config.status_url)
 
     # Get jobs
     async def get_jobs(self, auth: User) -> GetJobsResponse:
