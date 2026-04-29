@@ -13,15 +13,15 @@ class AsyncHttpClient:
             headers = {"Content-Type": "application/json"}
         self._client = httpx.AsyncClient(timeout=timeout, headers=headers)
 
-    async def get(self, url: str) -> Dict[Any, Any]:
+    async def get(self, url: str):
         response = await self._client.get(url)
         response.raise_for_status()
-        return response.json()
+        return response
 
-    async def post(self, url: str, data: dict = None) -> Dict[Any, Any]:
+    async def post(self, url: str, data: dict = None):
         response = await self._client.post(url, json=data)
         response.raise_for_status()
-        return response.json()
+        return response
 
     async def close(self):
         await self._client.aclose()

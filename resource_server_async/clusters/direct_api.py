@@ -65,7 +65,7 @@ class DirectAPICluster(BaseCluster):
         """
 
         # Submit GET call and wait for the response
-        return await self.httpx_client.get(self.config.status_url)
+        return await self.httpx_client.get(self.config.status_url).json()
 
     # Get jobs
     async def get_jobs(self, auth: User) -> GetJobsResponse:
