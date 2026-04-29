@@ -31,7 +31,9 @@
             "openai_endpoints": [
                 "chat/completions"
             ],
-            "config": {}
+            "config": {
+                "status_url": "https://my-status-url.com/status"
+            }
         }
     }
 ]

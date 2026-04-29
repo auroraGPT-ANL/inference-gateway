@@ -3,19 +3,20 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
+from resource_server_async.clusters.metis import MetisCluster
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 from resource_server_async.endpoints.endpoint import (
     BaseModelWithError,
     SubmitStreamingTaskResponse,
     SubmitTaskResponse,
 )
-from utils.metis_utils import fetch_metis_status, find_metis_model
+from resource_server_async.utils import get_cluster_wrapper
 
 log = logging.getLogger(__name__)
 
 
-class GetEndpointStatusResponse(BaseModelWithError):
-    status: Optional[Any] = None
+class CheckEndpointStatusResponse(BaseModelWithError):
+    is_running: Optional[bool] = False
 
 
 class ModelStatus(BaseModel):
@@ -54,59 +55,51 @@ class MetisEndpoint(DirectAPIEndpoint):
             config,
         )
 
-    # Get endpoint status
-    async def get_endpoint_status(self) -> GetEndpointStatusResponse:
+    # Check endpoint status
+    async def check_endpoint_status(self) -> CheckEndpointStatusResponse:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
-        # Check external API status to see if it can accept request
-        metis_status, error_message = await fetch_metis_status(use_cache=True)
-        if error_message:
-            return GetEndpointStatusResponse(
-                error_message=error_message, error_code=500
+        # Get Metis cluster wrapper from database
+        response = await get_cluster_wrapper("metis")
+        if response.error_message:
+            return CheckEndpointStatusResponse(
+                error_message=response.error_message,
+                error_code=response.error_code,
             )
+        cluster: MetisCluster = response.cluster
 
-        # Log requested model name
-        log.info(f"Metis inference request for model: {self.model}")
+        # Get Metis cluster status
+        metis_status = await cluster.get_status()
 
-        # Find matching model in Metis status (returns endpoint_id for API token lookup)
-        model_info, endpoint_id, error_message = find_metis_model(
-            metis_status, self.model
-        )
-        if error_message:
-            return GetEndpointStatusResponse(
-                error_code=404, error_message=error_message
-            )
+        # Extract list of running models
+        model_list = []
+        for running in metis_status.get("running", []):
+            models = running["Models"]
+            if isinstance(models, str):
+                model_list.extend([model.strip() for model in models.split(",")])
+            else:
+                model_list.extend(models)
 
-        # Check if the model is Live
-        if model_info.get("status") != "Live":
-            return GetEndpointStatusResponse(
-                error_message=f"Error: '{self.model}' is not currently live on Metis. Status: {model_info.get('status')}",
+        # Error if model not available
+        if self.model not in model_list:
+            return CheckEndpointStatusResponse(
+                error_message=f"Error: '{self.model}' is not currently live on Metis.",
                 error_code=503,
             )
 
-        # Create model status object
-        try:
-            model_status = ModelStatus(model_info=model_info, endpoint_id=endpoint_id)
-        except Exception as e:
-            return GetEndpointStatusResponse(
-                error_message=f"Error: Could not generate model status for endtpoint {self.endpoint_slug}: {e}",
-                error_code=500,
-            )
-
-        # Return endpoint status
-        return GetEndpointStatusResponse(status=model_status)
+        # Return that the model is available
+        return CheckEndpointStatusResponse(is_running=True)
 
     # Submit task
     async def submit_task(self, data) -> SubmitTaskResponse:
         """Submits a single interactive task to the compute resource."""
 
         # Check endpoint status
-        response = await self.get_endpoint_status()
+        response = await self.check_endpoint_status()
         if response.error_message:
             return SubmitTaskResponse(
                 error_message=response.error_message, error_code=response.error_code
             )
-        model_status: ModelStatus = response.status
 
         # Use validated request data as-is (already in OpenAI format)
         # Only update the stream parameter to match the request
@@ -118,9 +111,7 @@ class MetisEndpoint(DirectAPIEndpoint):
         api_request_data.pop("api_port", None)
 
         # Log model and Metis endpoint ID
-        log.info(
-            f"Making Metis API call for model {self.model} (stream=False, endpoint={model_status.endpoint_id})"
-        )
+        log.info(f"Making Metis API call for model {self.model} (stream=False)")
 
         # Send request to Metis using parent submit_task
         return await super().submit_task(api_request_data)
@@ -132,12 +123,11 @@ class MetisEndpoint(DirectAPIEndpoint):
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
         # Check endpoint status
-        response = await self.get_endpoint_status()
+        response = await self.check_endpoint_status()
         if response.error_message:
             return SubmitStreamingTaskResponse(
                 error_message=response.error_message, error_code=response.error_code
             )
-        model_status: ModelStatus = response.status
 
         # Use validated request data as-is (already in OpenAI format)
         # Only update the stream parameter to match the request
@@ -149,9 +139,7 @@ class MetisEndpoint(DirectAPIEndpoint):
         api_request_data.pop("api_port", None)
 
         # Log model and Metis endpoint ID
-        log.info(
-            f"Making Metis API call for model {self.model} (stream=True, endpoint={model_status.endpoint_id})"
-        )
+        log.info(f"Making Metis API call for model {self.model} (stream=True)")
 
         # Send streaming request to Metis using parent submit_task
         return await super().submit_streaming_task(api_request_data, request_log_id)

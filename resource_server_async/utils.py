@@ -728,7 +728,7 @@ async def get_response(content, code, request):
 
     # If this is an error, define the cache key to see whether the error occured recently (during high traffic)
     skip_database_operation = False
-    if code != 200:
+    if code >= 300:
         try:
             cache_key = request.auth.username + str(content) + str(code)
             skip_database_operation = is_cached(cache_key, create_empty=True)
@@ -1552,9 +1552,9 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
     """Extract the endpoint from the database and return its underlying wrapper object."""
 
     # Try to get endpoint wrapper from Redis cache first
-    endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
-    if endpoint_wrapper is not None:
-        return endpoint_wrapper
+    # endpoint_wrapper = get_endpoint_wrapper_from_cache(endpoint_slug)
+    # if endpoint_wrapper is not None:
+    #    return endpoint_wrapper
 
     # Try to get endpoint from Redis cache first
     endpoint = get_endpoint_from_cache(endpoint_slug)
@@ -1621,7 +1621,7 @@ async def get_endpoint_wrapper(endpoint_slug: str) -> EndpointWrapperResponse:
         )
 
     # Cache and return endpoint wrapper
-    cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
+    # cache_endpoint_wrapper(endpoint_slug, endpoint_wrapper)
     return endpoint_wrapper
 
 
@@ -1640,9 +1640,9 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
     """Extract the cluster from the database and return its underlying wrapper object."""
 
     # Try to get cluster wrapper from Redis cache first
-    cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
-    if cluster_wrapper is not None:
-        return cluster_wrapper
+    # cluster_wrapper = get_cluster_wrapper_from_cache(cluster_name)
+    # if cluster_wrapper is not None:
+    #    return cluster_wrapper
 
     # Try to get cluster from Redis cache first
     cluster = get_cluster_from_cache(cluster_name)
@@ -1709,7 +1709,7 @@ async def get_cluster_wrapper(cluster_name: str) -> ClusterWrapperResponse:
         )
 
     # Cache and return the cluster wrapper
-    cache_cluster_wrapper(cluster_name, cluster_wrapper)
+    # cache_cluster_wrapper(cluster_name, cluster_wrapper)
     return cluster_wrapper
 
 
