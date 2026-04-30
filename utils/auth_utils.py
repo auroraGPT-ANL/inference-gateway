@@ -9,8 +9,9 @@ import globus_sdk
 # Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached
 from django.conf import settings
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+from resource_server_async.errors import Unauthorized
 from resource_server_async.models import AuthService, User
 from utils.pydantic_models.db_models import UserPydantic
 
@@ -492,48 +493,29 @@ def validate_access_token(request):
     )
 
 
-class CheckPermissionResponse(BaseModel):
-    is_authorized: bool = False
-    error_message: Optional[str] = Field(default=None)
-    error_code: Optional[int] = Field(default=None)
-
-
 # Check permission
 def check_permission(
     auth: User,
-    user_group_uuids: List[str],
-    allowed_globus_groups: List[str],
-    allowed_domains: List[str],
-) -> CheckPermissionResponse:
-    """Verify is the user is permitted to access or view a resource based on group and policy restrictions."""
+    user_group_uuids: list[str],
+    allowed_globus_groups: list[str] | None,
+    allowed_domains: list[str] | None,
+) -> None:
+    """
+    Verify is the user is permitted to access or view a resource based on group and policy restrictions.
+    Raises Unauthorized if the user is not permitted.
+    """
 
     # Look at Globus Group permissions
     if allowed_globus_groups:
         if len(set(user_group_uuids) & set(allowed_globus_groups)) == 0:
-            return CheckPermissionResponse(
-                is_authorized=False,
-                error_message="Error: Permission denied due to Globus Group restrictions.",
-                error_code=401,
-            )
+            raise Unauthorized("Permission denied due to Globus Group restrictions.")
 
     # Extract user's domain from the IdP used during authentication
     try:
         user_domain = auth.username.split("@")[1]
     except Exception:
-        return CheckPermissionResponse(
-            is_authorized=False,
-            error_message=f"Error: Could not extract domain from user {auth.username}.",
-            error_code=500,
-        )
+        raise Unauthorized(f"Could not extract domain from user {auth.username!r}")
 
     # Look at domain (policy) permissions
-    if allowed_domains:
-        if user_domain not in allowed_domains:
-            return CheckPermissionResponse(
-                is_authorized=False,
-                error_message="Error: Permission denied due to IdP domain restrictions.",
-                error_code=401,
-            )
-
-    # Grant access if nothing wrong was detected
-    return CheckPermissionResponse(is_authorized=True)
+    if allowed_domains and user_domain not in allowed_domains:
+        raise Unauthorized("Permission denied due to IdP domain restrictions.")

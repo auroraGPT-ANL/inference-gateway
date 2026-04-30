@@ -9,19 +9,19 @@ import httpx
 from asgiref.sync import sync_to_async
 from django.http import StreamingHttpResponse
 from django.utils import timezone
-from httpx import TimeoutException
 from pydantic import BaseModel, Field
 
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
-    SubmitStreamingTaskResponse,
-    SubmitTaskResponse,
 )
 from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import RequestLog
-from resource_server_async.utils import (
-    create_streaming_response_headers,
+from resource_server_async.schemas.endpoints import (
+    SubmitTaskResult,
+    SubmitStreamingTaskResponse,
 )
+from resource_server_async.errors import EndpointError
+from resource_server_async.streaming import create_streaming_response_headers
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,8 @@ class DirectAPIEndpoint(BaseEndpoint):
         framework: str,
         model: str,
         endpoint_adapter: str,
+        tpm_model: int,
+        tpm_user: int,
         allowed_globus_groups: List[str] = None,
         allowed_domains: List[str] = None,
         config: dict = None,
@@ -69,38 +71,27 @@ class DirectAPIEndpoint(BaseEndpoint):
             framework,
             model,
             endpoint_adapter,
+            tpm_model,
+            tpm_user,
             allowed_globus_groups,
             allowed_domains,
         )
 
     # Submit task
-    async def submit_task(self, data: dict) -> SubmitTaskResponse:
+    async def submit_task(self, data: dict) -> SubmitTaskResult:
         """Submits a single interactive task to the compute resource."""
 
         # Submit POST call and wait for the response
         try:
             response = await self.httpx_client.post(self.config.api_url, data=data)
-
         except httpx.HTTPStatusError as e:
-            return SubmitTaskResponse(
-                error_message=f"Error: Upstream returned {e.response.status_code}.",
-                error_code=e.response.status_code,
-            )
+            raise EndpointError(f"Upstream endpoint returned {e.response.status_code}: {e.response.content[:256]}.", status_code=e.response.status_code)
+        except httpx.TimeoutException:
+            raise EndpointError(f"Timeout calling {self.config.api_url}.", status_code=504, info={"timeout": self.config.api_request_timeout})
+        except httpx.HTTPError as e:
+            raise EndpointError(f"HTTP error calling API at {self.config.api_url}: {e}", status_code=500)
 
-        except TimeoutException:
-            return SubmitTaskResponse(
-                error_message=f"Error: Timeout calling {self.config.api_url}.",
-                error_code=504,
-            )
-
-        except Exception as e:
-            return SubmitTaskResponse(
-                error_message=f"Error: Unexpected error calling {self.config.api_url}: {e}",
-                error_code=500,
-            )
-
-        # Return response from the API call
-        return SubmitTaskResponse(result=response)
+        return SubmitTaskResult(result=response, task_id=None)
 
     # Call stream API
     async def submit_streaming_task(

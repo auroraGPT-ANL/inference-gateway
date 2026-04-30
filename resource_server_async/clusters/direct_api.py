@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, override
 
 from django.core.cache import cache
 from httpx import TimeoutException
@@ -11,13 +11,14 @@ from resource_server_async.clusters.cluster import (
 )
 from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import User
+from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 
 log = logging.getLogger(__name__)
 
 
 class ClusterConfig(BaseModel):
     status_url: str
-    api_request_timeout: Optional[int] = Field(default=10)
+    api_request_timeout: int = 10
 
 
 # Direct API implementation of a BaseCluster
@@ -32,9 +33,9 @@ class DirectAPICluster(BaseCluster):
         cluster_adapter: str,
         frameworks: List[str],
         openai_endpoints: List[str],
+        config: dict[str, Any],
         allowed_globus_groups: List[str] = [],
         allowed_domains: List[str] = [],
-        config: Dict = None,
     ):
         # Validate endpoint configuration
         self.__config = ClusterConfig(**config)
@@ -56,7 +57,7 @@ class DirectAPICluster(BaseCluster):
         )
 
     # Get formatted cluster status
-    async def get_status(self) -> Dict:
+    async def get_status(self) -> Any:
         """
         Fetch and return cluster status. This function assumes the
         response from the cluster is already formatted. If you need
@@ -68,7 +69,8 @@ class DirectAPICluster(BaseCluster):
         return await self.httpx_client.get(self.config.status_url)
 
     # Get jobs
-    async def get_jobs(self, auth: User) -> GetJobsResponse:
+    @override
+    async def get_jobs(self, auth: User) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key

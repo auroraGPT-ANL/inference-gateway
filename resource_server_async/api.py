@@ -1,8 +1,10 @@
+import logging
 import uuid
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.errors import HttpError
@@ -10,9 +12,25 @@ from ninja.security import HttpBearer
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 
 from resource_server_async.models import User
-from resource_server_async.utils import create_access_log, is_cached
 from utils.auth_utils import validate_access_token
-from utils.pydantic_models.db_models import AccessLogPydantic
+from utils.pydantic_models.db_models import (
+    AccessLogPydantic,
+    BatchLogPydantic,
+    RequestLogPydantic,
+)
+
+from .errors import BaseError
+
+logger = logging.getLogger(__name__)
+
+
+class AuthedRequest(HttpRequest):
+    auth: User
+    user_group_uuids: list[str]
+    access_log_data: AccessLogPydantic
+    request_log_data: RequestLogPydantic | None
+    batch_log_data: BatchLogPydantic | None
+
 
 # -------------------------------------
 # ========== API declaration ==========
@@ -63,6 +81,7 @@ class GlobalAuth(HttpBearer):
     async def authenticate(self, request, access_token):
         # Initialize the access log data for the database entry
         access_log_data = self.__initialize_access_log_data(request)
+        request.access_log_data = access_log_data
 
         # Introspect the access token
         atv_response = validate_access_token(request)
@@ -72,15 +91,6 @@ class GlobalAuth(HttpBearer):
 
         # Raise an error if the access token if not valid or if the user is not authorized
         if not atv_response.is_valid:
-            cache_key = (
-                access_log_data.origin_ip
-                + atv_response.error_message
-                + str(atv_response.error_code)
-            )
-            if not is_cached(cache_key, create_empty=True):
-                _ = await create_access_log(
-                    access_log_data, atv_response.error_message, atv_response.error_code
-                )
             raise HttpError(atv_response.error_code, atv_response.error_message)
 
         # Create a new database entry for the user (or get existing entry if already exist)
@@ -101,17 +111,12 @@ class GlobalAuth(HttpBearer):
             error_message = (
                 f"Error: Could not create or recover user entry in the database: {e}"
             )
-            status_code = 500
-            cache_key = access_log_data.origin_ip + error_message + str(status_code)
-            if not is_cached(cache_key, create_empty=True):
-                _ = await create_access_log(access_log_data, error_message, status_code)
-            raise HttpError(status_code, error_message)
+            raise HttpError(500, error_message)
 
         # Add user database object to the access log pydantic data
         access_log_data.user = user
 
         # Add info to the request object
-        request.access_log_data = access_log_data
         request.user_group_uuids = atv_response.user_group_uuids
 
         # Add User object to request so that Ninja throttle can be applied per authenticated user (AuthRateThrottle)
@@ -150,6 +155,36 @@ class GlobalAuth(HttpBearer):
 
 # Apply the authorization requirement to all routes
 api.auth = GlobalAuth()
+
+
+@api.exception_handler(BaseError)
+def handle_app_error(request: HttpRequest, exc: BaseError) -> HttpResponse:
+    return api.create_response(
+        request,
+        {"error": {"code": exc.code, "message": str(exc), "info": exc.info}},
+        status=exc.status_code,
+    )
+
+
+@api.exception_handler(Exception)
+def handle_uncaught_error(request: HttpRequest, exc: Exception) -> HttpResponse:
+    error_id = uuid.uuid4().hex
+    logger.exception(
+        f"Uncaught Exception {error_id=} in API View {request.path!r}", exc_info=exc
+    )
+
+    return api.create_response(
+        request,
+        {
+            "error": {
+                "code": "internal_error",
+                "message": "Internal Server Error",
+                "error_id": error_id,
+            }
+        },
+        status=500,
+    )
+
 
 # -------------------------------------------
 # ========== API router definition ==========

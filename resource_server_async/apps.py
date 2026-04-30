@@ -24,7 +24,7 @@ class ResourceServerAsyncConfig(AppConfig):
             ]
 
             # Try to use Redis client for pattern-based deletion
-            from resource_server_async.utils import get_redis_client
+            from resource_server_async.cache import get_redis_client
 
             redis_client = get_redis_client()
 

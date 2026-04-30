@@ -9,8 +9,9 @@ from django.core.cache import cache
 from django.utils.text import slugify
 from pydantic import BaseModel
 
-from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse, Jobs
+from resource_server_async.clusters.cluster import BaseCluster
 from resource_server_async.models import Endpoint, User
+from resource_server_async.schemas.clusters import JobsByStatus
 from utils import globus_utils
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ class GlobusComputeCluster(BaseCluster):
         )
 
     # Get jobs
-    async def get_jobs(self, auth: User) -> GetJobsResponse:
+    async def get_jobs(self, auth: User) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key

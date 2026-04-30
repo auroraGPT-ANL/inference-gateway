@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -17,6 +17,7 @@ class OpenAIStreamOptions(BaseModelExtraForbid):
 # OpenAI completions
 # https://platform.openai.com/docs/api-reference/completions/create
 class OpenAICompletionsPydantic(BaseModelExtraForbid):
+    openai_endpoint: Literal["completions"] = "completions"
     prompt: Union[str, List[str], List[int], List[List[int]]]
     model: str = Field(..., min_length=1)
     best_of: Optional[int] = Field(default=1, ge=0, le=20)

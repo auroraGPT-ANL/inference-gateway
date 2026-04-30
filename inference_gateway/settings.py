@@ -134,10 +134,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
     "resource_server",
     "resource_server_async",
-    "drf_spectacular",
     # Configuration checks (mostly for making sure auth guards are in place)
     "inference_gateway.apps.AuthCheckConfig",
 ]
@@ -150,20 +148,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "resource_server_async.logging.AccessLogMiddleware",
 ]
-
-REST_FRAMEWORK = {
-    # YOUR SETTINGS
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Inference Gateway API",
-    "DESCRIPTION": "Inference Gateway",
-    "VERSION": "0.0.1",
-    "SERVE_INCLUDE_SCHEMA": False,
-    # OTHER SETTINGS
-}
 
 ROOT_URLCONF = "inference_gateway.urls"
 

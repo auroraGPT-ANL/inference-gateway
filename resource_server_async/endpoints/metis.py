@@ -7,8 +7,10 @@ from resource_server_async.clusters.metis import MetisCluster
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
 from resource_server_async.endpoints.endpoint import (
     BaseModelWithError,
+)
+from resource_server_async.schemas.endpoints import (
+    SubmitTaskResult,
     SubmitStreamingTaskResponse,
-    SubmitTaskResponse,
 )
 from resource_server_async.utils import get_cluster_wrapper
 
@@ -37,6 +39,8 @@ class MetisEndpoint(DirectAPIEndpoint):
         framework: str,
         model: str,
         endpoint_adapter: str,
+        tpm_model: int,
+        tpm_user: int,
         allowed_globus_groups: List[str] = None,
         allowed_domains: List[str] = None,
         config: dict = None,
@@ -50,6 +54,8 @@ class MetisEndpoint(DirectAPIEndpoint):
             framework,
             model,
             endpoint_adapter,
+            tpm_model,
+            tpm_user,
             allowed_globus_groups,
             allowed_domains,
             config,
@@ -91,13 +97,13 @@ class MetisEndpoint(DirectAPIEndpoint):
         return CheckEndpointStatusResponse(is_running=True)
 
     # Submit task
-    async def submit_task(self, data) -> SubmitTaskResponse:
+    async def submit_task(self, data) -> SubmitTaskResult:
         """Submits a single interactive task to the compute resource."""
 
         # Check endpoint status
         response = await self.check_endpoint_status()
         if response.error_message:
-            return SubmitTaskResponse(
+            return SubmitTaskResult(
                 error_message=response.error_message, error_code=response.error_code
             )
 

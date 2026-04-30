@@ -37,7 +37,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from resource_server_async.utils import get_redis_client
+        from resource_server_async.cache import get_redis_client
 
         dry_run = options.get("dry_run", False)
         clear_all = options.get("all", False)

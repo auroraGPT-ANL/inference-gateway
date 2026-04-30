@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -19,6 +19,7 @@ class EncodingFormat(str, Enum):
 # OpenAI embeddings
 # https://platform.openai.com/docs/api-reference/embeddings/create
 class OpenAIEmbeddingsPydantic(BaseModelExtraForbid):
+    openai_endpoint: Literal["embeddings"] = "embeddings"
     input: Union[str, List[str], List[int], List[List[int]]]
     model: str
     dimensions: Optional[int] = Field(default=None, ge=1)

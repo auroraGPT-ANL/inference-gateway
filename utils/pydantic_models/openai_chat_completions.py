@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
@@ -577,6 +577,7 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     #    AssistantMessage,
     #    ToolMessage]
     # ]
+    openai_endpoint: Literal["chat/completions"] = "chat/completions"
     messages: List[Message]
     model: str = Field(..., min_length=1)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)

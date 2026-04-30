@@ -1,391 +1,219 @@
 import json
-
-# Tool to log access requests
 import logging
-import uuid
-
-from asgiref.sync import sync_to_async
-from django.conf import settings
-from django.http import HttpResponse, JsonResponse
-from django.utils import timezone
-from django.utils.text import slugify
-from ninja import Query
-
-log = logging.getLogger(__name__)
-
-# Force Uvicorn to add timestamps in the Gunicorn access log
 import logging.config
 
+from django.conf import settings
+from django.http import HttpRequest, JsonResponse
+from django.utils import timezone
+from ninja import Query
+
 from logging_config import LOGGING_CONFIG
+from resource_server_async.schemas.batch import (
+    BatchLogSummary,
+    BatchStatus,
+    BatchSubmit,
+)
+from resource_server_async.streaming import (
+    set_streaming_error,
+    set_streaming_metadata,
+    set_streaming_status,
+    store_streaming_data,
+    validate_streaming_request_security,
+)
+
+from .errors import (
+    AccessDenied,
+    BatchFailed,
+    BatchNotFound,
+    BatchOngoing,
+    BatchUnavailable,
+    QuotaExceeded,
+    UnsupportedFramework,
+)
 
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-from resource_server_async.clusters.cluster import BaseCluster, JobInfo, Jobs
 from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
-from resource_server_async.utils import (
-    create_access_log,
-    create_request_log,
-    decode_request_body,
-    extract_prompt,
-    get_cluster_wrapper,
-    # Wrapper function
-    get_endpoint_wrapper,
-    get_list_endpoints_data,
-    # Response functions
-    get_response,
-    set_streaming_error,
-    set_streaming_metadata,
-    set_streaming_status,
-    # Streaming functions
-    store_streaming_data,
-    update_batch,
-    validate_batch_body,
-    validate_request_body,
-    validate_streaming_request_security,
+from resource_server_async.schemas.batch import BatchListFilter
+from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
+from resource_server_async.schemas.endpoints import (
+    SubmitBatchResult,
+    SubmitTaskAsyncResponse,
 )
-from utils.globus_utils import get_transfer_client
-from utils.pydantic_models.batch import BatchListFilter, BatchStatusEnum
+from resource_server_async.utils import (
+    decode_request_body,
+    load_cluster_adapter,
+    # Wrapper function
+    load_endpoint_adapter,
+    # Response functions
+    update_batch,
+)
 from utils.pydantic_models.db_models import (
     BatchLogPydantic,
-    RequestLogPydantic,
     UserPydantic,
 )
 
+from .services import (
+    filter_jobs_for_user,
+    get_list_endpoints_data,
+    prep_globus_staging_area,
+    submit_openai_inference_request,
+)
+
+log = logging.getLogger(__name__)
 log.info("Utils functions loaded.")
 
 # Django database
 # from resource_server.models import FederatedEndpoint
 # Django Ninja API
-from resource_server_async.api import api, router
+from resource_server_async.api import AuthedRequest, api, router
 from resource_server_async.models import BatchLog
-from resource_server_async.schemas.sam3 import Sam3Request
-
-# NOTE: All caching is now centralized in resource_server_async.utils
-# Caching uses Django cache (configured for Redis) with automatic fallback to in-memory cache
-# - Endpoint caching: get_endpoint_from_cache(), cache_endpoint(), remove_endpoint_from_cache()
-# - Streaming caching: All streaming functions use get_redis_client() for Redis-specific operations
-# - Permission caching: In-memory TTLCache for performance-critical permission checks
+from resource_server_async.schemas import (
+    GlobusStagingAreaPrepared,
+    ListEndpointsResponse,
+    Sam3Request,
+)
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
+from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
 
 
 # Health Check (GET) - No authentication required
 # Lightweight endpoint for Kubernetes/load balancer health checks
 @router.get("/health", auth=None)
-async def health_check(request):
+async def health_check():
     """Lightweight health check endpoint - returns OK if API is responding."""
     return JsonResponse({"status": "ok"}, status=200)
 
 
 # Whoami (GET)
-@router.get("/whoami")
-async def whoami(request):
+@router.get("/whoami", response=UserPydantic)
+async def whoami(request: AuthedRequest) -> UserPydantic:
     """GET basic user information from access token, or error message otherwise."""
-
-    # Get user info
-    try:
-        user = UserPydantic(
-            id=request.auth.id,
-            name=request.auth.name,
-            username=request.auth.username,
-            user_group_uuids=request.user_group_uuids,
-            idp_id=request.auth.idp_id,
-            idp_name=request.auth.idp_name,
-            auth_service=request.auth.auth_service,
-        )
-    except Exception as e:
-        return await get_response(
-            f"Error: could not create user from request.auth: {e}", 500, request
-        )
-
-    # Return user details
-    return await get_response(user.model_dump_json(), 200, request)
+    return UserPydantic(
+        id=request.auth.id,
+        name=request.auth.name,
+        username=request.auth.username,
+        user_group_uuids=request.user_group_uuids,
+        idp_id=request.auth.idp_id,
+        idp_name=request.auth.idp_name,
+        auth_service=request.auth.auth_service,
+    )
 
 
 # List Endpoints (GET)
-@router.get("/list-endpoints")
-async def get_list_endpoints(request):
+@router.get("/list-endpoints", response=ListEndpointsResponse)
+async def get_list_endpoints(request: AuthedRequest) -> ListEndpointsResponse:
     """GET request to list the available frameworks and models."""
-
-    # Extract the list of all endpoints from the database
-    response = await get_list_endpoints_data(request)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    all_endpoints = response.all_endpoints
-
-    # Return list of frameworks and models
-    return await get_response(json.dumps(all_endpoints), 200, request)
+    return await get_list_endpoints_data(request.auth, request.user_group_uuids)
 
 
-@router.put("/data/staging")
-def ensure_staging_area(request):
+@router.put("/data/staging", response=GlobusStagingAreaPrepared)
+def ensure_staging_area(request: AuthedRequest) -> GlobusStagingAreaPrepared:
     """
     Idempotent user request to create a staging area for the inference service.
 
     A temporary directory named with the user's principal ID is created and
     read/write ACLs are granted to the user to initiate data transfers.
     """
-    principal_id = request.user.id
-    collection_id = settings.DATA_STAGING_GLOBUS_COLLECTION_ID
-    staging_path = f"/user-staging/{principal_id}/"
-
-    log.info(f"User {principal_id=} requesting staging area in {collection_id=}")
-
-    tc = get_transfer_client()
-
-    try:
-        tc.operation_mkdir(collection_id, staging_path)
-        log.info(f"staging directory {staging_path=} created")
-    except tc.error_class as e:
-        if "exists" not in str(e).lower():
-            raise
-        log.info(f"staging directory {staging_path=} already exists")
-
-    existing_rules = tc.endpoint_acl_list(collection_id)
-    acl_rule_id = next(
-        (
-            r
-            for r in existing_rules
-            if r["principal"] == principal_id and r["path"] == staging_path
-        ),
-        None,
+    return prep_globus_staging_area(
+        principal_id=request.auth.id,
+        collection_id=settings.DATA_STAGING_GLOBUS_COLLECTION_ID,
     )
-
-    if acl_rule_id is None:
-        acl_result = tc.add_endpoint_acl_rule(
-            collection_id,
-            dict(
-                DATA_TYPE="access",
-                principal_type="identity",
-                principal=principal_id,
-                path=staging_path,
-                permissions="rw",
-            ),
-        )
-        acl_rule_id = acl_result["access_id"]
-        log.info(f"Granted rw access via {acl_rule_id=}")
-    else:
-        log.info(f"Staging area {acl_rule_id=} already exists for {principal_id=}")
-
-    return {
-        "collection_id": collection_id,
-        "path": staging_path,
-        "acl_rule_id": acl_rule_id,
-        "principal": principal_id,
-    }
 
 
 # List running and queue models (GET)
-@router.get("/{cluster}/jobs")
-async def get_jobs(request, cluster: str):
+@router.get("/{cluster_name}/jobs", response=JobsByStatus)
+async def get_jobs(request: AuthedRequest, cluster_name: str) -> JobsByStatus:
     """GET request to list the available frameworks and models."""
 
-    # Get cluster wrapper from database
-    response = await get_cluster_wrapper(cluster)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    cluster = response.cluster
+    cluster = await load_cluster_adapter(cluster_name)
 
     # Make sure the user is authorized to see this cluster
-    response = cluster.check_permission(request.auth, request.user_group_uuids)
-    if (response.is_authorized == False) or response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    cluster.check_permission(request.auth, request.user_group_uuids)
 
-    # If the cluster is under maintenance ...
-    response = cluster.check_maintenance()
-    if response.is_under_maintenance:
-        # Create initial empty Jobs response
-        jobs = Jobs()
+    # If the cluster is under maintenance, report all jobs stopped:
+    if cluster.check_maintenance().is_under_maintenance:
+        all_endpoints = await get_list_endpoints_data(
+            request.auth, request.user_group_uuids
+        )
+        cluster_info = all_endpoints.clusters.get(cluster.cluster_name)
+        frameworks = cluster_info.frameworks if cluster_info else {}
 
-        # Extract the list of all endpoints from the database
-        response = await get_list_endpoints_data(request)
-        if response.error_message:
-            return await get_response(
-                response.error_message, response.error_code, request
-            )
-        all_endpoints = response.all_endpoints
-
-        # Try to add each model listed for this cluster in the "stopped" section
-        try:
-            for framework in all_endpoints["clusters"][cluster.cluster_name][
-                "frameworks"
-            ]:
-                for model in all_endpoints["clusters"][cluster.cluster_name][
-                    "frameworks"
-                ][framework]["models"]:
-                    jobs.stopped.append(
-                        JobInfo(
-                            Models=model,
-                            Framework=framework,
-                            Cluster=cluster.cluster_name,
-                        )
-                    )
-
-        # Error if the model parsing did not work
-        except Exception as e:
-            return await get_response(
-                f"Error: Cluster {cluster.cluster_name} under maintenance. Could not recover list of models: {e}",
-                500,
-                request,
-            )
-
-    # If the cluster is operational and not under maintenance ...
+        return JobsByStatus(
+            stopped=[
+                JobInfo(Models=model, Framework=framework, Cluster=cluster.cluster_name)
+                for framework, fw_info in frameworks.items()
+                for model in fw_info.models
+            ]
+        )
     else:
-        # Get jobs from the targetted cluster
-        response = await cluster.get_jobs(request.auth)
-        if response.error_message:
-            return await get_response(
-                response.error_message, response.error_code, request
-            )
-        jobs: Jobs = response.jobs
-
-        # For each job state listed in the jobs response ...
-        for jobs_state in [
-            jobs.running,
-            jobs.queued,
-            jobs.stopped,
-            jobs.others,
-            jobs.private_batch_running,
-            jobs.private_batch_queued,
-        ]:
-            # For each block (set of models) in this state
-            # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
-            for i_block in range(len(jobs_state) - 1, -1, -1):
-                block = jobs_state[i_block]
-
-                # Collect the list of models
-                models = [m.strip() for m in block.Models.split(",") if m.strip()]
-
-                # Define list of models that the user is allowed to see within that block
-                visible_models = []
-
-                # For each model ...
-                for model in models:
-                    # Extract the underlying endpoint wrapper for this model
-                    endpoint_slug = slugify(
-                        " ".join([block.Cluster, block.Framework, model.lower()])
-                    )
-                    response = await get_endpoint_wrapper(endpoint_slug)
-
-                    # Continue if the endpoint does not exist to ignore test/dev running jobs
-                    if response.error_message:
-                        if "does not exist" in response.error_message:
-                            continue
-                        else:
-                            return await get_response(
-                                response.error_message, response.error_code, request
-                            )
-
-                    # Flag the model as "visible" if the user is authorized to see it ...
-                    endpoint = response.endpoint
-                    if endpoint.check_permission(
-                        request.auth, request.user_group_uuids
-                    ).is_authorized:
-                        visible_models.append(model)
-
-                # Remove block if no model should be visible
-                if len(visible_models) == 0:
-                    del jobs_state[i_block]
-
-                # Update models if some (or all) of them are still visible
-                else:
-                    jobs_state[i_block].Models = ",".join(visible_models)
-
-    # Return the cluster's jobs status
-    return await get_response(jobs.model_dump(), 200, request)
+        return await filter_jobs_for_user(
+            cluster, request.auth, request.user_group_uuids
+        )
 
 
 # Inference batch (POST)
-@router.post("/{cluster}/{framework}/v1/batches")
-async def post_batch_inference(request, cluster: str, framework: str, *args, **kwargs):
+@router.post("/{cluster_name}/{framework}/v1/batches", response=SubmitBatchResult)
+async def post_batch_inference(
+    request: AuthedRequest, cluster_name: str, framework: str, batch_data: BatchSubmit
+) -> SubmitBatchResult:
     """POST request to send a batch to Globus Compute endpoints."""
 
-    # Validate and build the inference request data
-    batch_data = validate_batch_body(request)
-    if "error" in batch_data.keys():
-        return await get_response(batch_data["error"], 400, request)
-
     # Get cluster wrapper from database
-    response = await get_cluster_wrapper(cluster)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    cluster: BaseCluster = response.cluster
+    cluster = await load_cluster_adapter(cluster_name)
 
     # Error if the cluster is under maintenance
-    response = cluster.check_maintenance()
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    cluster.check_maintenance().raise_if_down()
 
     # Verify that the framework is enabled by the cluster
     if framework not in cluster.frameworks:
-        return await get_response(
-            f"Error: framework {framework} not available on cluster {cluster.cluster_name}.",
-            400,
-            request,
+        raise UnsupportedFramework(
+            f"Framework {framework!r} not available on cluster {cluster.cluster_name!r}."
         )
 
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(
-        " ".join([cluster.cluster_name, framework, batch_data["model"].lower()])
-    )
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    endpoint = response.endpoint
+    endpoint = await load_endpoint_adapter(cluster_name, framework, batch_data.model)
 
     # Error if batch is disabled for this endpoint
     if not endpoint.has_batch_enabled():
-        return await get_response(
-            f"Error: Batch is unavailable for endpoint {endpoint_slug}", 501, request
+        raise BatchUnavailable(
+            f"Batch is unavailable for endpoint {endpoint.endpoint_slug}"
         )
 
     # Block access if the user is not allowed to use the endpoint
-    response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if (response.is_authorized == False) or response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    endpoint.check_permission(request.auth, request.user_group_uuids)
 
     # Reject request if the allowed quota per user would be exceeded
-    try:
-        number_of_active_batches = 0
-        async for batch in (
-            BatchLog.objects.filter(
-                access_log__user__username=request.auth.username,
-                status__in=["pending", "running"],
-            )
-            .select_related("access_log", "access_log__user")
-            .aiterator()
-        ):
-            number_of_active_batches += 1
-        if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
-            error_message = f"Error: Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
-            return await get_response(error_message, 400, request)
-    except Exception as e:
-        return await get_response(
-            f"Error: Could not query active batches owned by user: {e}", 400, request
+    number_of_active_batches = await BatchLog.objects.filter(
+        access_log__user__username=request.auth.username,
+        status__in=["pending", "running"],
+    ).acount()
+
+    if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
+        raise QuotaExceeded(
+            f"Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
         )
 
     # Error if an ongoing batch already exists with the same input_file for the same user
-    try:
-        async for batch in (
-            BatchLog.objects.filter(
-                access_log__user__username=request.auth.username,
-                input_file=batch_data["input_file"],
-            )
-            .select_related("access_log", "access_log__user")
-            .aiterator()
-        ):
-            if not batch.status in [
-                BatchStatusEnum.failed.value,
-                BatchStatusEnum.completed.value,
-            ]:
-                error_message = f"Error: Input file {batch_data['input_file']} already used by ongoing batch {batch.batch_id}."
-                return await get_response(error_message, 400, request)
-    except BatchLog.DoesNotExist:
-        pass  # Batch can be submitted if the input_file is not used by any other batches
-    except Exception as e:
-        return await get_response(
-            f"Error: Could not filter Batch database entries: {e}", 400, request
+    existing_batch = (
+        await BatchLog.objects.filter(
+            access_log__user__username=request.auth.username,
+            input_file=batch_data.input_file,
+        )
+        .exclude(
+            status__in=[
+                BatchStatus.failed.value,
+                BatchStatus.completed.value,
+            ],
+        )
+        .afirst()
+    )
+
+    if existing_batch is not None:
+        raise BatchOngoing(
+            f"Input file {batch_data.input_file} "
+            f"already used by ongoing batch {existing_batch.id}."
         )
 
     # Submit batch
@@ -397,347 +225,159 @@ async def post_batch_inference(request, cluster: str, framework: str, *args, **k
         task_ids=batch_response.task_ids,
         cluster=cluster.cluster_name,
         framework=framework,
-        model=batch_data["model"],
-        input_file=batch_data["input_file"],
-        output_folder_path=batch_data.get("output_folder_path", ""),
+        model=batch_data.model,
+        input_file=batch_data.input_file,
+        output_folder_path=batch_data.output_folder_path,
         status=batch_response.status,
         in_progress_at=timezone.now(),
     )
 
-    # Error if something went wrong during the batch submission
-    if batch_response.error_message:
-        return await get_response(
-            batch_response.error_message, batch_response.error_code, request
-        )
-
-    # Prepare response and return it to the user
-    response = {
-        "batch_id": request.batch_log_data.id,
-        "input_file": request.batch_log_data.input_file,
-        "status": request.batch_log_data.status,
-    }
-    return await get_response(json.dumps(response), 200, request)
+    return batch_response
 
 
 # List of batches (GET)
-@router.get("/v1/batches")
+@router.get("/v1/batches", response=list[BatchLogSummary])
 async def get_batch_list(
-    request, filters: BatchListFilter = Query(...), *args, **kwargs
-):
+    request: AuthedRequest,
+    filters: Query[BatchListFilter],
+) -> list[BatchLog]:
     """GET request to list all batches linked to the authenticated user."""
 
-    # Declare the list of batches to be returned to the user
-    batch_list = []
+    batch_list: list[BatchLog] = []
 
     # For each batch object owned by the user ...
-    try:
-        async for batch in (
-            BatchLog.objects.filter(access_log__user__username=request.auth.username)
-            .select_related("access_log", "access_log__user")
-            .aiterator()
-        ):
-            # If the batch status needs to be revised ...
-            if batch.status not in [
-                BatchStatusEnum.completed.value,
-                BatchStatusEnum.failed.value,
-            ]:
-                # Get the latest batch status and result (and update database if needed)
-                response = await update_batch(batch)
-                if response.error_message:
-                    return await get_response(
-                        response.error_message, response.error_code, request
-                    )
-                batch = response.batch
+    async for batch in BatchLog.objects.filter(
+        access_log__user__username=request.auth.username
+    ).aiterator():
+        # If the batch status needs to be revised ...
+        if batch.status not in [
+            BatchStatus.completed.value,
+            BatchStatus.failed.value,
+        ]:
+            # Get the latest batch status and result (and update database if needed)
+            batch = await update_batch(batch)
 
-            # If no optional status filter was provided ...
-            # or if the status filter matches the current batch status ...
-            if isinstance(filters.status, type(None)) or (
-                isinstance(filters.status, str) and filters.status == batch.status
-            ):
-                # Add the batch details to the list
-                batch_list.append(
-                    {
-                        "batch_id": str(batch.id),
-                        "cluster": batch.cluster,
-                        "framework": batch.framework,
-                        "input_file": batch.input_file,
-                        "in_progress_at": str(batch.in_progress_at),
-                        "completed_at": str(batch.completed_at),
-                        "failed_at": str(batch.failed_at),
-                        "status": batch.status,
-                    }
-                )
+        # If no optional status filter was provided ...
+        # or if the status filter matches the current batch status ...
+        if filters.status is None or filters.status == batch.status:
+            batch_list.append(batch)
 
-    # Will return empty list if no batch object was found
-    except BatchLog.DoesNotExist:
-        pass
-
-    # Error message if something went wrong
-    except Exception as e:
-        return await get_response(
-            f"Error: Could not filter Batch database entries: {e}", 400, request
-        )
-
-    # Return list of batches
-    return await get_response(json.dumps(batch_list), 200, request)
+    return batch_list
 
 
 # Inference batch status (GET)
 # TODO: Use primary identity username to claim ownership on files and batches
-@router.get("/v1/batches/{batch_id}")
-async def get_batch_status(request, batch_id: str, *args, **kwargs):
+@router.get("/v1/batches/{batch_id}", response=str)
+async def get_batch_status(request: AuthedRequest, batch_id: str) -> str:
     """GET request to query status of an existing batch job."""
-
-    # Recover batch object in the database
     try:
-        batch: BatchLog = await sync_to_async(
-            lambda: BatchLog.objects.select_related(
-                "access_log", "access_log__user"
-            ).get(id=batch_id),
-            thread_sensitive=True,
-        )()
+        batch: BatchLog = await BatchLog.objects.select_related(
+            "access_log", "access_log__user"
+        ).aget(id=batch_id)
     except BatchLog.DoesNotExist:
-        return await get_response(
-            f"Error: Batch {batch_id} does not exist.", 400, request
-        )
-    except Exception as e:
-        return await get_response(
-            f"Error: Could not access Batch {batch_id} from database: {e}", 500, request
-        )
+        raise BatchNotFound(f"Batch {batch_id} does not exist")
 
     # Make sure user has permission to access this batch_id
-    try:
-        if not request.auth.username == batch.access_log.user.username:
-            return await get_response(
-                f"Error: Permission denied to Batch {batch_id}.", 403, request
-            )
-    except Exception as e:
-        return await get_response(
-            f"Error: Something went wrong while parsing Batch {batch_id}: {e}",
-            500,
-            request,
-        )
+    if not (
+        batch.access_log.user
+        and request.auth.username == batch.access_log.user.username
+    ):
+        raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
     # Return status directly if batch already completed or failed
-    if batch.status in [BatchStatusEnum.completed.value, BatchStatusEnum.failed.value]:
-        return await get_response(json.dumps(batch.status), 200, request)
+    if batch.status not in [BatchStatus.completed, BatchStatus.failed]:
+        batch = await update_batch(batch)
 
-    # Get the latest batch status and result (and update database if needed)
-    response = await update_batch(batch)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    batch = response.batch
-
-    # Return status of the batch job
-    return await get_response(json.dumps(batch.status), 200, request)
+    return batch.status
 
 
 # Inference batch result (GET)
 # TODO: Use primary identity username to claim ownership on files and batches
-@router.get("/v1/batches/{batch_id}/result")
-async def get_batch_result(request, batch_id: str, *args, **kwargs):
+@router.get("/v1/batches/{batch_id}/result", response=str)
+async def get_batch_result(request: AuthedRequest, batch_id: str) -> str:
     """GET request to recover result from an existing batch job."""
 
-    # Recover batch object in the database
     try:
-        batch = await sync_to_async(
-            lambda: BatchLog.objects.select_related(
-                "access_log", "access_log__user"
-            ).get(id=batch_id),
-            thread_sensitive=True,
-        )()
+        batch: BatchLog = await BatchLog.objects.select_related(
+            "access_log", "access_log__user"
+        ).aget(id=batch_id)
     except BatchLog.DoesNotExist:
-        return await get_response(
-            f"Error: Batch {batch_id} does not exist.", 400, request
-        )
-    except Exception as e:
-        return await get_response(
-            f"Error: Could not access Batch {batch_id} from database: {e}", 400, request
-        )
+        raise BatchNotFound(f"Batch {batch_id} does not exist")
 
     # Make sure user has permission to access this batch_id
-    try:
-        if not request.auth.username == batch.access_log.user.username:
-            error_message = f"Error: Permission denied to Batch {batch_id}.."
-            return await get_response(error_message, 403, request)
-    except Exception as e:
-        return await get_response(
-            f"Error: Something went wrong while parsing Batch {batch_id}: {e}",
-            400,
-            request,
-        )
+    if not (
+        batch.access_log.user
+        and request.auth.username == batch.access_log.user.username
+    ):
+        raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
-    # Return error if batch failed
-    if batch.status == BatchStatusEnum.failed.value:
-        return await get_response(f"Error: Batch failed: {batch.result}", 400, request)
+    # Return status directly if batch already completed or failed
+    if batch.status not in [BatchStatus.completed, BatchStatus.failed]:
+        batch = await update_batch(batch)
 
-    # Return result if batch already finished
-    if batch.status == BatchStatusEnum.completed.value:
-        return await get_response(json.dumps(batch.result), 200, request)
-
-    # Get the latest batch status and result (and update database if needed)
-    response = await update_batch(batch)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    batch = response.batch
-
-    # Return error if results are not ready yet
-    if batch.status != BatchStatusEnum.completed.value:
-        return await get_response(
-            "Error: Batch not completed yet. Results not ready.", 400, request
-        )
-
-    # Return status of the batch job
-    return await get_response(json.dumps(batch.result), 200, request)
+    if batch.status == BatchStatus.failed:
+        raise BatchFailed(f"Batch failed: {batch.result}", 400, request)
+    elif batch.status == BatchStatus.completed:
+        return batch.result
+    else:
+        raise BatchOngoing("Batch not completed yet. Results not ready.")
 
 
-# Inference (POST)
-@router.post("/{cluster}/{framework}/v1/{path:openai_endpoint}")
-async def post_inference(
-    request, cluster: str, framework: str, openai_endpoint: str, *args, **kwargs
+@router.post("/{cluster_name}/{framework}/v1/chat/completions")
+async def create_chat_completion(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAIChatCompletionsPydantic,
 ):
-    """POST request to reach Globus Compute endpoints."""
-
-    # Validate and build the inference request data, and clear openai_endpoint string
-    data = validate_request_body(request, openai_endpoint)
-    if "error" in data.keys():
-        return await get_response(data["error"], 400, request)
-    openai_endpoint = data["model_params"].get("openai_endpoint", openai_endpoint)
-
-    # Get cluster wrapper from database
-    response = await get_cluster_wrapper(cluster)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    cluster: BaseCluster = response.cluster
-
-    # Error if the cluster is under maintenance
-    response = cluster.check_maintenance()
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-
-    # Verify that the framework is available by the cluster
-    if framework not in cluster.frameworks:
-        return await get_response(
-            f"Error: framework {framework} not available on cluster {cluster.cluster_name}.",
-            400,
-            request,
-        )
-
-    # Verify that the openAI endpoint is available by the cluster
-    if openai_endpoint not in cluster.openai_endpoints:
-        return await get_response(
-            f"Error: OpenAI endpoint {openai_endpoint} not available on cluster {cluster.cluster_name}.",
-            400,
-            request,
-        )
-
-    # Check if streaming is requested
-    stream = data["model_params"].get("stream", False)
-
-    # Build the requested endpoint slug
-    endpoint_slug = slugify(
-        " ".join(
-            [cluster.cluster_name, framework, data["model_params"]["model"].lower()]
-        )
-    )
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    endpoint = response.endpoint
-
-    # Block access if the user is not allowed to use the endpoint
-    response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if (response.is_authorized == False) or response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-
-    # Initialize the request log data for the database entry
-    request.request_log_data = RequestLogPydantic(
-        id=str(uuid.uuid4()),
-        cluster=cluster.cluster_name,
-        framework=framework,
-        openai_endpoint=data["model_params"]["openai_endpoint"],
-        prompt=json.dumps(extract_prompt(data["model_params"])),
-        model=data["model_params"]["model"],
-        timestamp_compute_request=timezone.now(),
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
     )
 
-    # Submit task
-    if stream:
-        task_response = await endpoint.submit_streaming_task(
-            data, request.request_log_data.id
-        )
-    else:
-        task_response = await endpoint.submit_task(data)
 
-    # Update request log data
-    request.request_log_data.task_uuid = task_response.task_id
-    request.request_log_data.timestamp_compute_response = timezone.now()
+@router.post("/{cluster_name}/{framework}/v1/completions")
+async def create_completion(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAICompletionsPydantic,
+):
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
+    )
 
-    # Display error message if any
-    if task_response.error_message:
-        return await get_response(
-            task_response.error_message, task_response.error_code, request
-        )
 
-    # If streaming, meaning that the StreamingHttpResponse object will be returned directly ...
-    if stream:
-        # Manually create access and request logs to database
-        try:
-            access_log = await create_access_log(request.access_log_data, None, 200)
-            request.request_log_data.access_log = access_log
-            _ = await create_request_log(
-                request.request_log_data, "streaming_response_in_progress", 200
-            )
-        except Exception as e:
-            return HttpResponse(
-                json.dumps(f"Error: Could not save access and request logs: {e}"),
-                status=500,
-            )
-
-        # Return StreamingHttpResponse object directly
-        return task_response.response
-
-    # If not streaming, return the complete response and automate database operations
-    else:
-        return await get_response(task_response.result, 200, request)
+@router.post("/{cluster_name}/{framework}/v1/embeddings")
+async def create_embedding(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAIEmbeddingsPydantic,
+):
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
+    )
 
 
 # Inference (POST)
-@router.post("/sophia/sam3service/process")
-async def sam3_infer(request, payload: Sam3Request):
+@router.post("/sophia/sam3service/process", response=SubmitTaskAsyncResponse)
+async def sam3_infer(request: AuthedRequest, payload: Sam3Request):
     """
     Submit single-image inference request to SAM3 Globus Compute endpoint.
     """
     # Get cluster wrapper from database
-    response = await get_cluster_wrapper("sophia")
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    cluster: BaseCluster = response.cluster
+    cluster = await load_cluster_adapter("sophia")
 
     # Error if the cluster is under maintenance
-    response = cluster.check_maintenance()
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    cluster.check_maintenance().raise_if_down()
 
     # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
-    framework = "sam3service"
-    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-
-    endpoint: GlobusComputeEndpoint = response.endpoint
+    endpoint = await load_endpoint_adapter(cluster.cluster_name, "sam3service", "sam3")
+    assert isinstance(endpoint, GlobusComputeEndpoint)
+    log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
-    response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if (response.is_authorized == False) or response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    endpoint.check_permission(request.auth, request.user_group_uuids)
 
     # Submit task
     data = payload.model_dump(exclude={"weights_dir_override"})
@@ -748,45 +388,23 @@ async def sam3_infer(request, payload: Sam3Request):
     )
 
     task_response = await endpoint.submit_task_async(data, endpoint_config=config)
-
-    # Display error message if any
-    if task_response.error_message:
-        return await get_response(
-            task_response.error_message, task_response.error_code, request
-        )
-
-    return await get_response(task_response.model_dump(), 200, request)
+    return task_response
 
 
 @router.get("/sophia/sam3service/tasks/{task_id}")
-async def sam3_get_task_result(request, task_id: str):
+async def sam3_get_task_result(request: AuthedRequest, task_id: str):
     # Get cluster wrapper from database
-    response = await get_cluster_wrapper("sophia")
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-    cluster: BaseCluster = response.cluster
+    cluster = await load_cluster_adapter("sophia")
 
     # Error if the cluster is under maintenance
-    response = cluster.check_maintenance()
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    cluster.check_maintenance().raise_if_down()
 
-    # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
-    framework = "sam3service"
-    endpoint_slug = slugify(f"{cluster.cluster_name} {framework} sam3")
-    log.info(f"endpoint_slug: {endpoint_slug} - user: {request.auth.username}")
-
-    # Get endpoint wrapper from database
-    response = await get_endpoint_wrapper(endpoint_slug)
-    if response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
-
-    endpoint: GlobusComputeEndpoint = response.endpoint
+    endpoint = await load_endpoint_adapter(cluster.cluster_name, "sam3service", "sam3")
+    assert isinstance(endpoint, GlobusComputeEndpoint)
+    log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
-    response = endpoint.check_permission(request.auth, request.user_group_uuids)
-    if (response.is_authorized == False) or response.error_message:
-        return await get_response(response.error_message, response.error_code, request)
+    endpoint.check_permission(request.auth, request.user_group_uuids)
 
     task_response = await endpoint.get_task_result(task_id)
     # Display error message if any
@@ -800,7 +418,7 @@ async def sam3_get_task_result(request, task_id: str):
 
 # Streaming server endpoints (integrated into Django)
 @router.post("/api/streaming/data/", auth=None, throttle=[])
-async def receive_streaming_data(request):
+async def receive_streaming_data(request: HttpRequest):
     """Receive streaming data from vLLM function - INTERNAL ONLY
 
     Security layers (optimized with caching):
@@ -855,7 +473,7 @@ async def receive_streaming_data(request):
 
 
 @router.post("/api/streaming/error/", auth=None, throttle=[])
-async def receive_streaming_error(request):
+async def receive_streaming_error(request: HttpRequest):
     """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
 
     Security layers (optimized with caching):
@@ -903,7 +521,7 @@ async def receive_streaming_error(request):
 
 
 @router.post("/api/streaming/done/", auth=None, throttle=[])
-async def receive_streaming_done(request):
+async def receive_streaming_done(request: HttpRequest):
     """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
 
     Security layers (optimized with caching):
@@ -944,253 +562,6 @@ async def receive_streaming_done(request):
         log.error(f"Error receiving streaming done: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
 
-
-# Federated Inference (POST) - Chooses cluster/framework automatically
-# TEMPORARY: deactivating federated inference. Needs to be re-written with endpoint/cluster wrappers
-'''
-@router.post("/v1/{path:openai_endpoint}")
-async def post_federated_inference(request, openai_endpoint: str, *args, **kwargs):
-    """
-    POST request to automatically select an appropriate Globus Compute endpoint
-    based on model availability and cluster status, abstracting cluster/framework.
-    """
-
-    # Strip the last forward slash if needed
-    if openai_endpoint[-1] == "/":
-        openai_endpoint = openai_endpoint[:-1]
-
-    # Validate and build the inference request data - crucial for getting the model name
-    data = validate_request_body(request, openai_endpoint)
-    if "error" in data.keys():
-        return await get_response(data['error'], 400, request) # Use get_response to log failure
-
-    # Update the database with the input text from user and specific OpenAI endpoint
-    requested_model = data["model_params"]["model"] # Model name is needed for filtering
-
-    log.info(f"Federated request for model: {requested_model} - user: {request.auth.username}")
-
-    # --- Endpoint Selection Logic ---
-    selected_endpoint = None
-    error_message = "No suitable endpoint found for the requested model."
-    error_code = 503 # Service Unavailable by default
-
-    try:
-        # 1. Find the FederatedEndpoint definition for the requested model
-        try:
-            get_fed_endpoint_async = sync_to_async(FederatedEndpoint.objects.get)
-            federated_definition = await get_fed_endpoint_async(target_model_name=requested_model)
-            log.info(f"Found FederatedEndpoint '{federated_definition.slug}' definition for model {requested_model}.")
-        except FederatedEndpoint.DoesNotExist:
-            error_message = f"Error: No federated endpoint definition found for model '{requested_model}'."
-            error_code = 404 # Not Found
-            raise ValueError(error_message)
-        except Exception as e:
-            error_message = f"Error retrieving federated definition for model '{requested_model}': {e}"
-            error_code = 500
-            raise ValueError(error_message)
-
-        # Parse the list of targets from the FederatedEndpoint
-        targets = federated_definition.targets
-        if not targets:
-            error_message = f"Error: Federated definition '{federated_definition.slug}' has no associated targets."
-            error_code = 500 # Configuration error
-            raise ValueError(error_message)
-
-        # 2. Filter targets accessible by the user
-        accessible_targets = []
-        for target in targets:
-            allowed_groups, msg = extract_group_uuids(target.get("allowed_globus_groups", ""))
-            if len(msg) > 0:
-                log.warning(f"Skipping target {target['cluster']} due to group parsing error: {msg}")
-                continue
-            if len(allowed_groups) == 0 or len(set(request.user_group_uuids).intersection(allowed_groups)) > 0:
-                accessible_targets.append(target)
-
-        if not accessible_targets:
-            error_message = f"Error: User not authorized to access any target for model '{requested_model}'."
-            error_code = 401
-            raise ValueError(error_message)
-        
-        log.info(f"Found {len(accessible_targets)} accessible targets for federated model {requested_model}.")
-
-        # Get Globus Compute client (needed for status checks)
-        try:
-            gcc = globus_utils.get_compute_client_from_globus_app()
-            gce = globus_utils.get_compute_executor(client=gcc) # Needed for qstat
-        except Exception as e:
-            error_message = f"Error: Could not get Globus Compute client/executor for status checks: {e}"
-            error_code = 500
-            raise ConnectionError(error_message)
-
-        # 2. Prioritize targets based on status (Running/Queued > Online > Fallback)
-        targets_with_status = []
-        qstat_cache = {} # Cache qstat results per cluster
-
-        for target in accessible_targets:
-            cluster = target["cluster"]
-            endpoint_slug = target["endpoint_slug"]
-
-            # Check Globus endpoint status first
-            gc_status, gc_error = globus_utils.get_endpoint_status(
-                endpoint_uuid=target["endpoint_uuid"], client=gcc, endpoint_slug=endpoint_slug
-            )
-            if len(gc_error) > 0:
-                log.warning(f"Could not get Globus status for {endpoint_slug}: {gc_error}. Skipping.")
-                continue
-            
-            is_online = gc_status["status"] == "online"
-            model_job_status = "unknown" # e.g., running, queued, stopped, unknown
-            free_nodes = -1 # Default to unknown
-
-            # Check qstat if endpoint is online and cluster supports it
-            if is_online and cluster in ALLOWED_QSTAT_ENDPOINTS:
-                if cluster not in qstat_cache:
-                    # Fetch qstat details only once per cluster per request
-                    qstat_result_str, _, q_err, q_code = await get_qstat_details(
-                        cluster, gcc=gcc, gce=gce, timeout=30 # Shorter timeout for selection
-                    )
-                    if len(q_err) > 0 or q_code != 200:
-                        log.warning(f"Could not get qstat for cluster {cluster}: {q_err} (Code: {q_code}). Status checks degraded.")
-                        qstat_cache[cluster] = {"error": True, "data": {}}
-                    else:
-                        try:
-                             qstat_data = json.loads(qstat_result_str)
-                             qstat_cache[cluster] = {
-                                 "error": False, 
-                                 "data": qstat_data,
-                                 "free_nodes": qstat_data.get('cluster_status', {}).get('free_nodes', -1)
-                             }
-                        except json.JSONDecodeError:
-                            log.warning(f"Could not parse qstat JSON for cluster {cluster}. Status checks degraded.")
-                            qstat_cache[cluster] = {"error": True, "data": {}, "free_nodes": -1}
-                
-                # Parse cached qstat data for this specific model/endpoint
-                if not qstat_cache[cluster]["error"]:
-                    qstat_data = qstat_cache[cluster]["data"]
-                    free_nodes = qstat_cache[cluster]["free_nodes"] # Get free nodes count from cache
-                    found_in_qstat = False
-                    for state in ["running", "queued"]:
-                        if state in qstat_data:
-                            for job in qstat_data[state]:
-                                # Check if the job matches cluster, framework, and serves the model
-                                if (job.get("Cluster") == cluster and
-                                    job.get("Framework") == target["framework"] and
-                                    requested_model in job.get("Models Served", "").split(",")):
-                                    model_job_status = "queued" if state == "queued" else job.get("Model Status", "running")
-                                    found_in_qstat = True
-                                    break # Found in this state
-                        if found_in_qstat: break # Found in qstat overall
-                    if not found_in_qstat:
-                         model_job_status = "stopped" # qstat ran, but model not listed
-            
-            elif not is_online:
-                 model_job_status = "offline" # Globus endpoint itself is offline
-
-            targets_with_status.append({
-                "target": target,
-                "is_online": is_online,
-                "job_status": model_job_status, # running, queued, stopped, offline, unknown
-                "free_nodes": free_nodes # -1 if unknown
-            })
-
-        # Selection Algorithm:
-        priority1_running = [t for t in targets_with_status if t["job_status"] == "running"]
-        priority1_queued = [t for t in targets_with_status if t["job_status"] == "queued"]
-        priority2_online_free = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] > 0]
-        priority3_online_other = [t for t in targets_with_status if t["is_online"] and t["free_nodes"] <= 0]
-        
-        # TODO: Add smarter selection within priorities (e.g., load balancing, lowest queue)
-        # For now, just take the first available in priority order.
-
-        if priority1_running:
-            selected_endpoint = priority1_running[0]["target"]
-            log.info(f"Selected running endpoint: {selected_endpoint['endpoint_slug']}")
-        elif priority1_queued:
-            selected_endpoint = priority1_queued[0]["target"]
-            log.info(f"Selected queued endpoint: {selected_endpoint['endpoint_slug']}")
-        elif priority2_online_free:
-             selected_endpoint = priority2_online_free[0]["target"]
-             log.info(f"Selected online endpoint on cluster with free nodes: {selected_endpoint['endpoint_slug']}")
-        elif priority3_online_other: # Online, but couldn't determine job status via qstat or no free nodes
-            selected_endpoint = priority3_online_other[0]["target"]
-            log.info(f"Selected online endpoint (no free nodes or unknown status): {selected_endpoint['endpoint_slug']}")
-        else:
-            # Fallback: First accessible endpoint overall (even if offline/unknown, submit will handle it)
-            # This case should be rare if accessible_endpoints is not empty
-            if accessible_targets:
-                selected_endpoint = accessible_targets[0]
-                log.warning(f"No ideal endpoint found. Falling back to first accessible concrete endpoint: {selected_endpoint['endpoint_slug']}")
-            else:
-                # This should not happen based on earlier checks, but safeguard anyway.
-                 error_message = f"Federated Error: No *accessible* concrete endpoints remained after status checks for model '{requested_model}'."
-                 error_code = 500
-                 raise RuntimeError(error_message)
-
-
-    except (ValueError, ConnectionError, RuntimeError) as e:
-        # Errors raised during selection logic (already contain message/code)
-        log.error(f"Federated selection failed: {e}")
-        # error_message and error_code are set before raising
-        return await get_response(error_message, error_code, request)
-    except Exception as e:
-        # Catch-all for unexpected errors during selection
-        error_message = f"Unexpected error during endpoint selection: {e}"
-        error_code = 500
-        log.exception(error_message) # Log traceback
-        return await get_response(error_message, error_code, request)
-
-    # --- Execution with Selected Endpoint ---
-    if not selected_endpoint:
-        # Should be caught above, but final safety check
-        return await get_response("Internal Server Error: Endpoint selection failed unexpectedly.", 500, request)
-
-    # Update db_data with the *actual* endpoint chosen
-    #db_data["endpoint_slug"] = selected_endpoint["endpoint_slug"]
-
-    # Prepare data for the specific chosen endpoint
-    try:
-        data["model_params"]["api_port"] = selected_endpoint["api_port"]
-        # Ensure the model name in the request matches the endpoint's model (case might differ)
-        data["model_params"]["model"] = selected_endpoint["model"]
-    except Exception as e:
-        return await get_response(f"Error processing selected endpoint data for {selected_endpoint['endpoint_slug']}: {e}", 500, request)
-
-    # Check Globus status *again* right before submission (could have changed)
-    # Use the same gcc client from before
-    final_status, final_error = globus_utils.get_endpoint_status(
-        endpoint_uuid=selected_endpoint["endpoint_uuid"], client=gcc, endpoint_slug=selected_endpoint["endpoint_slug"]
-    )
-    if len(final_error) > 0:
-        return await get_response(f"Error confirming status for selected endpoint {selected_endpoint['endpoint_slug']}: {final_error}", 500, request)
-    if not final_status["status"] == "online":
-        return await get_response(f"Error: Selected endpoint {selected_endpoint['endpoint_slug']} went offline before submission.", 503, request)
-    
-    resources_ready = int(final_status["details"].get("managers", 0)) > 0
-
-    # Initialize the request log data for the database entry
-    request.request_log_data = RequestLogPydantic(
-        id=str(uuid.uuid4()),
-        cluster=selected_endpoint["cluster"],
-        framework=selected_endpoint["framework"],
-        model=data["model_params"]["model"],
-        openai_endpoint=data["model_params"]["openai_endpoint"],
-        prompt=json.dumps(extract_prompt(data["model_params"])),
-        timestamp_compute_request=timezone.now()
-    )
-
-    # Submit task to the chosen endpoint and wait for result
-    result, task_uuid, submit_error_message, submit_error_code = await globus_utils.submit_and_get_result(
-        gce, selected_endpoint["endpoint_uuid"], selected_endpoint["function_uuid"], data=data
-    )
-    request.request_log_data.timestamp_compute_response = timezone.now()
-    if len(submit_error_message) > 0:
-        # Submission failed, log with the chosen endpoint slug
-        return await get_response(submit_error_message, submit_error_code, request)
-    request.request_log_data.task_uuid = task_uuid
-
-    # Return Globus Compute results
-    return await get_response(result, 200, request)
-'''
 
 # Add URLs to the Ninja API
 api.add_router("/", router)

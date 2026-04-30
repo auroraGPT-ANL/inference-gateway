@@ -28,7 +28,7 @@ class EndpointsViewTestCase(HeaderFailuresTestMixin, ResourceServerTestCase):
         """
         response = await CLIENT.get(self.url, headers=headers)
         response_data = get_response_json(response)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, str(response_data))
 
         # Define the total number of expected endpoints
         (

@@ -1,0 +1,297 @@
+import json
+import logging
+import uuid
+
+from asgiref.sync import sync_to_async
+from django.utils import timezone
+
+from resource_server_async.api import AuthedRequest
+from utils.globus_utils import get_transfer_client
+from utils.pydantic_models.db_models import (
+    RequestLogPydantic,
+)
+from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
+from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
+from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+
+from .clusters.cluster import BaseCluster
+from .errors import (
+    EndpointNotFound,
+    TooManyRequests,
+    UnsupportedEndpoint,
+    UnsupportedFramework,
+)
+from .models import Cluster, Endpoint, User
+from .schemas import GlobusStagingAreaPrepared
+from .schemas.clusters import JobsByStatus
+from .schemas.endpoints import (
+    ClusterSummary,
+    FrameworkSummary,
+    ListEndpointsResponse,
+    SubmitStreamingTaskResponse,
+)
+from .utils import load_cluster_adapter, load_endpoint_adapter
+
+OpenAIRequestPayload = (
+    OpenAIChatCompletionsPydantic | OpenAICompletionsPydantic | OpenAIEmbeddingsPydantic
+)
+
+logger = logging.getLogger(__name__)
+
+
+async def get_list_endpoints_data(
+    user: User, user_group_uuids: list[str]
+) -> ListEndpointsResponse:
+    """Prepare and return data for the list of available frameworks and models."""
+
+    by_cluster: dict[str, ClusterSummary] = {}
+
+    # Get list of all clusters
+    db_clusters = await sync_to_async(list)(Cluster.objects.all())
+    authorized_clusters = [
+        c
+        for db_cluster in db_clusters
+        if (c := await load_cluster_adapter(db_cluster.cluster_name))
+        and c.check_permission(user, user_group_uuids, raise_exc=False)
+    ]
+
+    for cluster in authorized_clusters:
+        # For each endpoint related to this cluster ...
+        frameworks: dict[str, FrameworkSummary] = {}
+
+        async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
+            endpoint = await load_endpoint_adapter(
+                endpoint.cluster, endpoint.framework, endpoint.model
+            )
+
+            # If the user is allowed to see this endpoint ...
+            if endpoint.check_permission(user, user_group_uuids, raise_exc=False):
+                # Add framework if needed
+                if endpoint.framework not in frameworks:
+                    frameworks[endpoint.framework] = FrameworkSummary(
+                        models=[],
+                        endpoints=[f"/v1/{e}" for e in cluster.openai_endpoints],
+                    )
+
+                # Add model to the framework
+                frameworks[endpoint.framework].models.append(endpoint.model)
+
+        # Sort models alphabetically
+        for fw in frameworks:
+            frameworks[fw].models = sorted(frameworks[fw].models)
+
+        # Add endpoint list to the response
+        by_cluster[cluster.cluster_name] = ClusterSummary(
+            base_url=f"/resource_server/{cluster.cluster_name}",
+            frameworks=frameworks,
+        )
+
+    return ListEndpointsResponse(clusters=by_cluster)
+
+
+def prep_globus_staging_area(
+    principal_id: str, collection_id: str
+) -> GlobusStagingAreaPrepared:
+    """
+    Create or refresh ACLs on a staging directory for the inference service.
+
+    A temporary directory under the Globus collection_id is named with the
+    user's principal ID.  Ensure this directory exists and ensure read/write
+    ACLs are granted to the user to initiate data transfers in and out of this
+    area.
+    """
+    logger.info(f"User {principal_id=} requesting staging area in {collection_id=}")
+
+    staging_path = f"/user-staging/{principal_id}/"
+
+    tc = get_transfer_client()
+
+    try:
+        tc.operation_mkdir(collection_id, staging_path)
+        logger.info(f"staging directory {staging_path=} created")
+    except tc.error_class as e:
+        if "exists" not in str(e).lower():
+            raise
+        logger.info(f"staging directory {staging_path=} already exists")
+
+    existing_rules = tc.endpoint_acl_list(collection_id)
+    acl_rule_id = next(
+        (
+            r
+            for r in existing_rules
+            if r["principal"] == principal_id and r["path"] == staging_path
+        ),
+        None,
+    )
+
+    if acl_rule_id is None:
+        acl_result = tc.add_endpoint_acl_rule(
+            collection_id,
+            dict(
+                DATA_TYPE="access",
+                principal_type="identity",
+                principal=principal_id,
+                path=staging_path,
+                permissions="rw",
+            ),
+        )
+        acl_rule_id = acl_result["access_id"]
+        logger.info(f"Granted rw access via {acl_rule_id=}")
+    else:
+        logger.info(f"Staging area {acl_rule_id=} already exists for {principal_id=}")
+
+    return GlobusStagingAreaPrepared(
+        collection_id=collection_id,
+        path=staging_path,
+        acl_rule_id=str(acl_rule_id),
+        principal=principal_id,
+    )
+
+
+async def _should_show(
+    cluster: str, framework: str, model: str, user: User, user_group_uuids: list[str]
+) -> bool:
+    """
+    Return whether user is authorized to see this endpoint.
+    """
+    try:
+        endpoint = await load_endpoint_adapter(cluster, framework, model)
+    except EndpointNotFound:
+        return False
+    return endpoint.check_permission(user, user_group_uuids, raise_exc=False)
+
+
+async def filter_jobs_for_user(
+    cluster: BaseCluster, user: User, user_group_uuids: list[str]
+) -> JobsByStatus:
+    """
+    Report jobs from the given cluster, grouped by status and filtered according
+    to which endpoints the user is authorized to see.
+    """
+    # Get jobs from the targetted cluster
+    jobs = await cluster.get_jobs(user)
+
+    # For each job state listed in the jobs response ...
+    for jobs_state in [
+        jobs.running,
+        jobs.queued,
+        jobs.stopped,
+        jobs.others,
+        jobs.private_batch_running,
+        jobs.private_batch_queued,
+    ]:
+        # For each block (set of models) in this state
+        # -1, -1, -1 for reversed order to safely remove/edit values jobs_state
+        for i_block in range(len(jobs_state) - 1, -1, -1):
+            block = jobs_state[i_block]
+
+            models = [m.strip() for m in block.Models.split(",") if m.strip()]
+            visible_models = [
+                model
+                for model in models
+                if await _should_show(
+                    block.Cluster, block.Framework, model, user, user_group_uuids
+                )
+            ]
+
+            # Remove block if no model should be visible
+            if len(visible_models) == 0:
+                del jobs_state[i_block]
+
+            # Update models if some (or all) of them are still visible
+            else:
+                jobs_state[i_block].Models = ",".join(visible_models)
+
+    return jobs
+
+
+async def submit_openai_inference_request(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAIRequestPayload,
+):
+    if isinstance(payload, OpenAIChatCompletionsPydantic):
+        stream = payload.stream or False
+        prompt = payload.model_dump(include={"messages"})["messages"]
+    elif isinstance(payload, OpenAICompletionsPydantic):
+        stream = payload.stream or False
+        prompt = payload.prompt
+    elif isinstance(payload, OpenAIEmbeddingsPydantic):
+        stream = False
+        prompt = payload.input
+    else:
+        raise ValueError(f"Invalid {payload=}")
+
+    # Get cluster wrapper from database
+    cluster = await load_cluster_adapter(cluster_name)
+
+    # Error if the cluster is under maintenance
+    cluster.check_maintenance().raise_if_down()
+
+    # Verify that the framework is available by the cluster
+    if framework not in cluster.frameworks:
+        raise UnsupportedFramework(
+            f"framework {framework} not available on cluster {cluster.cluster_name}."
+        )
+
+    # Verify that the openAI endpoint is available by the cluster
+    if payload.openai_endpoint not in cluster.openai_endpoints:
+        raise UnsupportedEndpoint(
+            f"{payload.openai_endpoint!r} not available on cluster {cluster.cluster_name!r}"
+        )
+
+    endpoint = await load_endpoint_adapter(
+        cluster.cluster_name, framework, payload.model
+    )
+    logger.info(
+        f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}"
+    )
+
+    # Block access if the user is not allowed to use the endpoint
+    endpoint.check_permission(request.auth, request.user_group_uuids)
+
+    # Return 429 status if TPM limits are exceeded
+    tpm_check = endpoint.check_token_rate_limit(request.auth)
+    if not tpm_check.allow:
+        logger.info(f"Endpoint {endpoint.endpoint_slug} rate-limited: {tpm_check}")
+        raise TooManyRequests(
+            "Tokens/minute limit exceeded",
+            info={
+                "global_model_usage": tpm_check.usage_model,
+                "user_model_usage": tpm_check.usage_user,
+            },
+        )
+
+    # Initialize the request log
+    request.request_log_data = RequestLogPydantic(
+        id=str(uuid.uuid4()),
+        cluster=cluster.cluster_name,
+        framework=framework,
+        openai_endpoint=payload.openai_endpoint,
+        prompt=json.dumps(prompt),
+        model=payload.model,
+        timestamp_compute_request=timezone.now(),
+    )
+
+    data = {"model_params": payload.model_dump(mode="json")}
+
+    # Submit task
+    if stream:
+        task_response = await endpoint.submit_streaming_task(
+            data, request.request_log_data.id
+        )
+    else:
+        task_response = await endpoint.submit_task(data)
+
+    # Update request log data
+    request.request_log_data.task_uuid = task_response.task_id
+    request.request_log_data.timestamp_compute_response = timezone.now()
+
+    # If streaming, meaning that the StreamingHttpResponse object will be returned directly ...
+    if isinstance(task_response, SubmitStreamingTaskResponse):
+        # Return StreamingHttpResponse object directly
+        return task_response.response
+    # If not streaming, return the complete response and automate database operations
+    else:
+        return task_response.result

@@ -1,9 +1,21 @@
 import uuid
+from logging import getLogger
+from typing import Self
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
+from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
+
+from utils.pydantic_models.db_models import (
+    AccessLogPydantic,
+    BatchLogPydantic,
+    RequestLogPydantic,
+)
+
+logger = getLogger(__name__)
 
 
 # Supported authentication origins
@@ -116,6 +128,27 @@ class AccessLog(models.Model):
             username = "Unauthorized"
         return f"<Access - {username} - {self.api_route} - {self.status_code}>"
 
+    @classmethod
+    async def create_from_response(
+        cls, request: HttpRequest, response: HttpResponse
+    ) -> Self | None:
+        access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
+
+        if not access_log:
+            logger.error("Missing request.access_log_data")
+            return None
+
+        access_log.timestamp_response = timezone.now()
+        access_log.status_code = response.status_code
+
+        if response.status_code >= 400:
+            if isinstance(response, StreamingHttpResponse):
+                access_log.error = "<streaming response error>"
+            else:
+                access_log.error = response.content.decode(errors="ignore")
+
+        return await cls.objects.acreate(**access_log.model_dump())
+
 
 # Request log model
 class RequestLog(models.Model):
@@ -165,6 +198,66 @@ class RequestLog(models.Model):
     def __str__(self):
         return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
 
+    @classmethod
+    async def create_from_response(
+        cls, request: HttpRequest, response: HttpResponse, access_log: AccessLog
+    ) -> Self | None:
+        request_log: RequestLogPydantic | None = getattr(
+            request, "request_log_data", None
+        )
+
+        if not request_log:
+            return None
+
+        request_log.access_log = access_log
+        if response.status_code < 300:
+            if isinstance(response, StreamingHttpResponse):
+                request_log.result = "streaming_response_in_progress"
+            else:
+                request_log.result = response.content.decode(errors="ignore")
+
+        return await cls.objects.acreate(**request_log.model_dump())
+
+    async def create_or_update_metrics(
+        self,
+        response_time_sec: float | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+    ) -> "RequestMetrics":
+        if (
+            isinstance(total_tokens, (int, float))
+            and isinstance(response_time_sec, (int, float))
+            and response_time_sec > 1e-9
+        ):
+            throughput_tokens_per_sec = total_tokens / response_time_sec
+        else:
+            throughput_tokens_per_sec = None
+
+        defaults = {
+            "cluster": self.cluster,
+            "framework": self.framework,
+            "model": self.model,
+            "status_code": self.access_log.status_code,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "response_time_sec": response_time_sec,
+            "throughput_tokens_per_sec": throughput_tokens_per_sec,
+            "timestamp_compute_request": self.timestamp_compute_request,
+            "timestamp_compute_response": self.timestamp_compute_response,
+        }
+        metrics, _ = await RequestMetrics.objects.aupdate_or_create(
+            request=self, defaults=defaults
+        )
+
+        # Mark processed on the request to avoid external re-processing
+        if not self.metrics_processed:
+            self.metrics_processed = True
+            await self.asave()
+
+        return metrics
+
 
 # Batch log model
 class BatchLog(models.Model):
@@ -209,6 +302,48 @@ class BatchLog(models.Model):
                 fields=["status"], name="idx_batchlog_status"
             ),  # Status filtering
         ]
+
+    @classmethod
+    async def create_from_response(
+        cls, request: HttpRequest, response: HttpResponse, access_log: AccessLog
+    ) -> Self | None:
+        batch_log: BatchLogPydantic | None = getattr(request, "batch_log_data", None)
+
+        if not batch_log:
+            return None
+
+        batch_log.access_log = access_log
+
+        if response.status_code < 300:
+            if isinstance(response, StreamingHttpResponse):
+                batch_log.result = "streaming_response_in_progress"
+            else:
+                batch_log.result = response.content.decode(errors="ignore")
+
+        return await cls.objects.acreate(**batch_log.model_dump())
+
+    async def create_or_update_metrics(
+        self,
+        total_tokens: int | None,
+        num_responses: int | None,
+        response_time_sec: float | None,
+        throughput_tokens_per_sec: float | None,
+    ) -> "BatchMetrics":
+        defaults = {
+            "cluster": self.cluster,
+            "framework": self.framework,
+            "model": self.model,
+            "status": self.status,
+            "total_tokens": total_tokens,
+            "num_responses": num_responses,
+            "response_time_sec": response_time_sec,
+            "throughput_tokens_per_sec": throughput_tokens_per_sec,
+            "completed_at": self.completed_at,
+        }
+        obj, _ = await BatchMetrics.objects.aupdate_or_create(
+            batch=self, defaults=defaults
+        )
+        return obj
 
 
 # Request metrics model (1:1 with RequestLog)
@@ -319,6 +454,14 @@ class Endpoint(models.Model):
     # Additional domains restrictions to access the endpoint (no restriction if empty)
     # Example: ["anl.gov", "alcf.anl.gov"]
     allowed_domains = StrListJSONField(default=list, blank=True)
+
+    # tokens/minute rate limit for the model (total usage by all users).
+    # Set to 0 to disable.
+    tpm_model = models.IntegerField(default=100_000)
+
+    # tokens/minute rate limit for the model per-user.
+    # Set to 0 to disable.
+    tpm_user = models.IntegerField(default=60_000)
 
     # Extra configuration needed to instantiate the endpoint class
     # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object

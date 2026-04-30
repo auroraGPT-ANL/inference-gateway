@@ -1,14 +1,13 @@
 # Tool to log access requests
 import logging
-from typing import Dict, List
+from typing import Dict, List, Any, override
 
 from django.core.cache import cache
 
-from resource_server_async.clusters.cluster import (
-    JobInfo,
-    Jobs,
-)
 from resource_server_async.clusters.direct_api import DirectAPICluster
+from resource_server_async.errors import GetJobsError
+from resource_server_async.models import User
+from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 
 log = logging.getLogger(__name__)
 
@@ -25,9 +24,9 @@ class MetisCluster(DirectAPICluster):
         cluster_adapter: str,
         frameworks: List[str],
         openai_endpoints: List[str],
+        config: dict[str, Any],
         allowed_globus_groups: List[str] = [],
         allowed_domains: List[str] = [],
-        config: Dict = None,
     ):
         # Initialize the rest of the common attributes
         super().__init__(
@@ -36,13 +35,14 @@ class MetisCluster(DirectAPICluster):
             cluster_adapter,
             frameworks,
             openai_endpoints,
+            config,
             allowed_globus_groups,
             allowed_domains,
-            config,
         )
 
     # Get formatted cluster status
-    async def get_status(self) -> Dict:
+    @override
+    async def get_status(self) ->  JobsByStatus:
         """Fetch and return cluster status. Can be overwritten to format output."""
 
         # Redis cache key
@@ -60,7 +60,7 @@ class MetisCluster(DirectAPICluster):
         metis_status = await super().get_status()
 
         # Declare data structure
-        formatted = Jobs()
+        formatted = JobsByStatus()
         formatted.cluster_status = {
             "cluster": "metis",
             "total_models": len(metis_status),
@@ -69,7 +69,7 @@ class MetisCluster(DirectAPICluster):
         }
 
         # For each model in the Metis cluster status
-        for model_key, model_info in metis_status.items():
+        for model_info in metis_status.values():
             status = model_info.get("status", "Unknown")
 
             # Extract model name and description
@@ -101,9 +101,9 @@ class MetisCluster(DirectAPICluster):
 
         # Cache the result for 60 seconds
         try:
-            cache.set(cache_key, formatted.model_dump(), 60)
+            cache.set(cache_key, formatted, 60)
         except Exception as e:
             log.warning(f"Failed to cache metis_status_response: {e}")
 
-        # Return formatted status
-        return formatted.model_dump()
+        # Return jobs result
+        return formatted

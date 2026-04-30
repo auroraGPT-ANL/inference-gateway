@@ -1,7 +1,7 @@
 import json
 
+from django.test import testcases
 from pydantic import ValidationError
-from rest_framework.test import APITestCase
 
 from utils.pydantic_models.batch import BatchPydantic
 from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
@@ -24,7 +24,7 @@ PYDANTIC_MODELS = {
 
 
 # Test OpenAI pydantic models
-class UtilsPydanticModelsTestCase(APITestCase):
+class UtilsPydanticModelsTestCase(testcases.TestCase):
     # Initialization
     @classmethod
     def setUp(self):
