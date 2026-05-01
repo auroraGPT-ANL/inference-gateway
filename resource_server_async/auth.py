@@ -1,40 +1,38 @@
 # Tool to log access requests
+import hashlib
 import logging
 import time
-from dataclasses import field
-from typing import List, Optional
+from typing import List
 
 import globus_sdk
 
 # Cache tools to limits how many calls are made to Globus servers
 from cachetools import TTLCache, cached
 from django.conf import settings
+from django.http import HttpRequest
 from pydantic import BaseModel
 
 from resource_server_async.errors import Unauthorized
 from resource_server_async.models import AuthService, User
-from utils.pydantic_models.db_models import UserPydantic
+from resource_server_async.schemas.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
 
-# Exception to raise in case of errors
-class AuthUtilsError(Exception):
-    pass
-
-
-# Data structure returned by the access token validation function
 class ATVResponse(BaseModel):
-    is_valid: bool
-    user: Optional[UserPydantic] = None
-    user_group_uuids: List[str] = field(default_factory=lambda: [])
-    idp_group_overlap_str: Optional[str] = None
-    error_message: str = ""
-    error_code: int = 0
+    """
+    Authenticated, validated Globus access token.
+    """
+
+    user: UserPydantic
+    user_group_uuids: List[str] = []
+    idp_group_overlap_str: str | None = None
 
 
 # Get Globus SDK confidential client
-def get_globus_client():
+def get_globus_client() -> globus_sdk.ConfidentialAppAuthClient:
+    assert isinstance(settings.GLOBUS_APPLICATION_ID, str)
+    assert isinstance(settings.GLOBUS_APPLICATION_SECRET, str)
     return globus_sdk.ConfidentialAppAuthClient(
         settings.GLOBUS_APPLICATION_ID, settings.GLOBUS_APPLICATION_SECRET
     )
@@ -48,10 +46,6 @@ def introspect_token(bearer_token: str):
 
     Returns serializable data instead of Globus SDK objects.
     """
-    import hashlib
-
-    from django.core.cache import cache
-
     # Create cache key from token hash (don't store raw tokens in cache keys)
     # Store the entire hash to avoid collisions where different users would have the same last hash digits
     token_hash = hashlib.sha256(bearer_token.encode()).hexdigest()
@@ -383,48 +377,40 @@ def extract_service_account_client(introspection: dict, client_groups: List[str]
 
 
 # Validate access token sent by user
-def validate_access_token(request):
-    """This function returns an instance of the ATVResponse pydantic data structure."""
+def validate_access_token(request: HttpRequest) -> ATVResponse:
+    """
+    Returns ATVResponse if and only if the user is authenticated.  Raises
+    Unauthorized otherwise.
+    """
 
     # Make sure the request is authenticated
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        error_message = "Error: Missing ('Authorization': 'Bearer <your-access-token>') in request headers."
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
+        raise Unauthorized(
+            "Missing ('Authorization': 'Bearer <your-access-token>') in request headers."
+        )
 
     # Make sure the bearer flag is mentioned
     try:
         ttype, bearer_token = auth_header.split()
         if ttype != "Bearer":
-            return ATVResponse(
-                is_valid=False,
-                error_message="Error: Authorization type should be Bearer.",
-                error_code=401,
-            )
+            raise Unauthorized("Authorization type should be Bearer.")
     except (AttributeError, ValueError):
-        error_message = (
-            "Error: Auth only allows header type Authorization: Bearer <token>."
+        raise Unauthorized(
+            "Auth only allows header type Authorization: Bearer <token>."
         )
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
     except Exception as e:
-        error_message = f"Error: Something went wrong while reading headers. {e}"
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
+        raise Unauthorized(f"Something went wrong while reading headers. {e}")
 
     # Introspect the access token
     introspection, user_groups, error_message = introspect_token(bearer_token)
     if len(error_message) > 0:
-        return ATVResponse(
-            is_valid=False,
-            error_message=f"Error: Token introspection: {error_message}",
-            error_code=401,
-        )
+        raise Unauthorized(f"Token introspection: {error_message}")
 
     # Make sure the token is not expired
     expires_in = introspection["exp"] - time.time()
     if expires_in <= 0:
-        return ATVResponse(
-            is_valid=False, error_message="Error: Access token expired.", error_code=401
-        )
+        raise Unauthorized("Access token expired.")
 
     # Try to identify an authorized Globus service account client
     try:
@@ -438,55 +424,42 @@ def validate_access_token(request):
         # Make sure the authentication was made by an authorized identity provider
         successful, user, error_message = check_session_info(introspection, user_groups)
         if not successful:
-            return ATVResponse(
-                is_valid=False, error_message=error_message, error_code=401
-            )
+            raise Unauthorized(str(error_message))
 
         # Make sure the authenticated user comes from an allowed domain
         # Those must be a high-assurance policies
         if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
             successful, error_message = check_globus_policies(introspection)
             if not successful:
-                return ATVResponse(
-                    is_valid=False, error_message=error_message, error_code=401
-                )
+                raise Unauthorized(str(error_message))
 
     # Make sure the user is part of a per-IdP authorized group (if any)
     successful, error_message, idp_group_overlap_str = check_groups_per_idp(
         user, user_groups
     )
     if not successful:
-        return ATVResponse(is_valid=False, error_message=error_message, error_code=401)
+        raise Unauthorized(str(error_message))
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
         successful, error_message = check_globus_groups(user_groups)
         if not successful:
-            return ATVResponse(
-                is_valid=False, error_message=error_message, error_code=401
-            )
+            raise Unauthorized(str(error_message))
 
     # Make sure the user's identity can be recorded
     if len(user.username) == 0:
-        return ATVResponse(
-            is_valid=False,
-            error_message="Error: Username could not be recovered.",
-            error_code=401,
-        )
+        raise Unauthorized("Username could not be recovered.")
 
     # Make sure the user's identity is valid
     # TODO: Add more checks here
     if "<" in user.username or ">" in user.username:
-        return ATVResponse(
-            is_valid=False,
-            error_message=f"Error: Username {user.username} includes non-authorized characters.",
-            error_code=401,
+        raise Unauthorized(
+            f"Username {user.username} includes non-authorized characters."
         )
 
     # Return valid token response
     log.info(f"{user.name} requesting {introspection['scope']}")
     return ATVResponse(
-        is_valid=True,
         user=user,
         user_group_uuids=user_groups,
         idp_group_overlap_str=idp_group_overlap_str,

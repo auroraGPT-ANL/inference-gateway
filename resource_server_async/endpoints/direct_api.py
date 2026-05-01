@@ -14,13 +14,13 @@ from pydantic import BaseModel, Field
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
 )
+from resource_server_async.errors import EndpointError
 from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import RequestLog
 from resource_server_async.schemas.endpoints import (
-    SubmitTaskResult,
     SubmitStreamingTaskResponse,
+    SubmitTaskResult,
 )
-from resource_server_async.errors import EndpointError
 from resource_server_async.streaming import create_streaming_response_headers
 
 log = logging.getLogger(__name__)
@@ -85,11 +85,20 @@ class DirectAPIEndpoint(BaseEndpoint):
         try:
             response = await self.httpx_client.post(self.config.api_url, data=data)
         except httpx.HTTPStatusError as e:
-            raise EndpointError(f"Upstream endpoint returned {e.response.status_code}: {e.response.content[:256]}.", status_code=e.response.status_code)
+            raise EndpointError(
+                f"Upstream endpoint returned {e.response.status_code}: {e.response.content[:256]!r}.",
+                status_code=e.response.status_code,
+            )
         except httpx.TimeoutException:
-            raise EndpointError(f"Timeout calling {self.config.api_url}.", status_code=504, info={"timeout": self.config.api_request_timeout})
+            raise EndpointError(
+                f"Timeout calling {self.config.api_url}.",
+                status_code=504,
+                info={"timeout": self.config.api_request_timeout},
+            )
         except httpx.HTTPError as e:
-            raise EndpointError(f"HTTP error calling API at {self.config.api_url}: {e}", status_code=500)
+            raise EndpointError(
+                f"HTTP error calling API at {self.config.api_url}: {e}", status_code=500
+            )
 
         return SubmitTaskResult(result=response, task_id=None)
 

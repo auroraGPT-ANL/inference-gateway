@@ -17,9 +17,11 @@ from resource_server_async.models import (
     Endpoint,
 )
 from resource_server_async.schemas.batch import BatchStatus, BatchSubmit
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
-from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.openai_chat_completions import (
+    OpenAIChatCompletionsPydantic,
+)
+from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
+from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
 
 from .errors import ClusterNotFound, EndpointNotFound
 

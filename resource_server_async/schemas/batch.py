@@ -24,7 +24,7 @@ class BatchLogSummary(BaseModel):
     failed_at: datetime | None
     status: BatchStatus
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def batch_id(self) -> str:
         return self.id

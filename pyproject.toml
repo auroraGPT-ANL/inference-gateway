@@ -32,16 +32,20 @@ dependencies = [
     "redis<7",
     "requests<3",
     "uvicorn[standard]>=0.30.6",
+    "zstandard",
 ]
 
 [dependency-groups]
 
 # Dependencies for development/testing:
 dev = [
-    "pyright[nodejs]",
+    "mypy",
     "ruff",
     "alcf-ai",
     "pre-commit>=4.5.1",
+    "django-stubs[compatible-mypy]",
+    "types-PyYAML",
+    "types-cachetools",
 ]
 
 # Documentation dependencies:
@@ -90,30 +94,51 @@ select = ["F", "I"]
 known-first-party = ["alcf_ai", "resource_server_async", "dashboard_async", "resource_server", "utils"]
 
 
-
-[tool.pyright]
-# https://microsoft.github.io/pyright/#/configuration
-include = ["alcf_ai", "compute-functions", "cron_jobs", "dashboard_async", "*.py", "inference_gateway", "resource_server", "resource_server_async", "utils"]
+[tool.mypy]
+files = ["alcf_ai", "compute-functions", "cron_jobs", "dashboard_async", "*.py", "inference_gateway", "resource_server", "resource_server_async", "utils"]
 exclude = [
-    "**/.*",
-    "**/__pycache__",
-    "**/.venv",
-    "**/node_modules",
-    "build",
-    "dist",
-    "utils/tests/test*.py"
+    '^\..*',
+    '__pycache__',
+    '\.venv',
+    'node_modules',
+    '^build/',
+    '^dist/',
+    'utils/tests/test.*\.py$',
+    'resource_server_async/tests/.*.py$',
 ]
+python_version = "3.12"
+mypy_path = ".venv"
+plugins = [
+    "pydantic.mypy",
+    "mypy_django_plugin.main",
+]
+strict = true
+warn_unused_configs = true        # warn on unused [[tool.mypy.overrides]]
+warn_unreachable = true           # ~ reportUnreachable; not in strict
+no_implicit_optional = true       # explicit Optional[X], not bare = None
 
-pythonVersion = "3.12"
+pretty = true
+show_error_codes = true
+show_column_numbers = true
 
-typeCheckingMode = "strict"
+[tool.django-stubs]
+django_settings_module = "inference_gateway._settings_typechecker"
+strict_settings = true
 
-reportMissingImports = "error"
-reportMissingTypeStubs = "warning"
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
 
-reportUnusedImport = "error"
-reportUnusedVariable = "error"
-reportPrivateUsage = "warning"
-reportImplicitOverride = "error"
-reportPossiblyUnboundVariable = "error"
-reportUnnecessaryIsInstance = "warning"
+[[tool.mypy.overrides]]
+module = []
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["resource_server_async.migrations.*", "resource_server_async.management.commands.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "*.tests.*"
+disallow_untyped_defs = true

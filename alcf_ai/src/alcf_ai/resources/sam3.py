@@ -121,7 +121,7 @@ class Sam3Resource(ClientResource):
         """
         resp = self._client.get(f"{self.name}/tasks/{task_id}")
 
-        if resp.status_code == 400 and b"pending" in resp.content:
+        if resp.status_code == 202 and b"pending" in resp.content:
             raise Sam3Resource.TaskPending
         elif resp.status_code >= 400:
             resp.raise_for_status()

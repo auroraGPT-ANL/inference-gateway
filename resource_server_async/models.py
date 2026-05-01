@@ -1,15 +1,16 @@
 import uuid
 from logging import getLogger
-from typing import Self
+from typing import Any, Iterable, Self, override
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.base import ModelBase
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
 
-from utils.pydantic_models.db_models import (
+from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
     BatchLogPydantic,
     RequestLogPydantic,
@@ -24,7 +25,7 @@ class AuthService(models.TextChoices):
 
 
 # Function to validate that some inputs are list of strings
-def validate_str_list(value):
+def validate_str_list(value: Any) -> None:
     if not isinstance(value, list):
         raise ValidationError("Value must be a list.")
     if not all(isinstance(v, str) for v in value):
@@ -33,14 +34,14 @@ def validate_str_list(value):
 
 # JSON field specifically containing a list of strings
 class StrListJSONField(models.JSONField):
-    def get_prep_value(self, value):
+    def get_prep_value(self, value: Any) -> Any:
         validate_str_list(value)
         return super().get_prep_value(value)
 
 
 # OpenAI endpoint list
 class OpenAIEndpointListJSONField(models.JSONField):
-    def get_prep_value(self, value):
+    def get_prep_value(self, value: Any) -> Any:
         validate_str_list(value)
         if value:
             for endpoint in value:
@@ -70,7 +71,7 @@ class User(models.Model):
     )
 
     # Custom display
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<User - {self.name} - {self.username} - {self.idp_name}>"
 
 
@@ -121,7 +122,7 @@ class AccessLog(models.Model):
         ]
 
     # Custom display
-    def __str__(self):
+    def __str__(self) -> str:
         if self.user:
             username = self.user.username
         else:
@@ -130,7 +131,7 @@ class AccessLog(models.Model):
 
     @classmethod
     async def create_from_response(
-        cls, request: HttpRequest, response: HttpResponse
+        cls, request: HttpRequest, response: HttpResponse | StreamingHttpResponse
     ) -> Self | None:
         access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
 
@@ -195,12 +196,20 @@ class RequestLog(models.Model):
         ]
 
     # Custom display
-    def __str__(self):
-        return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
+    def __str__(self) -> str:
+        username = (
+            self.access_log.user.username if self.access_log.user else "<anonymous>"
+        )
+        return (
+            f"<Request - {username} - {self.cluster} - {self.framework} - {self.model}>"
+        )
 
     @classmethod
     async def create_from_response(
-        cls, request: HttpRequest, response: HttpResponse, access_log: AccessLog
+        cls,
+        request: HttpRequest,
+        response: HttpResponse | StreamingHttpResponse,
+        access_log: AccessLog,
     ) -> Self | None:
         request_log: RequestLogPydantic | None = getattr(
             request, "request_log_data", None
@@ -305,7 +314,10 @@ class BatchLog(models.Model):
 
     @classmethod
     async def create_from_response(
-        cls, request: HttpRequest, response: HttpResponse, access_log: AccessLog
+        cls,
+        request: HttpRequest,
+        response: HttpResponse | StreamingHttpResponse,
+        access_log: AccessLog,
     ) -> Self | None:
         batch_log: BatchLogPydantic | None = getattr(request, "batch_log_data", None)
 
@@ -389,7 +401,7 @@ class RequestMetrics(models.Model):
             models.Index(fields=["model"], name="idx_requestmetrics_model"),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Metrics - {self.request_id}>"
 
 
@@ -422,7 +434,7 @@ class BatchMetrics(models.Model):
     #         models.Index(fields=["cluster", "framework"]),
     #     ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<BatchMetrics - {self.batch_id}>"
 
 
@@ -468,16 +480,30 @@ class Endpoint(models.Model):
     config = models.TextField(blank=True)
 
     # String function
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Endpoint {self.endpoint_slug}>"
 
     # Automatically generate slug if not provided
-    def save(self, *args, **kwargs):
+    @override
+    def save(
+        self,
+        *args: Any,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
         if self.endpoint_slug is None or self.endpoint_slug == "":
             self.endpoint_slug = slugify(
                 " ".join([self.cluster, self.framework, self.model])
             )
-        super(Endpoint, self).save(*args, **kwargs)
+        super().save(
+            *args,
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields,
+        )
 
 
 # Details of a given inference cluster
@@ -509,5 +535,5 @@ class Cluster(models.Model):
     config = models.TextField(blank=True)
 
     # String function
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Cluster {self.cluster_name}>"

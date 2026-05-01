@@ -15,7 +15,7 @@ class CheckMaintenanceResult(BaseModel):
     is_under_maintenance: bool
     message: str
 
-    def raise_if_down(self):
+    def raise_if_down(self) -> None:
         """
         Raise `ClusterUnderMaintenance` if the cluster maintenance status is currently down.
         """

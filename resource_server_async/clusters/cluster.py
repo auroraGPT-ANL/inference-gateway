@@ -5,6 +5,7 @@ from typing import List
 from django.core.cache import cache
 
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
+from resource_server_async.auth import check_permission as auth_utils_check_permission
 from resource_server_async.errors import Unauthorized
 from resource_server_async.models import User
 from resource_server_async.schemas.clusters import (
@@ -12,7 +13,6 @@ from resource_server_async.schemas.clusters import (
     ClusterStatus,
     JobsByStatus,
 )
-from utils.auth_utils import check_permission as auth_utils_check_permission
 
 log = logging.getLogger(__name__)
 

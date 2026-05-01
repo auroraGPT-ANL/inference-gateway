@@ -7,7 +7,7 @@ from typing import Any
 
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
-from utils.pydantic_models.db_models import AccessLogPydantic
+from resource_server_async.schemas.db_models import AccessLogPydantic
 
 from .cache import should_throttle
 from .models import AccessLog, BatchLog, RequestLog

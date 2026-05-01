@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, List
 
+from resource_server_async.auth import check_permission as auth_utils_check_permission
 from resource_server_async.cache import get_redis_client
 from resource_server_async.errors import BatchUnavailable, Unauthorized
 from resource_server_async.models import BatchLog, User
@@ -8,11 +9,10 @@ from resource_server_async.rate_limiters import TokenLimiterCheck, TokenRateLimi
 from resource_server_async.schemas.batch import BatchSubmit
 from resource_server_async.schemas.endpoints import (
     BatchStatusResult,
-    SubmitTaskResult,
     SubmitBatchResult,
     SubmitStreamingTaskResponse,
+    SubmitTaskResult,
 )
-from utils.auth_utils import check_permission as auth_utils_check_permission
 
 
 class BaseEndpoint(ABC):

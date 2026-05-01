@@ -3,10 +3,12 @@ import json
 from django.test import testcases
 from pydantic import ValidationError
 
-from utils.pydantic_models.batch import BatchPydantic
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
-from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.batch import BatchSubmit
+from resource_server_async.schemas.openai_chat_completions import (
+    OpenAIChatCompletionsPydantic,
+)
+from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
+from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
 
 # Constants
 COMPLETIONS = "completions"
@@ -19,12 +21,12 @@ PYDANTIC_MODELS = {
     COMPLETIONS: OpenAICompletionsPydantic,
     CHAT_COMPLETIONS: OpenAIChatCompletionsPydantic,
     EMBEDDINGS: OpenAIEmbeddingsPydantic,
-    BATCH: BatchPydantic,
+    BATCH: BatchSubmit,
 }
 
 
 # Test OpenAI pydantic models
-class UtilsPydanticModelsTestCase(testcases.TestCase):
+class PydanticModelsTestCase(testcases.TestCase):
     # Initialization
     @classmethod
     def setUp(self):
@@ -33,7 +35,7 @@ class UtilsPydanticModelsTestCase(testcases.TestCase):
         """
 
         # Load test input data (OpenAI format)
-        base_path = "utils/tests/json"
+        base_path = "resource_server_async/tests/json"
         self.valid_params = {}
         self.invalid_params = {}
         for model in PYDANTIC_MODELS:

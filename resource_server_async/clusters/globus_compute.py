@@ -9,10 +9,10 @@ from django.core.cache import cache
 from django.utils.text import slugify
 from pydantic import BaseModel
 
+from resource_server_async import globus_utils
 from resource_server_async.clusters.cluster import BaseCluster
 from resource_server_async.models import Endpoint, User
 from resource_server_async.schemas.clusters import JobsByStatus
-from utils import globus_utils
 
 log = logging.getLogger(__name__)
 

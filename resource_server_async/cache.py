@@ -33,19 +33,25 @@ def get_redis_client() -> redis.Redis | None:
     if _redis_client is not None:
         return _redis_client
 
-    try:
-        if hasattr(settings, "CACHES") and "redis" in str(
-            settings.CACHES.get("default", {}).get("BACKEND", "")
-        ):
-            cache_location = settings.CACHES["default"].get("LOCATION")
-            if cache_location:
-                _redis_client = redis.Redis.from_url(cache_location)
-                _redis_client.ping()
-                _redis_available = True
-                logger.info("Redis client initialized successfully")
-                return _redis_client
-    except Exception as e:
-        logger.warning(f"Redis not available, falling back to Django cache: {e}")
+    redis_url = next(
+        (
+            cache["LOCATION"]
+            for cache in getattr(settings, "CACHES", {}).values()
+            if cache.get("LOCATION", "").startswith("redis://")
+        ),
+        None,
+    )
+
+    if redis_url:
+        try:
+            _redis_client = redis.Redis.from_url(redis_url)
+            _redis_client.ping()
+        except Exception as e:
+            logger.warning(f"Redis not available, falling back to Django cache: {e}")
+        else:
+            _redis_available = True
+            logger.info("Redis client initialized successfully")
+            return _redis_client
 
     _redis_available = False
     _redis_client = None
@@ -60,64 +66,49 @@ def should_throttle(*args: Any, ttl: int = 30) -> bool:
     """
     key = "".join(map(str, args))
 
-    try:
-        was_added = cache.add(key, "", ttl)
-        return not was_added
-    except Exception:
-        logger.warning("cache error in should_throttle check", exc_info=True)
-        return False
+    was_added = cache.add(key, "", ttl)
+    return not was_added
 
 
 def is_cached(key: str) -> bool:
     """Returns whether key exists in the cache."""
-    try:
-        return cache.has_key(key)
-    except Exception:
-        logger.warning("cache error during is_cached check", exc_info=True)
-        return False
+    return cache.has_key(key)
 
 
 def get_item_from_cache(cache_key: str) -> Any:
     """Get item from cache or None if not found."""
-    try:
-        cached_item = cache.get(cache_key)
-        if cached_item:
-            logger.debug(f"Retrieved {cache_key} from cache.")
-            return cached_item
-    except Exception as e:
-        logger.warning(f"Cache error for {cache_key}: {e}")
+    cached_item = cache.get(cache_key)
+    if cached_item:
+        logger.debug(f"Retrieved {cache_key} from cache.")
+        return cached_item
     return None
 
 
-def cache_item(cache_key: str, data: Any, ttl: int = 3600):
+def cache_item(cache_key: str, data: Any, ttl: int = 3600) -> None:
     """Cache item data (60 minutes TTL by default)."""
-    try:
-        cache.set(cache_key, data, ttl)
-        logger.debug(f"Cached {cache_key}.")
-    except Exception as e:
-        logger.warning(f"Failed to cache {cache_key}: {e}")
+    cache.set(cache_key, data, ttl)
+    logger.debug(f"Cached {cache_key}.")
 
 
-def remove_item_from_cache(cache_key: str):
+def remove_item_from_cache(cache_key: str) -> None:
     """Remove item from cache"""
-    try:
-        cache.delete(cache_key)
-        logger.debug(f"Removed {cache_key} from cache.")
-    except Exception as e:
-        logger.warning(f"Failed to remove {cache_key} from cache: {e}")
+    cache.delete(cache_key)
+    logger.debug(f"Removed {cache_key} from cache.")
 
 
 def get_endpoint_from_cache(endpoint_slug: str) -> "BaseEndpoint | None":
     """Get endpoint adapter from cache or None if not found"""
-    return get_item_from_cache(f"endpoint:{endpoint_slug}")
+    ep = get_item_from_cache(f"endpoint:{endpoint_slug}")
+    assert isinstance(ep, BaseEndpoint) or ep is None
+    return ep
 
 
-def cache_endpoint(endpoint_slug: str, data: "BaseEndpoint"):
+def cache_endpoint(endpoint_slug: str, data: "BaseEndpoint") -> None:
     """Cache endpoint adapter"""
     cache_item(f"endpoint:{endpoint_slug}", data)
 
 
-def remove_endpoint_from_cache(endpoint_slug: str):
+def remove_endpoint_from_cache(endpoint_slug: str) -> None:
     """Remove endpoint adapter from cache"""
     remove_item_from_cache(f"endpoint:{endpoint_slug}")
 
@@ -128,11 +119,11 @@ def get_cluster_from_cache(cluster_name: str) -> "BaseCluster | None":
     return obj
 
 
-def cache_cluster(cluster_name: str, adapter: "BaseCluster"):
+def cache_cluster(cluster_name: str, adapter: "BaseCluster") -> None:
     """Cache cluster adapter"""
     cache_item(f"cluster:{cluster_name}", adapter)
 
 
-def remove_cluster_from_cache(cluster_name: str):
+def remove_cluster_from_cache(cluster_name: str) -> None:
     """Remove cluster adapter from cache"""
     remove_item_from_cache(f"cluster:{cluster_name}")

@@ -377,7 +377,7 @@
                     "text": "text goes here",
                     "type": "text"
                 }
-            ], 
+            ],
             "type": "content"
         }
     },
@@ -400,7 +400,7 @@
                     "text": "another text goes here",
                     "type": "text"
                 }
-            ], 
+            ],
             "type": "content"
         }
     },
@@ -414,7 +414,7 @@
           }
         ],
         "prediction": {
-            "content": "string goes here", 
+            "content": "string goes here",
             "type": "content"
         }
     },

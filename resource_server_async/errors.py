@@ -2,7 +2,25 @@ from http import HTTPStatus
 from typing import Any
 
 
+class TaskPending(Exception):
+    """
+    202 ACCEPTED is widely used for async http clients polling on a task ID.
+    """
+
+    status_code = HTTPStatus.ACCEPTED
+    code = "task_accepted_and_pending"
+
+    def __init__(self, task_id: str, *args: str, retry_after: int = 2):
+        self.task_id = task_id
+        self.retry_after = retry_after
+        super().__init__(*args)
+
+
 class BaseError(Exception):
+    """
+    Root of service error hierarchy
+    """
+
     status_code: HTTPStatus = HTTPStatus.INTERNAL_SERVER_ERROR
     code: str = "internal_error"
 

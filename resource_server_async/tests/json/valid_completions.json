@@ -57,7 +57,7 @@
     },
 
     {
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct", 
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "prompt": [[1212, 318, 257, 1332, 13], [2,345,232]],
         "echo": true,
         "max_tokens": 0,

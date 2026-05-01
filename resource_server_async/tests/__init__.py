@@ -13,9 +13,9 @@ from django.core.management import call_command
 from django.test import TestCase
 from ninja.testing import TestAsyncClient
 
+import resource_server_async.auth as auth
+import resource_server_async.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
-import utils.auth_utils as auth_utils
-import utils.globus_utils as globus_utils
 from resource_server_async import api
 from resource_server_async.api import router
 from resource_server_async.endpoints import direct_api, globus_compute, metis
@@ -26,12 +26,12 @@ api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
 )
 
 # Overwrite Globus SDK classes and functions
-auth_utils.get_globus_client = mock_utils.get_globus_client
+auth.get_globus_client = mock_utils.get_globus_client
 globus_utils.get_compute_client_from_globus_app = (
     mock_utils.get_compute_client_from_globus_app
 )
 globus_utils.get_compute_executor = mock_utils.get_compute_executor
-auth_utils.introspect_token = mock_utils.introspect_token
+auth.introspect_token = mock_utils.introspect_token
 
 # Overwrite future
 asyncio.wrap_future = mock_utils.wrap_future

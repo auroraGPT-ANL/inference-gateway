@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from pydantic import BaseModel
 
 from resource_server_async.models import Endpoint
-from utils.pydantic_models.db_models import AccessLogPydantic
+from resource_server_async.schemas.db_models import AccessLogPydantic
 
 # =============
 #   Constants
@@ -273,7 +273,7 @@ class MockStreamingHttpResponse(StreamingHttpResponse):
 # ==========
 
 
-# Mock utils.metis_utils.fetch_metis_status function
+# Mock fetch_metis_status function
 async def mock_fetch_metis_status(use_cache):
     metis_models = [e.model async for e in Endpoint.objects.filter(cluster="metis")]
     metis_status = {

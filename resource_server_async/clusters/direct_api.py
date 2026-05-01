@@ -1,9 +1,9 @@
 import logging
-from typing import Dict, List, Optional, Any, override
+from typing import Any, List, override
 
 from django.core.cache import cache
 from httpx import TimeoutException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from resource_server_async.clusters.cluster import (
     BaseCluster,
@@ -11,7 +11,7 @@ from resource_server_async.clusters.cluster import (
 )
 from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.models import User
-from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
+from resource_server_async.schemas.clusters import JobsByStatus
 
 log = logging.getLogger(__name__)
 

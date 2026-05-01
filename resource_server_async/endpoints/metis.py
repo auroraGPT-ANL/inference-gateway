@@ -9,8 +9,8 @@ from resource_server_async.endpoints.endpoint import (
     BaseModelWithError,
 )
 from resource_server_async.schemas.endpoints import (
-    SubmitTaskResult,
     SubmitStreamingTaskResponse,
+    SubmitTaskResult,
 )
 from resource_server_async.utils import get_cluster_wrapper
 

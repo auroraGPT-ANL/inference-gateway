@@ -1,12 +1,10 @@
 # Tool to log access requests
 import logging
-from typing import Dict, List, Any, override
+from typing import Any, List, override
 
 from django.core.cache import cache
 
 from resource_server_async.clusters.direct_api import DirectAPICluster
-from resource_server_async.errors import GetJobsError
-from resource_server_async.models import User
 from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 
 log = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ class MetisCluster(DirectAPICluster):
 
     # Get formatted cluster status
     @override
-    async def get_status(self) ->  JobsByStatus:
+    async def get_status(self) -> JobsByStatus:
         """Fetch and return cluster status. Can be overwritten to format output."""
 
         # Redis cache key

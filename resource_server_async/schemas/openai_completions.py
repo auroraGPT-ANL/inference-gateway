@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Self, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -23,7 +23,7 @@ class OpenAICompletionsPydantic(BaseModelExtraForbid):
     best_of: Optional[int] = Field(default=1, ge=0, le=20)
     echo: Optional[bool] = Field(default=False)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
-    logit_bias: Optional[Dict[str, float]] = Field(default=None)
+    logit_bias: Optional[Dict[str, float]] = None
     logprobs: Optional[int] = Field(default=None, ge=0, le=5)
     max_tokens: Optional[int] = Field(default=16, ge=0)
     n: Optional[int] = Field(default=1, ge=1, le=128)
@@ -32,18 +32,18 @@ class OpenAICompletionsPydantic(BaseModelExtraForbid):
         default=None, ge=-9223372036854775808, le=9223372036854775807
     )
     stop: Optional[Union[str, List[str]]] = Field(
-        default=None, max_items=4, min_items=1
+        default=None, max_length=4, min_length=1
     )
     stream: Optional[bool] = Field(default=False)
-    stream_options: Optional[OpenAIStreamOptions] = Field(default=None)
-    suffix: Optional[str] = Field(default=None)
+    stream_options: Optional[OpenAIStreamOptions] = None
+    suffix: Optional[str] = None
     temperature: Optional[float] = Field(default=1, ge=0, le=2)
     top_p: Optional[float] = Field(default=1, ge=0, le=1)
-    user: Optional[str] = Field(default=None)
+    user: Optional[str] = None
 
     # Extra validations
     @model_validator(mode="after")
-    def extra_validations(self):
+    def extra_validations(self) -> Self:
         # Validate logit_bias bias values
         if isinstance(self.logit_bias, dict):
             for bias in self.logit_bias.values():

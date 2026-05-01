@@ -1,6 +1,7 @@
 import json
 import logging
 import logging.config
+from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
@@ -37,9 +38,14 @@ logging.config.dictConfig(LOGGING_CONFIG)
 from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
 from resource_server_async.schemas.batch import BatchListFilter
 from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
+from resource_server_async.schemas.db_models import (
+    BatchLogPydantic,
+    UserPydantic,
+)
 from resource_server_async.schemas.endpoints import (
     SubmitBatchResult,
     SubmitTaskAsyncResponse,
+    SubmitTaskResult,
 )
 from resource_server_async.utils import (
     decode_request_body,
@@ -48,10 +54,6 @@ from resource_server_async.utils import (
     load_endpoint_adapter,
     # Response functions
     update_batch,
-)
-from utils.pydantic_models.db_models import (
-    BatchLogPydantic,
-    UserPydantic,
 )
 
 from .services import (
@@ -74,17 +76,19 @@ from resource_server_async.schemas import (
     ListEndpointsResponse,
     Sam3Request,
 )
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
-from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.openai_chat_completions import (
+    OpenAIChatCompletionsPydantic,
+)
+from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
+from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
 
 
 # Health Check (GET) - No authentication required
 # Lightweight endpoint for Kubernetes/load balancer health checks
 @router.get("/health", auth=None)
-async def health_check():
+async def health_check() -> dict[str, str]:
     """Lightweight health check endpoint - returns OK if API is responding."""
-    return JsonResponse({"status": "ok"}, status=200)
+    return {"status": "ok"}
 
 
 # Whoami (GET)
@@ -329,7 +333,7 @@ async def create_chat_completion(
     cluster_name: str,
     framework: str,
     payload: OpenAIChatCompletionsPydantic,
-):
+) -> Any:
     return await submit_openai_inference_request(
         request, cluster_name, framework, payload
     )
@@ -341,7 +345,7 @@ async def create_completion(
     cluster_name: str,
     framework: str,
     payload: OpenAICompletionsPydantic,
-):
+) -> Any:
     return await submit_openai_inference_request(
         request, cluster_name, framework, payload
     )
@@ -353,7 +357,7 @@ async def create_embedding(
     cluster_name: str,
     framework: str,
     payload: OpenAIEmbeddingsPydantic,
-):
+) -> Any:
     return await submit_openai_inference_request(
         request, cluster_name, framework, payload
     )
@@ -361,7 +365,9 @@ async def create_embedding(
 
 # Inference (POST)
 @router.post("/sophia/sam3service/process", response=SubmitTaskAsyncResponse)
-async def sam3_infer(request: AuthedRequest, payload: Sam3Request):
+async def sam3_infer(
+    request: AuthedRequest, payload: Sam3Request
+) -> SubmitTaskAsyncResponse:
     """
     Submit single-image inference request to SAM3 Globus Compute endpoint.
     """
@@ -391,8 +397,10 @@ async def sam3_infer(request: AuthedRequest, payload: Sam3Request):
     return task_response
 
 
-@router.get("/sophia/sam3service/tasks/{task_id}")
-async def sam3_get_task_result(request: AuthedRequest, task_id: str):
+@router.get("/sophia/sam3service/tasks/{task_id}", response=SubmitTaskResult)
+async def sam3_get_task_result(
+    request: AuthedRequest, task_id: str
+) -> SubmitTaskResult:
     # Get cluster wrapper from database
     cluster = await load_cluster_adapter("sophia")
 
@@ -405,20 +413,12 @@ async def sam3_get_task_result(request: AuthedRequest, task_id: str):
 
     # Block access if the user is not allowed to use the endpoint
     endpoint.check_permission(request.auth, request.user_group_uuids)
-
-    task_response = await endpoint.get_task_result(task_id)
-    # Display error message if any
-    if task_response.error_message:
-        return await get_response(
-            task_response.model_dump_json(), task_response.error_code, request
-        )
-
-    return await get_response(task_response.model_dump_json(), 200, request)
+    return await endpoint.get_task_result(task_id)
 
 
 # Streaming server endpoints (integrated into Django)
 @router.post("/api/streaming/data/", auth=None, throttle=[])
-async def receive_streaming_data(request: HttpRequest):
+async def receive_streaming_data(request: HttpRequest) -> JsonResponse:
     """Receive streaming data from vLLM function - INTERNAL ONLY
 
     Security layers (optimized with caching):
@@ -473,7 +473,7 @@ async def receive_streaming_data(request: HttpRequest):
 
 
 @router.post("/api/streaming/error/", auth=None, throttle=[])
-async def receive_streaming_error(request: HttpRequest):
+async def receive_streaming_error(request: HttpRequest) -> JsonResponse:
     """Receive error from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
 
     Security layers (optimized with caching):
@@ -521,7 +521,7 @@ async def receive_streaming_error(request: HttpRequest):
 
 
 @router.post("/api/streaming/done/", auth=None, throttle=[])
-async def receive_streaming_done(request: HttpRequest):
+async def receive_streaming_done(request: HttpRequest) -> JsonResponse:
     """Receive completion signal from vLLM function - INTERNAL ONLY - P0 OPTIMIZED
 
     Security layers (optimized with caching):

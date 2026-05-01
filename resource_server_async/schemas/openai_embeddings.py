@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Self, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -23,14 +23,12 @@ class OpenAIEmbeddingsPydantic(BaseModelExtraForbid):
     input: Union[str, List[str], List[int], List[List[int]]]
     model: str
     dimensions: Optional[int] = Field(default=None, ge=1)
-    encoding_format: Optional[EncodingFormat] = Field(
-        default=EncodingFormat.float.value
-    )
-    user: Optional[str] = Field(default=None)
+    encoding_format: Optional[EncodingFormat] = EncodingFormat.float
+    user: Optional[str] = None
 
     # Extra validations
     @model_validator(mode="after")
-    def extra_validations(self):
+    def extra_validations(self) -> Self:
         # Check length of input arrays
         min_length = 1
         max_lentgh = 2048

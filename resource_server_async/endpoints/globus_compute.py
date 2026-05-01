@@ -7,9 +7,10 @@ from typing import Any, Optional, cast, override
 
 from django.http import StreamingHttpResponse
 from globus_compute_sdk import Executor
-from globus_compute_sdk.errors import TaskPending
-from pydantic import BaseModel, Field
+from globus_compute_sdk.errors import TaskPending as GlobusTaskPending
+from pydantic import BaseModel
 
+from resource_server_async import globus_utils
 from resource_server_async.cache import (
     cache_item,
     is_cached,
@@ -18,15 +19,15 @@ from resource_server_async.cache import (
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
 )
-from resource_server_async.errors import EndpointError
+from resource_server_async.errors import EndpointError, TaskPending
 from resource_server_async.models import BatchLog
 from resource_server_async.schemas.batch import BatchStatus, BatchSubmit
 from resource_server_async.schemas.endpoints import (
     BatchStatusResult,
-    SubmitTaskResult,
     SubmitBatchResult,
     SubmitStreamingTaskResponse,
     SubmitTaskAsyncResponse,
+    SubmitTaskResult,
 )
 from resource_server_async.streaming import (
     create_streaming_response_headers,
@@ -41,7 +42,6 @@ from resource_server_async.streaming import (
 from resource_server_async.utils import (
     extract_prompt,
 )
-from utils import globus_utils
 
 log = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ class GlobusComputeEndpointConfig(BaseModel):
     api_port: int
     endpoint_uuid: str
     function_uuid: str
-    batch_endpoint_uuid: Optional[str] = Field(default=None)
-    batch_function_uuid: Optional[str] = Field(default=None)
+    batch_endpoint_uuid: Optional[str] = None
+    batch_function_uuid: Optional[str] = None
 
 
 # Globus Compute implementation of a BaseEndpoint
@@ -244,16 +244,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
         try:
             async with self._client_lock:
                 result = await asyncio.to_thread(gcc.get_result, task_id)
-        except TaskPending:
-            return SubmitTaskResult(
-                error_message="Task is still pending, try again soon.",
-                error_code=400,
-                task_id=task_id,
-            )
-        except Exception as e:
-            return SubmitTaskResult(
-                error_message=f"Task failed: {str(e)}", error_code=500, task_id=task_id
-            )
+        except GlobusTaskPending:
+            raise TaskPending(task_id)
         else:
             return SubmitTaskResult(result=result, task_id=task_id)
 

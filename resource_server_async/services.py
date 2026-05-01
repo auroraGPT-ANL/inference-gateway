@@ -6,13 +6,15 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 
 from resource_server_async.api import AuthedRequest
-from utils.globus_utils import get_transfer_client
-from utils.pydantic_models.db_models import (
+from resource_server_async.globus_utils import get_transfer_client
+from resource_server_async.schemas.db_models import (
     RequestLogPydantic,
 )
-from utils.pydantic_models.openai_chat_completions import OpenAIChatCompletionsPydantic
-from utils.pydantic_models.openai_completions import OpenAICompletionsPydantic
-from utils.pydantic_models.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.openai_chat_completions import (
+    OpenAIChatCompletionsPydantic,
+)
+from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
+from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
 
 from .clusters.cluster import BaseCluster
 from .errors import (

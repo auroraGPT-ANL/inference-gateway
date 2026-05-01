@@ -1,6 +1,6 @@
 from django.urls import path
 
-from resource_server_async.views import api
+from resource_server_async.api import api
 
 # Use the unique namespace or versioned API instance
 urlpatterns = [

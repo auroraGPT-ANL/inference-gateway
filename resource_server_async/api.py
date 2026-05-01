@@ -9,17 +9,17 @@ from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
-from ninja.throttling import AnonRateThrottle, AuthRateThrottle
+from ninja.throttling import AnonRateThrottle, AuthRateThrottle, BaseThrottle
 
+from resource_server_async.auth import validate_access_token
 from resource_server_async.models import User
-from utils.auth_utils import validate_access_token
-from utils.pydantic_models.db_models import (
+from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
     BatchLogPydantic,
     RequestLogPydantic,
 )
 
-from .errors import BaseError
+from .errors import BaseError, TaskPending
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ api = NinjaAPI(urls_namespace="resource_server_async_api")
 # -------------------------------------
 
 # Define rate limits
-throttle = [
+throttle: list[BaseThrottle] = [
     AnonRateThrottle("10/s"),  # Per anonymous user, if request.user is not defined
     AuthRateThrottle(
         f"{settings.RATE_LIMIT_PER_SEC_PER_USER}/s"
@@ -66,7 +66,7 @@ class GlobalAuth(HttpBearer):
     RequestLightWeigthUser = get_user_model()
 
     # Custom error message if Authorization headers is missing
-    async def __call__(self, request):
+    async def __call__(self, request: HttpRequest) -> User | None:
         auth = request.headers.get("Authorization")
         if not auth:
             raise HttpError(
@@ -78,20 +78,17 @@ class GlobalAuth(HttpBearer):
         )  # Request is the object being used by the validate_access_token function
 
     # Auth check
-    async def authenticate(self, request, access_token):
+    async def authenticate(self, request: HttpRequest, token: str | None) -> User:
         # Initialize the access log data for the database entry
         access_log_data = self.__initialize_access_log_data(request)
-        request.access_log_data = access_log_data
+        request.access_log_data = access_log_data  # type: ignore[attr-defined]
 
-        # Introspect the access token
+        # Introspect and validate the access token
+        # Raises Unauthorized (HTTP 401) if authentication fails:
         atv_response = validate_access_token(request)
 
         # Add whether the access token got granted because of a special Globus Groups membership
         access_log_data.authorized_groups = atv_response.idp_group_overlap_str
-
-        # Raise an error if the access token if not valid or if the user is not authorized
-        if not atv_response.is_valid:
-            raise HttpError(atv_response.error_code, atv_response.error_message)
 
         # Create a new database entry for the user (or get existing entry if already exist)
         try:
@@ -130,7 +127,7 @@ class GlobalAuth(HttpBearer):
         return user
 
     # Initialize access log data
-    def __initialize_access_log_data(self, request):
+    def __initialize_access_log_data(self, request: HttpRequest) -> AccessLogPydantic:
         """Return initial state of an AccessLogPydantic entry"""
 
         # Extract the origin IP address
@@ -154,7 +151,7 @@ class GlobalAuth(HttpBearer):
 
 
 # Apply the authorization requirement to all routes
-api.auth = GlobalAuth()
+api.auth = [GlobalAuth()]
 
 
 @api.exception_handler(BaseError)
@@ -164,6 +161,17 @@ def handle_app_error(request: HttpRequest, exc: BaseError) -> HttpResponse:
         {"error": {"code": exc.code, "message": str(exc), "info": exc.info}},
         status=exc.status_code,
     )
+
+
+@api.exception_handler(TaskPending)
+def handle_pending(request: HttpRequest, exc: TaskPending) -> HttpResponse:
+    response = api.create_response(
+        request,
+        {"status": exc.code, "task_id": exc.task_id},
+        status=exc.status_code,
+    )
+    response["Retry-After"] = str(exc.retry_after)
+    return response
 
 
 @api.exception_handler(Exception)

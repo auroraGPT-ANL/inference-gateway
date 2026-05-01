@@ -1,11 +1,11 @@
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Self, Union
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 # Extra validation for the metadata field
-def metadata_validator(value: dict) -> dict:
+def metadata_validator(value: dict[str, str]) -> dict[str, str]:
     if len(value) > 16:
         raise ValueError("'metadata' must have at most 16 key-value pairs.")
     if any(len(k) > 64 for k in value.keys()):
@@ -228,9 +228,9 @@ class ResponseFormatText(BaseModelExtraForbid):
 # Response_format - json_schema - json_schema
 class ResponseFormatJsonSchemaJsonSchema(BaseModelExtraForbid):
     name: str = Field(..., max_length=64)
-    description: Optional[str] = Field(default=None)
-    schema: Optional[dict] = Field(default_factory=dict)
-    strict: Optional[bool] = Field(default=False)
+    description: Optional[str] = None
+    schema: Optional[dict[str, Any]] = {}  # type: ignore[assignment]
+    strict: Optional[bool] = False
 
 
 # Response_format - json_schema
@@ -247,11 +247,11 @@ class ResponseFormatJsonObject(BaseModelExtraForbid):
 # Response_format
 class ResponseFormat(BaseModelExtraForbid):
     type: ResponseFormatType
-    json_schema: Optional[dict] = Field(default={})
+    json_schema: Optional[dict[str, Any]] = {}
 
     # Providing more human-readable (simpler) error messages
     @model_validator(mode="before")
-    def set_dynamic_content_type(cls, values):
+    def set_dynamic_content_type(cls, values: dict[str, Any]) -> dict[str, Any]:
         # Check if type was provided
         if "type" not in values:
             raise ValueError("'type' must be provided.")
@@ -290,13 +290,13 @@ class ToolChoiceObject(BaseModelExtraForbid):
 # Tool - function
 class ToolFunction(BaseModelExtraForbid):
     name: str = Field(..., max_length=64)
-    description: Optional[str] = Field(default=None)
-    parameters: Optional[dict] = Field(default=None)
-    strict: Optional[bool] = Field(default=False)
+    description: Optional[str] = None
+    parameters: Optional[dict[str, Any]] = None
+    strict: Optional[bool] = False
 
     # Extra validations
     @model_validator(mode="after")
-    def extra_validations(self):
+    def extra_validations(self) -> Self:
         # Check if name includes weird characters
         test_data = self.name.replace("-", "").replace("_", "")
         if not test_data.isalnum():
@@ -316,10 +316,10 @@ class Tool(BaseModelExtraForbid):
 
 # Web_search_options - user_location - approximate
 class WebSearchOptionsUserLocationApproximate(BaseModelExtraForbid):
-    city: Optional[str] = Field(default=None)
-    country: Optional[str] = Field(default=None)
-    region: Optional[str] = Field(default=None)
-    timezone: Optional[str] = Field(default=None)
+    city: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 # Web_search_options - user_location
@@ -330,15 +330,15 @@ class WebSearchOptionsUserLocation(BaseModelExtraForbid):
 
 # Web_search_options
 class WebSearchOptions(BaseModelExtraForbid):
-    search_context_size: Optional[WebSearchOptionsSearchContextSize] = Field(
-        default=WebSearchOptionsSearchContextSize.medium.value
+    search_context_size: Optional[WebSearchOptionsSearchContextSize] = (
+        WebSearchOptionsSearchContextSize.medium
     )
-    user_location: Optional[WebSearchOptionsUserLocation] = Field(default=None)
+    user_location: Optional[WebSearchOptionsUserLocation] = None
 
 
 # Stream_options
 class StreamOptions(BaseModelExtraForbid):
-    include_usage: Optional[bool] = Field(default=None)
+    include_usage: Optional[bool] = None
 
 
 # User_message - content - text_content
@@ -350,7 +350,7 @@ class MessageTextContent(BaseModelExtraForbid):
 # User_message - content - image_content - image_url
 class MessageImageURL(BaseModelExtraForbid):
     url: str
-    detail: Optional[ImageURLDetail] = Field(default=ImageURLDetail.auto.value)
+    detail: Optional[ImageURLDetail] = ImageURLDetail.auto
 
 
 # User_message - content - image_content
@@ -373,9 +373,9 @@ class MessageAudioContent(BaseModelExtraForbid):
 
 # User_message - content - file_content - file
 class MessageFile(BaseModelExtraForbid):
-    file_data: Optional[str] = Field(default=None)
-    file_id: Optional[str] = Field(default=None)
-    filename: Optional[str] = Field(default=None)
+    file_data: Optional[str] = None
+    file_id: Optional[str] = None
+    filename: Optional[str] = None
 
 
 # User_message - content - file_content
@@ -412,27 +412,27 @@ class AssistantMessageToolCalls(BaseModelExtraForbid):
 class DeveloperMessage(BaseModelExtraForbid):
     content: Union[str, List[str]]
     role: DeveloperMessageRole
-    name: Optional[str] = Field(default=None)
+    name: Optional[str] = None
 
 
 # System_message
 class SystemMessage(BaseModelExtraForbid):
     content: Union[str, List[str]]
     role: SystemMessageRole
-    name: Optional[str] = Field(default=None)
+    name: Optional[str] = None
 
 
 # User message - content - object (general class that will re-route the validation according to the targeted content type)
 class UserMessageContent(BaseModelExtraForbid):
     type: str
-    text: Optional[Any] = Field(default=None)
-    image_url: Optional[Any] = Field(default=None)
-    input_audio: Optional[Any] = Field(default=None)
-    file: Optional[Any] = Field(default=None)
+    text: Optional[Any] = None
+    image_url: Optional[Any] = None
+    input_audio: Optional[Any] = None
+    file: Optional[Any] = None
 
     # Providing more human-readable (simpler) error messages
     @model_validator(mode="before")
-    def set_dynamic_content_type(cls, values):
+    def set_dynamic_content_type(cls, values: dict[str, Any]) -> dict[str, Any]:
         # Check if type was provided
         if "type" not in values:
             raise ValueError(
@@ -467,18 +467,18 @@ class UserMessage(BaseModelExtraForbid):
     # content: Union[str, List[Union[MessageTextContent, MessageImageContent, MessageAudioContent, MessageFileContent]]]
     content: Union[str, List[UserMessageContent]]
     role: UserMessageRole
-    name: Optional[str] = Field(default=None)
+    name: Optional[str] = None
 
 
 # Assistant message - content
 class AssistantMessageContent(BaseModelExtraForbid):
     type: str
-    text: Optional[Any] = Field(default=None)
-    refusal: Optional[Any] = Field(default=None)
+    text: Optional[Any] = None
+    refusal: Optional[Any] = None
 
     # Providing more human-readable (simpler) error messages
     @model_validator(mode="before")
-    def set_dynamic_content_type(cls, values):
+    def set_dynamic_content_type(cls, values: dict[str, Any]) -> dict[str, Any]:
         # Check if type was provided
         if "type" not in values:
             raise ValueError(
@@ -509,14 +509,14 @@ class AssistantMessageContent(BaseModelExtraForbid):
 # Assistant_message
 class AssistantMessage(BaseModelExtraForbid):
     role: AssistantMessageRole
-    audio: Optional[AssistantMessageAudio] = Field(default=None)
-    # content: Optional[Union[str, List[Union[MessageTextContent, MessageRefusalContent]]]] = Field(default=None)
-    content: Optional[Union[str, List[AssistantMessageContent]]] = Field(default=None)
-    name: Optional[str] = Field(default=None)
-    refusal: Optional[str] = Field(default=None)
-    tool_calls: Optional[List[AssistantMessageToolCalls]] = Field(default=None)
-    reasoning: Optional[str] = Field(default=None)
-    reasoning_content: Optional[str] = Field(default=None)
+    audio: Optional[AssistantMessageAudio] = None
+    # content: Optional[Union[str, List[Union[MessageTextContent, MessageRefusalContent]]]] = None
+    content: Optional[Union[str, List[AssistantMessageContent]]] = None
+    name: Optional[str] = None
+    refusal: Optional[str] = None
+    tool_calls: Optional[List[AssistantMessageToolCalls]] = None
+    reasoning: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 # Tool message
@@ -529,18 +529,18 @@ class ToolMessage(BaseModelExtraForbid):
 # Message (general class that will re-route the validation according to the targeted role)
 class Message(BaseModelExtraForbid):
     role: str
-    content: Optional[Any] = Field(default=None)
-    name: Optional[Any] = Field(default=None)
-    audio: Optional[Any] = Field(default=None)
-    refusal: Optional[Any] = Field(default=None)
-    tool_calls: Optional[Any] = Field(default=None)
-    tool_call_id: Optional[Any] = Field(default=None)
-    reasoning: Optional[str] = Field(default=None)
-    reasoning_content: Optional[str] = Field(default=None)
+    content: Optional[Any] = None
+    name: Optional[Any] = None
+    audio: Optional[Any] = None
+    refusal: Optional[Any] = None
+    tool_calls: Optional[Any] = None
+    tool_call_id: Optional[Any] = None
+    reasoning: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
     # Providing more human-readable (simpler) error messages
     @model_validator(mode="before")
-    def set_dynamic_message_role(cls, values):
+    def set_dynamic_message_role(cls, values: dict[str, Any]) -> dict[str, Any]:
         # Check if role was provided
         if "role" not in values:
             raise ValueError("'role' must be provided in each message object.")
@@ -581,51 +581,42 @@ class OpenAIChatCompletionsPydantic(BaseModelExtraForbid):
     messages: List[Message]
     model: str = Field(..., min_length=1)
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
-    logit_bias: Optional[Dict[str, float]] = Field(default=None)
+    logit_bias: Optional[dict[str, float]] = None
     logprobs: Optional[bool] = Field(default=False)
     max_completion_tokens: Optional[int] = Field(default=None, ge=0)
     max_tokens: Optional[int] = Field(default=None, ge=0)
     metadata: Optional[
-        Annotated[Dict[str, str], AfterValidator(metadata_validator)]
-    ] = Field(default_factory=dict)
-    modalities: Optional[List[Modalities]] = Field(
-        default=None, min_items=1, max_items=2
-    )
+        Annotated[dict[str, str], AfterValidator(metadata_validator)]
+    ] = {}
+    modalities: Optional[List[Modalities]] = Field(None, min_length=1, max_length=2)
     n: Optional[int] = Field(default=1, ge=1, le=128)
     parallel_tool_calls: Optional[bool] = Field(default=True)
-    prediction: Optional[Prediction] = Field(default_factory=dict)
+    prediction: Optional[Prediction] = None
     presence_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
-    reasoning_effort: Optional[ReasoningEffort] = Field(
-        default=ReasoningEffort.medium.value
-    )
-    # response_format: Optional[Union[
-    #    ResponseFormatText,
-    #    ResponseFormatJsonSchema,
-    #    ResponseFormatJsonObject]
-    # ] = Field(default_factory=dict)
-    response_format: Optional[ResponseFormat] = Field(default_factory=dict)
+    reasoning_effort: Optional[ReasoningEffort] = ReasoningEffort.medium
+    response_format: Optional[ResponseFormat] = None
     seed: Optional[int] = Field(
         default=None, ge=-9223372036854775808, le=9223372036854775807
     )
-    service_tier: Optional[ServiceTier] = Field(default=ServiceTier.auto.value)
-    stop: Optional[Union[str, List[str]]] = Field(default=None)
+    service_tier: Optional[ServiceTier] = ServiceTier.auto
+    stop: Optional[Union[str, List[str]]] = None
     stream: Optional[bool] = Field(default=False)
-    stream_options: Optional[StreamOptions] = Field(default=None)
+    stream_options: Optional[StreamOptions] = None
     store: Optional[bool] = Field(default=False)
     temperature: Optional[float] = Field(default=1, ge=0, le=2)
-    tool_choice: Optional[Union[ToolChoice, ToolChoiceObject]] = Field(default=None)
+    tool_choice: Optional[Union[ToolChoice, ToolChoiceObject]] = None
     tools: Optional[List[Tool]] = Field(default=[], max_length=128)
     top_logprobs: Optional[int] = Field(default=None, ge=0, le=20)
     top_p: Optional[float] = Field(default=1, ge=0, le=1)
-    user: Optional[str] = Field(default=None)
-    web_search_options: Optional[WebSearchOptions] = Field(default_factory=dict)
+    user: Optional[str] = None
+    web_search_options: Optional[WebSearchOptions] = WebSearchOptions()
 
     # vLLM extra options relative to OpenAI
-    extra_body: Optional[ExtraBody] = Field(default=None)
+    extra_body: Optional[ExtraBody] = None
 
     # Extra validations
     @model_validator(mode="after")
-    def extra_validations(self):
+    def extra_validations(self) -> Self:
         # Check if logsprobs is set to True when top_logprobs is used
         if isinstance(self.top_logprobs, int):
             if self.logprobs == False:

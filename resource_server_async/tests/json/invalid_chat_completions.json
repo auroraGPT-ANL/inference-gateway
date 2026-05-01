@@ -354,7 +354,7 @@
         "messages": [{"role": "user", "content": "good simple content"}],
         "stop": ["stop", "2nd stop", "3rd stop", "4th stop", "one-to-many-stop"]
     },
-    
+
     {
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
@@ -489,7 +489,7 @@
         "tool_choice": { "type": "function", "function": {"name": "my_function"} },
         "parallel_tool_calls": "not a boolean"
     },
-    
+
     {
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": [{"role": "user", "content": "good simple content"}],
@@ -676,7 +676,7 @@
                     "type": "another type goes here",
                     "aa": "aa"
                 }
-            ], 
+            ],
             "type": "content"
         }
     },
@@ -1123,7 +1123,7 @@
                     "type": "type goes here",
                     "extra": 1
                 }
-            ], 
+            ],
             "type": "content"
         }
     },
@@ -1149,7 +1149,7 @@
                 {
                     "extra": 1
                 }
-            ], 
+            ],
             "type": "content"
         }
     },
@@ -1237,7 +1237,7 @@
                     "text": "text goes here",
                     "type": "invalid type"
                 }
-            ], 
+            ],
             "type": "content"
         }
     },

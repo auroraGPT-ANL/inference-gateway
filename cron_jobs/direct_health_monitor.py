@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from resource_server_async import globus_utils
+
 """Internal health monitor for inference endpoints.
 
 This script is intended to be executed from a trusted VM (cron job).
@@ -66,7 +68,7 @@ from resource_server_async.models import (
     User,
 )
 from resource_server_async.utils import load_cluster_adapter
-from utils import globus_utils, metis_utils  # noqa: E402
+from utils import metis_utils  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging

@@ -1,8 +1,8 @@
 sync:
 	uv sync --all-groups
 
-typecheck: sync
-	uv run pyright
+mypy: sync
+	uv run mypy
 
 format: sync
 	uv run ruff check --select I --fix .

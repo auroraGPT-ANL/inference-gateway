@@ -9,7 +9,7 @@ class ResourceServerAsyncConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "resource_server_async"
 
-    def ready(self):
+    def ready(self) -> None:
         """Called when Django starts up - clear application caches"""
         try:
             # Clear application-specific caches on startup
@@ -39,7 +39,7 @@ class ResourceServerAsyncConfig(AppConfig):
                     full_pattern = f"{prefix}:{pattern}" if prefix else pattern
                     keys = redis_client.keys(full_pattern)
                     if keys:
-                        deleted_count += redis_client.delete(*keys)
+                        deleted_count += redis_client.delete(*keys)  # type: ignore
 
                 log.info(f"Cleared {deleted_count} application cache keys on startup")
             else:
