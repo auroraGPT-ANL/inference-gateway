@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 import globus_sdk
 from cachetools import Cache, TTLCache, cached
@@ -13,15 +13,10 @@ from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
 
 from resource_server_async.cache import cache_item, get_item_from_cache
-from resource_server_async.errors import RequestTimeout
+from resource_server_async.errors import EndpointError, RequestTimeout
 from resource_server_async.schemas.endpoints import SubmitTaskResult
 
 log = logging.getLogger(__name__)
-
-
-# Exception to raise in case of errors
-class ResourceServerError(Exception):
-    pass
 
 
 class TaskStatus(TypedDict):
@@ -45,6 +40,8 @@ def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
     have degraded the performance in the past.
     """
 
+    client_id: str | None
+    client_secret: str | None
     # Overwrite Globus credentials if needed, or use default credentials otherwise
     if credentials := settings.GLOBUS_ENDPOINT_CREDENTIALS_OVERRIDES.get(endpoint_id):
         client_id = credentials.client_id
@@ -62,10 +59,10 @@ def get_compute_client_from_endpoint_id(endpoint_id: str) -> Client:
 
 # Get authenticated Compute Client using secret
 # NOTE: Using in-memory TTLCache since Globus Client objects cannot be serialized to Redis
-@cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))  # type: ignore
+@cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
 def get_compute_client_from_globus_app(
-    client_id: Optional[str] = None,
-    client_secret: Optional[str] = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
 ) -> Client:
     """
     Create and return an authenticated Compute client using the Globus SDK ClientApp.
@@ -92,19 +89,22 @@ def get_compute_client_from_globus_app(
                 client_secret=client_secret,
             )
         )
-    except Exception as e:
-        raise ResourceServerError("Exception in creating client. Error", e)
+    except Exception:
+        raise EndpointError("Exception in creating Globus Compute Client")
 
 
-@cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))  # type: ignore
+@cached(cache=TTLCache(maxsize=1024, ttl=60 * 60))
 def get_transfer_client() -> TransferClient:
+    if settings.SERVICE_ACCOUNT_ID is None or settings.SERVICE_ACCOUNT_SECRET is None:
+        raise RuntimeError("Missing configuration to create TransferClient")
+
     confidential_client = globus_sdk.ConfidentialAppAuthClient(
         client_id=settings.SERVICE_ACCOUNT_ID,
         client_secret=settings.SERVICE_ACCOUNT_SECRET,
     )
     cc_authorizer = globus_sdk.ClientCredentialsAuthorizer(
         confidential_client,
-        globus_sdk.TransferClient.scopes.all,  # type: ignore
+        globus_sdk.TransferClient.scopes.all,
     )
     # create a new client
     return TransferClient(authorizer=cc_authorizer)
@@ -141,31 +141,29 @@ def get_compute_executor(
             api_burst_limit=settings.GLOBUS_EXECUTOR_API_BURST_LIMIT,
             api_burst_window_s=settings.GLOBUS_EXECUTOR_API_BURST_WINDOW_S,
         )
-    except Exception as e:
-        raise ResourceServerError("Exception in creating executor. Error", e)
+    except Exception:
+        raise EndpointError("Exception in creating Globus Compute Executor")
 
 
 def get_endpoint_status(
-    endpoint_uuid: str | None = None,
-    client: Client | None = None,
+    endpoint_uuid: str,
+    client: Client,
     endpoint_slug: str | None = None,
-):
+) -> tuple[dict[str, Any] | None, str]:
     """
     Query the status of a Globus Compute endpoint. This version uses Redis cache
     for multi-worker support while keeping Globus objects serializable.
-    """
 
+    Returns (endpoint_status, error_message) tuple
+    """
     cache_key = f"endpoint_status:{endpoint_uuid}"
 
-    # Try to get from Redis cache first
-    try:
-        cached_result = get_item_from_cache(cache_key)
-        if cached_result is not None:
-            return cached_result
-    except Exception as e:
-        log.warning(f"Redis cache error for endpoint status: {e}")
+    cached_result: tuple[dict[str, Any] | None, str] | None = get_item_from_cache(
+        cache_key
+    )
+    if cached_result is not None:
+        return cached_result
 
-    # If not in cache, fetch from Globus
     try:
         status_response = client.get_endpoint_status(endpoint_uuid)
         # Convert to serializable dict
@@ -174,21 +172,6 @@ def get_endpoint_status(
             if hasattr(status_response, "data")
             else dict(status_response)
         )
-        result = (serializable_status, "")
-
-        # Cache the result for 60 seconds
-        cache_item(cache_key, result, 60)
-
-        return result
-
-    except globus_sdk.GlobusAPIError as e:
-        error_result = (
-            None,
-            f"Error: Cannot access the status of endpoint {endpoint_slug}: {e}",
-        )
-        # Cache error for shorter time (10 seconds)
-        cache_item(cache_key, error_result, 10)
-        return error_result
     except Exception as e:
         error_result = (
             None,
@@ -196,6 +179,10 @@ def get_endpoint_status(
         )
         cache_item(cache_key, error_result, 10)
         return error_result
+    else:
+        result = (serializable_status, "")
+        cache_item(cache_key, result, 60)
+        return result
 
 
 # Submit function and wait for result
@@ -221,9 +208,9 @@ async def submit_and_get_result(
     # NOTE: Do not await here, the submit* function return the future "immediately"
     try:
         if data is None:
-            future = gce.submit_to_registered_function(function_uuid)  # type: ignore[reportUnknownMemberType]
+            future = gce.submit_to_registered_function(function_uuid)
         else:
-            future = gce.submit_to_registered_function(function_uuid, args=[data])  # type: ignore[reportUnknownMemberType]
+            future = gce.submit_to_registered_function(function_uuid, args=(data,))
 
     # Error message if something goes wrong
     # Clear cache if the Executor is shut down in order for subsequent requests to work
@@ -272,7 +259,8 @@ def get_batch_status(task_uuids_comma_separated: str) -> dict[str, TaskStatus]:
     cache_key = f"batch_status:{task_uuids_comma_separated}"
 
     # Try to get from Redis cache first
-    if result := get_item_from_cache(cache_key):
+    result: dict[str, TaskStatus] | None = get_item_from_cache(cache_key)
+    if result is not None:
         return result
 
     task_uuids = task_uuids_comma_separated.split(",")
@@ -281,11 +269,11 @@ def get_batch_status(task_uuids_comma_separated: str) -> dict[str, TaskStatus]:
     # TODO: Switch back to this when Globus added a fix for the Exceptions
     # return gcc.get_batch_result(task_uuids), "", 200
 
-    result: dict[str, TaskStatus] = {}
+    result = {}
     task: TaskStatus
     for task_uuid in task_uuids:
         try:
-            task = gcc.get_task(task_uuid)  # type: ignore
+            task = gcc.get_task(task_uuid)
         except TaskExecutionFailed as e:
             result[task_uuid] = {
                 "pending": False,
@@ -297,7 +285,7 @@ def get_batch_status(task_uuids_comma_separated: str) -> dict[str, TaskStatus]:
             result[task_uuid] = {
                 "pending": task["pending"],
                 "status": task["status"],
-                "result": task.get("result", None),  # type: ignore
+                "result": task.get("result", None),
                 "error": None,
             }
 

@@ -3,8 +3,11 @@ import logging
 from typing import Any, List, override
 
 from django.core.cache import cache
+from httpx import HTTPError, TimeoutException
 
 from resource_server_async.clusters.direct_api import DirectAPICluster
+from resource_server_async.errors import GetJobsError
+from resource_server_async.models import User
 from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 
 log = logging.getLogger(__name__)
@@ -33,29 +36,39 @@ class MetisCluster(DirectAPICluster):
             cluster_adapter,
             frameworks,
             openai_endpoints,
-            config,
-            allowed_globus_groups,
-            allowed_domains,
+            config=config,
+            allowed_globus_groups=allowed_globus_groups,
+            allowed_domains=allowed_domains,
         )
 
     # Get formatted cluster status
     @override
-    async def get_status(self) -> JobsByStatus:
+    async def get_jobs(self, _auth: User | None) -> JobsByStatus:
         """Fetch and return cluster status. Can be overwritten to format output."""
 
         # Redis cache key
         cache_key = "metis_status_response"
 
-        # Try to get status details from Redis
-        try:
-            cached_result = cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
-        except Exception as e:
-            log.warning(f"Redis cache error for metis_status_response: {e}")
+        cached_result: JobsByStatus | None = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
 
         # Get the raw status data
-        metis_status = await super().get_status()
+        try:
+            metis_status: dict[str, Any] = await self.httpx_client.get(
+                self.config.status_url
+            )
+        except TimeoutException:
+            raise GetJobsError(
+                f"Timeout calling {self.config.status_url!r}", status_code=504
+            )
+        except HTTPError as e:
+            raise GetJobsError(
+                f"Unexpected error calling {self.config.status_url!r}: {e}"
+            )
+
+        if not isinstance(metis_status, dict):
+            raise GetJobsError("Unexpected response type from Metis status URL")
 
         # Declare data structure
         formatted = JobsByStatus()
@@ -68,6 +81,9 @@ class MetisCluster(DirectAPICluster):
 
         # For each model in the Metis cluster status
         for model_info in metis_status.values():
+            if not isinstance(model_info, dict):
+                raise GetJobsError("Unexpected response type from Metis status URL")
+
             status = model_info.get("status", "Unknown")
 
             # Extract model name and description
@@ -77,15 +93,16 @@ class MetisCluster(DirectAPICluster):
 
             # Do not expose sensitive fields like model_key, endpoint_id, or url to users
             # Format consistently with Sophia/Polaris jobs output
-            job_entry = {
-                "Models": model_name,
-                "Framework": "api",
-                "Cluster": "metis",
-                "Model Status": "running" if status == "Live" else status.lower(),
-                "Description": full_description,
-                "Model Version": model_info.get("model_version", ""),
-            }
-            job_entry = JobInfo(**job_entry)
+            job_entry = JobInfo(
+                **{
+                    "Models": model_name,
+                    "Framework": "api",
+                    "Cluster": "metis",
+                    "Model Status": "running" if status == "Live" else status.lower(),
+                    "Description": full_description,
+                    "Model Version": model_info.get("model_version", ""),
+                }
+            )
 
             if status == "Live":
                 formatted.running.append(job_entry)

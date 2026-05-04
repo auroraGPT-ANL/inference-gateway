@@ -3,10 +3,10 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Optional, cast, override
+from typing import Any, AsyncGenerator, Optional, cast, override
 
 from django.http import StreamingHttpResponse
-from globus_compute_sdk import Executor
+from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskPending as GlobusTaskPending
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ from resource_server_async.cache import (
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
 )
-from resource_server_async.errors import EndpointError, TaskPending
+from resource_server_async.errors import BatchNotFound, EndpointError, TaskPending
 from resource_server_async.models import BatchLog
 from resource_server_async.schemas.batch import BatchStatus, BatchSubmit
 from resource_server_async.schemas.endpoints import (
@@ -39,15 +39,12 @@ from resource_server_async.streaming import (
     set_streaming_error,
     set_streaming_status,
 )
-from resource_server_async.utils import (
-    extract_prompt,
-)
 
 log = logging.getLogger(__name__)
 
 
 class GetEndpointStatusResponse(BaseModel):
-    status: Optional[Any] = None
+    status: Any
 
 
 class GlobusComputeEndpointConfig(BaseModel):
@@ -56,6 +53,26 @@ class GlobusComputeEndpointConfig(BaseModel):
     function_uuid: str
     batch_endpoint_uuid: Optional[str] = None
     batch_function_uuid: Optional[str] = None
+
+
+# Extract user prompt
+def extract_prompt(model_params: dict[str, Any]) -> Any:
+    """Extract the user input text from the requested model parameters."""
+
+    # Completions
+    if "prompt" in model_params:
+        return model_params["prompt"]
+
+    # Chat completions
+    elif "messages" in model_params:
+        return model_params["messages"]
+
+    # Embeddings
+    elif "input" in model_params:
+        return model_params["input"]
+
+    # Undefined
+    return "default"
 
 
 # Globus Compute implementation of a BaseEndpoint
@@ -96,33 +113,34 @@ class GlobusComputeEndpoint(BaseEndpoint):
         )
 
     @override
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         del state["_client_lock"]  # pickle-friendly
         return state
 
-    def __setstate__(self, state: dict[str, Any]):
-        self.__dict__.update(state)  # type: ignore
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
         self._client_lock = asyncio.Lock()
 
     # Get endpoint status
     async def get_endpoint_status(
-        self, gcc=None, check_managers=False, for_batch=False
+        self,
+        gcc: Client | None = None,
+        check_managers: bool = False,
+        for_batch: bool = False,
     ) -> GetEndpointStatusResponse:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
         # Get Globus Compute client
         if gcc is None:
-            try:
-                gcc = globus_utils.get_compute_client_from_endpoint_id(
-                    self.config.endpoint_uuid
-                )
-            except Exception as e:
-                return GetEndpointStatusResponse(error_message=str(e), error_code=500)
+            gcc = globus_utils.get_compute_client_from_endpoint_id(
+                self.config.endpoint_uuid
+            )
 
         # Query the status of the targetted Globus Compute endpoint
         # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
         if for_batch:
+            assert self.config.batch_endpoint_uuid is not None
             endpoint_status, error_message = globus_utils.get_endpoint_status(
                 endpoint_uuid=self.config.batch_endpoint_uuid,
                 client=gcc,
@@ -134,31 +152,22 @@ class GlobusComputeEndpoint(BaseEndpoint):
                 client=gcc,
                 endpoint_slug=self.endpoint_slug,
             )
-        if len(error_message) > 0:
-            return GetEndpointStatusResponse(
-                error_message=error_message, error_code=500
-            )
+        if len(error_message) > 0 or endpoint_status is None:
+            raise EndpointError(error_message)
 
         # Check if the endpoint is online
         if not endpoint_status["status"] == "online":
-            return GetEndpointStatusResponse(
-                error_message=f"Error: Endpoint {self.endpoint_slug} is offline.",
-                error_code=503,
+            raise EndpointError(
+                f"Endpoint {self.endpoint_slug!r} is offline.", status_code=503
             )
 
         # If managers should be checked ...
         # This is to prevent submitting requests to an endpoint that is not ready yet
         if check_managers:
             # Extract whether managers are deployed on the online endpoint
-            try:
-                resources_ready = (
-                    int(endpoint_status.get("details", {}).get("managers", 0)) > 0
-                )
-            except Exception as e:
-                return GetEndpointStatusResponse(
-                    error_message=f"Error: Cannot parse endpoint status: {e}",
-                    error_code=500,
-                )
+            resources_ready = (
+                int(endpoint_status.get("details", {}).get("managers", 0)) > 0
+            )
 
             # If the compute resource is not ready (if node not acquired, worker_init not completed, or lost managers) ...
             if not resources_ready:
@@ -169,9 +178,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
                     # This also reduces memory footprint on the API application
                     error_message = f"Error: Endpoint {self.endpoint_slug} online but not ready to receive tasks. "
                     error_message += "Please try again later."
-                    return GetEndpointStatusResponse(
-                        error_message=error_message, error_code=503
-                    )
+                    raise EndpointError(error_message, status_code=503)
 
         # Return endpoint status
         return GetEndpointStatusResponse(status=endpoint_status)
@@ -187,14 +194,9 @@ class GlobusComputeEndpoint(BaseEndpoint):
             raise EndpointError(str(e)) from e
 
         # Check endpoint status
-        response = await self.get_endpoint_status(
+        await self.get_endpoint_status(
             gcc=gcc, check_managers=True, for_batch=for_batch
         )
-        if response.error_message:
-            raise EndpointError(
-                str(response.error_message),
-                status_code=response.error_code,
-            )
 
         return gce
 
@@ -227,13 +229,13 @@ class GlobusComputeEndpoint(BaseEndpoint):
         batch.add(self.config.function_uuid, args=(data,))
 
         async with self._client_lock:
-            resp: dict[str, Any] = await asyncio.to_thread(  # type: ignore
+            resp: dict[str, Any] = await asyncio.to_thread(
                 gcc.batch_run,
                 endpoint_id=self.config.endpoint_uuid,
-                batch=batch,  # type: ignore
+                batch=batch,
             )
 
-        task_id: str = str(resp["tasks"][self.config.function_uuid][0])  # type: ignore
+        task_id: str = str(resp["tasks"][self.config.function_uuid][0])
         return SubmitTaskAsyncResponse(task_id=task_id)
 
     async def get_task_result(self, task_id: str) -> SubmitTaskResult:
@@ -280,7 +282,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         gce.endpoint_id = self.config.endpoint_uuid
 
         # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
-        future = gce.submit_to_registered_function(  # type: ignore
+        future = gce.submit_to_registered_function(
             self.config.function_uuid, args=(data,)
         )
 
@@ -319,7 +321,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         )
 
         # Create simple SSE streaming response
-        async def sse_generator():
+        async def sse_generator() -> AsyncGenerator[str]:
             """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
             try:
                 max_wait_time = 300  # 5 minutes total timeout
@@ -450,7 +452,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
 
         # Create streaming response
         response = StreamingHttpResponse(
-            streaming_content=sse_generator(),  # type: ignore
+            streaming_content=sse_generator(),
             content_type="text/event-stream",
         )
 
@@ -511,7 +513,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             batch_response = cast(
                 dict[str, Any],
                 await asyncio.to_thread(
-                    gcc.batch_run,  # type: ignore
+                    gcc.batch_run,
                     endpoint_id=self.config.batch_endpoint_uuid,
                     batch=batch,
                 ),
@@ -544,7 +546,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         """Get the status and results of a batch job."""
 
         if not batch.task_ids:
-            raise ValueError("Cannot get batch status with missing task_ids")
+            raise BatchNotFound("Cannot get batch status with missing task_ids")
 
         task_statuses = globus_utils.get_batch_status(batch.task_ids)
 
@@ -573,5 +575,5 @@ class GlobusComputeEndpoint(BaseEndpoint):
 
     # Read-only access to the configuration
     @property
-    def config(self):
+    def config(self) -> GlobusComputeEndpointConfig:
         return self.__config

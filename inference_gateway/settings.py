@@ -134,7 +134,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "resource_server",
     "resource_server_async",
     # Configuration checks (mostly for making sure auth guards are in place)
     "inference_gateway.apps.AuthCheckConfig",

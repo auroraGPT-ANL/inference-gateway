@@ -16,7 +16,6 @@ from django.utils import timezone
 from globus_compute_sdk.sdk.asynchronous.compute_future import ComputeFuture
 
 from resource_server_async.models import RequestLog
-from resource_server_async.utils import decode_request_body
 
 from .cache import get_redis_client
 
@@ -77,7 +76,7 @@ def _get_cache_key(key_type: str, task_id: str) -> str:
     return f"stream:{key_type}:{task_id}"
 
 
-def _cache_set(task_id: str, key_type: str, value: str, ttl: int = 3600):
+def _cache_set(task_id: str, key_type: str, value: str, ttl: int = 3600) -> None:
     """Generic cache set - uses Django cache (which is Redis in production)"""
     try:
         key = _get_cache_key(key_type, task_id)
@@ -86,7 +85,7 @@ def _cache_set(task_id: str, key_type: str, value: str, ttl: int = 3600):
         logger.error(f"Error setting streaming {key_type} for task {task_id}: {e}")
 
 
-def _cache_get(task_id: str, key_type: str):
+def _cache_get(task_id: str, key_type: str) -> Any:
     """Generic cache get - uses Django cache (which is Redis in production)"""
     try:
         key = _get_cache_key(key_type, task_id)
@@ -96,7 +95,7 @@ def _cache_get(task_id: str, key_type: str):
         return None
 
 
-def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 600):
+def store_streaming_data(task_id: str, chunk_data: str, ttl: int = 600) -> None:
     """Store streaming chunk using Redis LIST (lpush for ordering)"""
     try:
         redis_client = get_redis_client()
@@ -128,7 +127,7 @@ def get_streaming_data(task_id: str) -> list[str]:
         else:
             # Fallback: retrieve from cache as regular list
             key = _get_cache_key("data", task_id)
-            return cache.get(key, [])
+            return cache.get(key, [])  # type: ignore[no-any-return]
     except Exception as e:
         logger.error(f"Error getting streaming data for task {task_id}: {e}")
         return []
@@ -136,7 +135,7 @@ def get_streaming_data(task_id: str) -> list[str]:
 
 def set_streaming_metadata(
     task_id: str, metadata_type: str, value: str, ttl: int = 3600
-):
+) -> None:
     """Set streaming metadata - use direct Redis for consistency with batch operations"""
     try:
         redis_client = get_redis_client()
@@ -166,22 +165,22 @@ def get_streaming_metadata(task_id: str, metadata_type: str) -> str | None:
         return None
 
 
-def set_streaming_status(task_id: str, status: str, ttl: int = 3600):
+def set_streaming_status(task_id: str, status: str, ttl: int = 3600) -> None:
     """Set streaming status"""
     set_streaming_metadata(task_id, "status", status, ttl)
 
 
-def get_streaming_status(task_id: str):
+def get_streaming_status(task_id: str) -> str | None:
     """Get streaming status"""
     return get_streaming_metadata(task_id, "status")
 
 
-def set_streaming_error(task_id: str, error: str, ttl: int = 3600):
+def set_streaming_error(task_id: str, error: str, ttl: int = 3600) -> None:
     """Set streaming error"""
     set_streaming_metadata(task_id, "error", error, ttl)
 
 
-def get_streaming_error(task_id: str):
+def get_streaming_error(task_id: str) -> str | None:
     """Get streaming error"""
     return get_streaming_metadata(task_id, "error")
 
@@ -272,6 +271,24 @@ def validate_streaming_request_optimized(
         return False, f"Validation error: {str(e)}"
 
 
+def decode_request_body(request: HttpRequest) -> str:
+    """
+    Safely decode request.body to string, handling both bytes and str.
+
+    Django Ninja can return either bytes or str depending on context.
+
+    Args:
+        request: Django request object
+
+    Returns:
+        str: Decoded body as string
+    """
+    body = request.body
+    if isinstance(body, bytes):
+        return body.decode("utf-8")
+    return body  # type: ignore[unreachable]
+
+
 def validate_streaming_request_security(
     request: HttpRequest, max_content_length: int = 150000
 ) -> tuple[bool, dict[str, Any] | None, int | None]:
@@ -352,8 +369,8 @@ def get_streaming_data_and_status_batch(
         redis_client = get_redis_client()
         if redis_client:
             # Use Redis pipeline for optimal performance
-            pipe = redis_client.pipeline()  # type: ignore
-            pipe.lrange(_get_cache_key("data", task_id), 0, -1)  # type: ignore
+            pipe = redis_client.pipeline()
+            pipe.lrange(_get_cache_key("data", task_id), 0, -1)
             pipe.get(_get_cache_key("status", task_id))
             pipe.get(_get_cache_key("error", task_id))
 
@@ -393,13 +410,15 @@ def get_streaming_data_and_status_batch(
         return [], None, None
 
 
-def store_streaming_data_batch(task_id: str, chunk_list: list[str], ttl: int = 3600):
+def store_streaming_data_batch(
+    task_id: str, chunk_list: list[str], ttl: int = 3600
+) -> None:
     """Store multiple chunks in single Redis pipeline"""
     try:
         redis_client = get_redis_client()
         if redis_client:
             key = _get_cache_key("data", task_id)
-            pipe = redis_client.pipeline()  # type: ignore
+            pipe = redis_client.pipeline()
             for chunk_data in chunk_list:
                 pipe.lpush(key, chunk_data)
             pipe.expire(key, ttl)
@@ -436,7 +455,7 @@ def prepare_streaming_task_data(
     return data
 
 
-def create_streaming_response_headers():
+def create_streaming_response_headers() -> dict[str, str]:
     """Create standard headers for SSE streaming responses"""
     return {
         "Cache-Control": "no-cache",
@@ -445,7 +464,7 @@ def create_streaming_response_headers():
     }
 
 
-def format_streaming_error_for_openai(error_message: str):
+def format_streaming_error_for_openai(error_message: str) -> str:
     """Pass through JSON errors as-is, minimal processing for non-JSON errors"""
 
     try:
@@ -581,7 +600,7 @@ def collect_and_aggregate_streaming_content(
                                 prompt_parts.append(msg["content"])
                         prompt_text = " ".join(prompt_parts)
                     else:
-                        prompt_text = str(original_prompt)
+                        prompt_text = str(original_prompt)  # type: ignore[unreachable]
 
                     # Better prompt token estimation using same dual method
                     prompt_char_estimate = len(prompt_text) // 4
@@ -636,7 +655,7 @@ async def update_streaming_log_async(
     final_metrics: dict[str, Any],
     complete_response: dict[str, Any] | None,
     stream_task_id: str | None = None,
-):
+) -> None:
     """Asynchronously update streaming log entry with final content"""
 
     total_tokens: int | None = None
@@ -669,7 +688,7 @@ async def update_streaming_log_async(
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
             usage: dict[str, Any] = complete_response.get("usage", {})
-            total_tokens: int | None = usage.get("total_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
             response_time = final_metrics.get("total_processing_time", 0)
 
             # Add throughput calculation like non-streaming
@@ -735,7 +754,7 @@ async def update_streaming_log_async(
         logger.error(f"Error updating streaming log entry {log_id}: {e}")
 
 
-def cleanup_streaming_data(task_id: str):
+def cleanup_streaming_data(task_id: str) -> None:
     """Clean up all streaming data for a task"""
     try:
         redis_client = get_redis_client()
@@ -762,7 +781,7 @@ async def process_streaming_completion_async(
     globus_task_future: ComputeFuture,
     start_time: float,
     original_prompt: str | list[str | dict[str, Any]] | None = None,
-):
+) -> None:
     """Background task to process streaming completion and update database"""
 
     try:

@@ -1002,10 +1002,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     try:
         from asgiref.sync import async_to_sync
 
-        from resource_server_async.clusters.cluster import GetJobsResponse
-        from resource_server_async.utils import (
-            load_cluster_adapter,
-        )
+        from resource_server_async.clusters import BaseCluster
+        from resource_server_async.schemas.clusters import JobsByStatus
 
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
@@ -1028,12 +1026,12 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
         # Get the jobs response from the cluster wrapper
         try:
-            cluster_adapter = async_to_sync(load_cluster_adapter)(cluster)
+            cluster_adapter = async_to_sync(BaseCluster.load_adapter)(cluster)
         except Exception as exc:
             err = str(exc)
             cluster_status = None
         else:
-            jobs_response: GetJobsResponse = async_to_sync(cluster_adapter.get_jobs)(
+            jobs_response: JobsByStatus = async_to_sync(cluster_adapter.get_jobs)(
                 mock_auth
             )
             err = jobs_response.error_message

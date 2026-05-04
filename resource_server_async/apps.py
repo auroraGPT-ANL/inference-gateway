@@ -32,7 +32,11 @@ class ResourceServerAsyncConfig(AppConfig):
                 # Get the cache key prefix from Django settings
                 from django.conf import settings
 
-                prefix = settings.CACHES.get("default", {}).get("KEY_PREFIX", "")
+                assert isinstance(settings.CACHES, dict)
+                assert isinstance(
+                    redis_config := settings.CACHES.get("redis", {}), dict
+                )
+                prefix = redis_config.get("KEY_PREFIX", "")
 
                 deleted_count = 0
                 for pattern in cache_patterns:

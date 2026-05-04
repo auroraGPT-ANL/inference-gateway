@@ -1,8 +1,9 @@
 import json
 import logging
 import uuid
+from typing import Any
 
-from asgiref.sync import sync_to_async
+from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from resource_server_async.api import AuthedRequest
@@ -16,7 +17,8 @@ from resource_server_async.schemas.openai_chat_completions import (
 from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
 from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
 
-from .clusters.cluster import BaseCluster
+from .clusters import BaseCluster
+from .endpoints import BaseEndpoint
 from .errors import (
     EndpointNotFound,
     TooManyRequests,
@@ -31,8 +33,8 @@ from .schemas.endpoints import (
     FrameworkSummary,
     ListEndpointsResponse,
     SubmitStreamingTaskResponse,
+    SubmitTaskResult,
 )
-from .utils import load_cluster_adapter, load_endpoint_adapter
 
 OpenAIRequestPayload = (
     OpenAIChatCompletionsPydantic | OpenAICompletionsPydantic | OpenAIEmbeddingsPydantic
@@ -49,11 +51,11 @@ async def get_list_endpoints_data(
     by_cluster: dict[str, ClusterSummary] = {}
 
     # Get list of all clusters
-    db_clusters = await sync_to_async(list)(Cluster.objects.all())
+    db_clusters = [c async for c in Cluster.objects.all()]
     authorized_clusters = [
         c
         for db_cluster in db_clusters
-        if (c := await load_cluster_adapter(db_cluster.cluster_name))
+        if (c := await BaseCluster.load_adapter(db_cluster.cluster_name))
         and c.check_permission(user, user_group_uuids, raise_exc=False)
     ]
 
@@ -61,9 +63,9 @@ async def get_list_endpoints_data(
         # For each endpoint related to this cluster ...
         frameworks: dict[str, FrameworkSummary] = {}
 
-        async for endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
-            endpoint = await load_endpoint_adapter(
-                endpoint.cluster, endpoint.framework, endpoint.model
+        async for db_endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
+            endpoint = await BaseEndpoint.load_adapter(
+                db_endpoint.cluster, db_endpoint.framework, db_endpoint.model
             )
 
             # If the user is allowed to see this endpoint ...
@@ -157,7 +159,7 @@ async def _should_show(
     Return whether user is authorized to see this endpoint.
     """
     try:
-        endpoint = await load_endpoint_adapter(cluster, framework, model)
+        endpoint = await BaseEndpoint.load_adapter(cluster, framework, model)
     except EndpointNotFound:
         return False
     return endpoint.check_permission(user, user_group_uuids, raise_exc=False)
@@ -212,7 +214,7 @@ async def submit_openai_inference_request(
     cluster_name: str,
     framework: str,
     payload: OpenAIRequestPayload,
-):
+) -> StreamingHttpResponse | Any:
     if isinstance(payload, OpenAIChatCompletionsPydantic):
         stream = payload.stream or False
         prompt = payload.model_dump(include={"messages"})["messages"]
@@ -226,7 +228,7 @@ async def submit_openai_inference_request(
         raise ValueError(f"Invalid {payload=}")
 
     # Get cluster wrapper from database
-    cluster = await load_cluster_adapter(cluster_name)
+    cluster = await BaseCluster.load_adapter(cluster_name)
 
     # Error if the cluster is under maintenance
     cluster.check_maintenance().raise_if_down()
@@ -243,7 +245,7 @@ async def submit_openai_inference_request(
             f"{payload.openai_endpoint!r} not available on cluster {cluster.cluster_name!r}"
         )
 
-    endpoint = await load_endpoint_adapter(
+    endpoint = await BaseEndpoint.load_adapter(
         cluster.cluster_name, framework, payload.model
     )
     logger.info(
@@ -279,6 +281,7 @@ async def submit_openai_inference_request(
     data = {"model_params": payload.model_dump(mode="json")}
 
     # Submit task
+    task_response: SubmitStreamingTaskResponse | SubmitTaskResult
     if stream:
         task_response = await endpoint.submit_streaming_task(
             data, request.request_log_data.id

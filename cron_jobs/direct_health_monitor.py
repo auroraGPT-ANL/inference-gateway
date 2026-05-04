@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from resource_server_async import globus_utils
+from resource_server_async.endpoints import BaseEndpoint
 
 """Internal health monitor for inference endpoints.
 
@@ -61,13 +62,13 @@ django.setup()
 # ---------------------------------------------------------------------------
 
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
-from resource_server_async.clusters.cluster import GetJobsResponse  # noqa: E402
+from resource_server_async.clusters import BaseCluster  # noqa: E402
 from resource_server_async.errors import BaseError
 from resource_server_async.models import (
     Endpoint,  # noqa: E402
     User,
 )
-from resource_server_async.utils import load_cluster_adapter
+from resource_server_async.schemas.clusters import JobsByStatus  # noqa: E402
 from utils import metis_utils  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -218,7 +219,7 @@ async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optiona
 
     # Get the jobs response from the cluster adapter
     try:
-        cluster = await load_cluster_adapter("sophia")
+        cluster = await BaseCluster.load_adapter("sophia")
     except BaseError as exc:
         error_message = str(exc)
         error_code = exc.status_code
@@ -227,7 +228,7 @@ async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optiona
         error_message = str(exc)
         error_code = 500
     else:
-        jobs_response: GetJobsResponse = await cluster.get_jobs(mock_auth)
+        jobs_response: JobsByStatus = await cluster.get_jobs(mock_auth)
         del mock_auth
         error_message = jobs_response.error_message
         error_code = jobs_response.error_code
@@ -576,7 +577,7 @@ async def check_metis_models() -> List[HealthRecord]:
         # token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
 
         try:
-            endpoint = await get_endpoint_wrapper("metis", "api", model_name)
+            endpoint = await BaseEndpoint.load_adapter("metis", "api", model_name)
             api_key_env_name = endpoint.config.api_key_env_name
             token = os.environ.get(api_key_env_name, None)
         except:

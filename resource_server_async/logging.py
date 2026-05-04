@@ -10,8 +10,8 @@ from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from resource_server_async.schemas.db_models import AccessLogPydantic
 
 from .cache import should_throttle
+from .endpoints import BaseEndpoint
 from .models import AccessLog, BatchLog, RequestLog
-from .utils import load_endpoint_adapter
 
 logger = getLogger(__name__)
 
@@ -60,7 +60,9 @@ def extract_usage(request: RequestLog) -> UsageTokens:
     )
 
 
-async def write_logs(request: HttpRequest, response: HttpResponse) -> None:
+async def write_logs(
+    request: HttpRequest, response: HttpResponse | StreamingHttpResponse
+) -> None:
     access_log = await AccessLog.create_from_response(request, response)
 
     if not access_log:
@@ -77,7 +79,7 @@ async def write_logs(request: HttpRequest, response: HttpResponse) -> None:
             usage.completion_tokens,
             usage.total_tokens,
         )
-        endpoint = await load_endpoint_adapter(
+        endpoint = await BaseEndpoint.load_adapter(
             request_log.cluster, request_log.framework, request_log.model
         )
         endpoint.record_token_usage(access_log.user, int(usage.total_tokens or 0))
@@ -89,7 +91,12 @@ async def write_logs(request: HttpRequest, response: HttpResponse) -> None:
 
 
 class AccessLogMiddleware:
-    def __init__(self, get_response: Callable[[HttpRequest], Awaitable[HttpResponse]]):
+    def __init__(
+        self,
+        get_response: Callable[
+            [HttpRequest], Awaitable[HttpResponse | StreamingHttpResponse]
+        ],
+    ):
         self.get_response = get_response
         self._background_tasks: set[asyncio.Task[None]] = set()
 
@@ -100,7 +107,9 @@ class AccessLogMiddleware:
         if exc := task.exception():
             logger.error("Background log write failed", exc_info=exc)
 
-    async def __call__(self, request: HttpRequest) -> HttpResponse:
+    async def __call__(
+        self, request: HttpRequest
+    ) -> HttpResponse | StreamingHttpResponse:
         response = await self.get_response(request)
 
         status_code = response.status_code
@@ -111,7 +120,7 @@ class AccessLogMiddleware:
         )
 
         try:
-            user = str(request.auth.username)
+            user: str | None = str(request.auth.username)  # type: ignore[attr-defined]
         except AttributeError:
             log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
             user = log.origin_ip if log else None

@@ -1,10 +1,19 @@
+import ast
+import importlib
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, List, Type
+
+from django.forms.models import model_to_dict
+from django.utils.text import slugify
 
 from resource_server_async.auth import check_permission as auth_utils_check_permission
 from resource_server_async.cache import get_redis_client
-from resource_server_async.errors import BatchUnavailable, Unauthorized
-from resource_server_async.models import BatchLog, User
+from resource_server_async.errors import (
+    BatchUnavailable,
+    EndpointNotFound,
+    Unauthorized,
+)
+from resource_server_async.models import BatchLog, Endpoint, User
 from resource_server_async.rate_limiters import TokenLimiterCheck, TokenRateLimiter
 from resource_server_async.schemas.batch import BatchSubmit
 from resource_server_async.schemas.endpoints import (
@@ -123,35 +132,35 @@ class BaseEndpoint(ABC):
     # --------------------
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     @property
-    def endpoint_slug(self):
+    def endpoint_slug(self) -> str:
         return self.__endpoint_slug
 
     @property
-    def cluster(self):
+    def cluster(self) -> str:
         return self.__cluster
 
     @property
-    def framework(self):
+    def framework(self) -> str:
         return self.__framework
 
     @property
-    def model(self):
+    def model(self) -> str:
         return self.__model
 
     @property
-    def endpoint_adapter(self):
+    def endpoint_adapter(self) -> str:
         return self.__endpoint_adapter
 
     @property
-    def allowed_globus_groups(self):
+    def allowed_globus_groups(self) -> list[str] | None:
         return self.__allowed_globus_groups
 
     @property
-    def allowed_domains(self):
+    def allowed_domains(self) -> list[str] | None:
         return self.__allowed_domains
 
     @staticmethod
@@ -171,3 +180,35 @@ class BaseEndpoint(ABC):
             tpm_model=tpm_model,
             tpm_user=tpm_user,
         )
+
+    @classmethod
+    async def load_adapter(
+        cls, cluster: str, framework: str, model: str
+    ) -> "BaseEndpoint":
+        """Extract the endpoint from the database and return its underlying adapter object."""
+        endpoint_slug = slugify(f"{cluster} {framework} {model.lower()}")
+        try:
+            db_endpoint = await Endpoint.objects.aget(endpoint_slug=endpoint_slug)
+        except Endpoint.DoesNotExist:
+            raise EndpointNotFound(
+                f"The requested endpoint {endpoint_slug!r} does not exist."
+            )
+
+        # Convert the config field into a dictionary
+        endpoint_dictionary = model_to_dict(db_endpoint)
+        endpoint_dictionary["config"] = ast.literal_eval(db_endpoint.config)
+
+        # Extract the adapter class from the endpoint's database configuration
+        parts = db_endpoint.endpoint_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])
+        AdapterClass: Type[BaseEndpoint] = getattr(module, parts[1])
+
+        # Make sure the adaptor inherits from the BaseEndpoint generic class
+        if not issubclass(AdapterClass, BaseEndpoint):
+            raise AssertionError(
+                f"Endpoint adapter {db_endpoint.endpoint_adapter} should inherit from BaseEndpoint."
+            )
+
+        # Instantiate the adaptor class
+        endpoint = AdapterClass(**endpoint_dictionary)
+        return endpoint

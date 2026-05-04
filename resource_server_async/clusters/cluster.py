@@ -1,13 +1,16 @@
+import ast
+import importlib
 import logging
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Self, Type
 
 from django.core.cache import cache
+from django.forms.models import model_to_dict
 
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
 from resource_server_async.auth import check_permission as auth_utils_check_permission
-from resource_server_async.errors import Unauthorized
-from resource_server_async.models import User
+from resource_server_async.errors import ClusterNotFound, Unauthorized
+from resource_server_async.models import Cluster, User
 from resource_server_async.schemas.clusters import (
     CheckMaintenanceResult,
     ClusterStatus,
@@ -110,29 +113,63 @@ class BaseCluster(ABC):
     # --------------------
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     @property
-    def cluster_name(self):
+    def cluster_name(self) -> str:
         return self.__cluster_name
 
     @property
-    def cluster_adapter(self):
+    def cluster_adapter(self) -> str:
         return self.__cluster_adapter
 
     @property
-    def frameworks(self):
+    def frameworks(self) -> list[str]:
         return self.__frameworks
 
     @property
-    def openai_endpoints(self):
+    def openai_endpoints(self) -> list[str]:
         return self.__openai_endpoints
 
     @property
-    def allowed_globus_groups(self):
+    def allowed_globus_groups(self) -> list[str]:
         return self.__allowed_globus_groups
 
     @property
-    def allowed_domains(self):
+    def allowed_domains(self) -> list[str]:
         return self.__allowed_domains
+
+    @classmethod
+    async def load_adapter(cls, cluster_name: str) -> Self:
+        """Extract the cluster from the database and return its underlying wrapper object."""
+        try:
+            db_cluster = await Cluster.objects.aget(cluster_name=cluster_name)
+        except Cluster.DoesNotExist:
+            raise ClusterNotFound(
+                f"The requested cluster {cluster_name!r} does not exist."
+            )
+
+        # Convert the config field into a dictionary
+        cluster_dictionary = model_to_dict(db_cluster)
+        cluster_dictionary["config"] = ast.literal_eval(db_cluster.config)
+
+        # Extract the adapter class from the cluster's database configuration
+        parts = db_cluster.cluster_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])
+        AdapterClass: Type[BaseCluster] = getattr(module, parts[1])
+
+        # Make sure the adaptor inherits from the BaseCluster generic class
+        if not issubclass(AdapterClass, BaseCluster):
+            raise AssertionError(
+                f"Cluster adapter {db_cluster.cluster_adapter} should inherit from BaseCluster."
+            )
+
+        # Instantiate the adaptor class
+        cluster_adapter = AdapterClass(**cluster_dictionary)
+        if not isinstance(cluster_adapter, cls):
+            raise AssertionError(
+                f"Cannot load {db_cluster.cluster_adapter!r} from {cls.__name__}.load_adapter"
+            )
+
+        return cluster_adapter

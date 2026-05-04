@@ -1,23 +1,20 @@
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
 from resource_server_async.clusters.metis import MetisCluster
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
-from resource_server_async.endpoints.endpoint import (
-    BaseModelWithError,
-)
+from resource_server_async.errors import EndpointError
 from resource_server_async.schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
-from resource_server_async.utils import get_cluster_wrapper
 
 log = logging.getLogger(__name__)
 
 
-class CheckEndpointStatusResponse(BaseModelWithError):
+class CheckEndpointStatusResponse(BaseModel):
     is_running: Optional[bool] = False
 
 
@@ -41,9 +38,9 @@ class MetisEndpoint(DirectAPIEndpoint):
         endpoint_adapter: str,
         tpm_model: int,
         tpm_user: int,
-        allowed_globus_groups: List[str] = None,
-        allowed_domains: List[str] = None,
-        config: dict = None,
+        config: dict[str, Any],
+        allowed_globus_groups: list[str] | None = None,
+        allowed_domains: list[str] | None = None,
     ):
         # Initialize the rest of the common attributes
         # Also pass config since it is using DirectAPIEndpoint to manage API calls
@@ -56,9 +53,9 @@ class MetisEndpoint(DirectAPIEndpoint):
             endpoint_adapter,
             tpm_model,
             tpm_user,
+            config,
             allowed_globus_groups,
             allowed_domains,
-            config,
         )
 
     # Check endpoint status
@@ -66,46 +63,34 @@ class MetisEndpoint(DirectAPIEndpoint):
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
         # Get Metis cluster wrapper from database
-        response = await get_cluster_wrapper("metis")
-        if response.error_message:
-            return CheckEndpointStatusResponse(
-                error_message=response.error_message,
-                error_code=response.error_code,
-            )
-        cluster: MetisCluster = response.cluster
+        cluster = await MetisCluster.load_adapter("metis")
 
         # Get Metis cluster status
-        metis_status = await cluster.get_status()
+        metis_status = await cluster.get_jobs(None)
 
         # Extract list of running models
         model_list = []
-        for running in metis_status.get("running", []):
-            models = running["Models"]
+        for running in metis_status.running:
+            models = running.Models
             if isinstance(models, str):
                 model_list.extend([model.strip() for model in models.split(",")])
             else:
-                model_list.extend(models)
+                model_list.extend(models)  # type: ignore[unreachable]
 
         # Error if model not available
         if self.model not in model_list:
-            return CheckEndpointStatusResponse(
-                error_message=f"Error: '{self.model}' is not currently live on Metis.",
-                error_code=503,
+            raise EndpointError(
+                f"{self.model!r} is not currently live on Metis.", status_code=503
             )
 
         # Return that the model is available
         return CheckEndpointStatusResponse(is_running=True)
 
     # Submit task
-    async def submit_task(self, data) -> SubmitTaskResult:
+    async def submit_task(self, data: dict[str, Any]) -> SubmitTaskResult:
         """Submits a single interactive task to the compute resource."""
 
-        # Check endpoint status
-        response = await self.check_endpoint_status()
-        if response.error_message:
-            return SubmitTaskResult(
-                error_message=response.error_message, error_code=response.error_code
-            )
+        await self.check_endpoint_status()
 
         # Use validated request data as-is (already in OpenAI format)
         # Only update the stream parameter to match the request
@@ -124,16 +109,12 @@ class MetisEndpoint(DirectAPIEndpoint):
 
     # Submit streaming task
     async def submit_streaming_task(
-        self, data: dict, request_log_id: str
+        self, data: dict[str, Any], request_log_id: str
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
         # Check endpoint status
-        response = await self.check_endpoint_status()
-        if response.error_message:
-            return SubmitStreamingTaskResponse(
-                error_message=response.error_message, error_code=response.error_code
-            )
+        await self.check_endpoint_status()
 
         # Use validated request data as-is (already in OpenAI format)
         # Only update the stream parameter to match the request

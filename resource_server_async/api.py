@@ -114,7 +114,7 @@ class GlobalAuth(HttpBearer):
         access_log_data.user = user
 
         # Add info to the request object
-        request.user_group_uuids = atv_response.user_group_uuids
+        request.user_group_uuids = atv_response.user_group_uuids  # type: ignore[attr-defined]
 
         # Add User object to request so that Ninja throttle can be applied per authenticated user (AuthRateThrottle)
         request.user = self.RequestLightWeigthUser(

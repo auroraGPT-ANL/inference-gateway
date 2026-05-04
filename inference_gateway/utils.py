@@ -4,10 +4,6 @@ from typing import List
 from pydantic import BaseModel
 
 
-class BackendUtilsError(Exception):
-    pass
-
-
 class GlobusCredentials(BaseModel):
     client_id: str
     client_secret: str
@@ -19,6 +15,4 @@ def textfield_to_strlist(textfield: str) -> List[str]:
         str_list = re.split(r"[\s;]+", textfield.strip())
         return [s for s in str_list if s]
     except Exception as e:
-        raise BackendUtilsError(
-            "Could not convert textfield into a list of strings."
-        ) from e
+        raise ValueError("Could not convert textfield into a list of strings.") from e

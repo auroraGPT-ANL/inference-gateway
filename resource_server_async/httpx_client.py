@@ -11,7 +11,8 @@ class AsyncHttpClient:
     ):
         if headers is None:
             headers = {"Content-Type": "application/json"}
-        self._client = httpx.AsyncClient(timeout=timeout, headers=headers)
+        self.headers = headers
+        self._client = httpx.AsyncClient(timeout=timeout, headers=self.headers)
 
     async def get(self, url: str) -> Any:
         response = await self._client.get(url)

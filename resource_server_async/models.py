@@ -1,3 +1,4 @@
+import json
 import uuid
 from logging import getLogger
 from typing import Any, Iterable, Self, override
@@ -10,11 +11,13 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
 
+from resource_server_async.schemas.batch import BatchStatus
 from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
     BatchLogPydantic,
     RequestLogPydantic,
 )
+from resource_server_async.schemas.endpoints import BatchStatusResult
 
 logger = getLogger(__name__)
 
@@ -356,6 +359,52 @@ class BatchLog(models.Model):
             batch=self, defaults=defaults
         )
         return obj
+
+    async def update(self, new_status: BatchStatusResult) -> None:
+        status = new_status.status
+        result = new_status.result
+
+        # No status change:
+        if self.status == status:
+            return
+
+        # Update status and result
+        self.status = status
+
+        # Adjust timestamp
+        if self.status == BatchStatus.failed:
+            self.failed_at = timezone.now()
+        elif self.status == BatchStatus.completed:
+            self.completed_at = timezone.now()
+
+        # Try to parse metrics summary from result if available
+        if result:
+            self.result = result
+
+            total_tokens = None
+            num_responses = None
+            response_time_sec = None
+            throughput = None
+
+            try:
+                result_data: dict[str, Any] = json.loads(self.result)
+                if "metrics" in result_data:
+                    metrics: dict[str, Any] = result_data.get("metrics", {})
+                    total_tokens = metrics.get("total_tokens")
+                    num_responses = metrics.get("num_responses")
+                    response_time_sec = metrics.get("response_time_sec")
+                    throughput = metrics.get("throughput_tokens_per_sec")
+            except Exception:
+                pass
+            else:
+                await self.create_or_update_metrics(
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
+
+        await self.asave()
 
 
 # Request metrics model (1:1 with RequestLog)

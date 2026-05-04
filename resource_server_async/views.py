@@ -15,6 +15,7 @@ from resource_server_async.schemas.batch import (
     BatchSubmit,
 )
 from resource_server_async.streaming import (
+    decode_request_body,
     set_streaming_error,
     set_streaming_metadata,
     set_streaming_status,
@@ -22,6 +23,7 @@ from resource_server_async.streaming import (
     validate_streaming_request_security,
 )
 
+from .clusters import BaseCluster
 from .errors import (
     AccessDenied,
     BatchFailed,
@@ -35,7 +37,7 @@ from .errors import (
 logging.config.dictConfig(LOGGING_CONFIG)
 
 # Local utils
-from resource_server_async.endpoints.globus_compute import GlobusComputeEndpoint
+from resource_server_async.endpoints import BaseEndpoint, GlobusComputeEndpoint
 from resource_server_async.schemas.batch import BatchListFilter
 from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 from resource_server_async.schemas.db_models import (
@@ -46,14 +48,6 @@ from resource_server_async.schemas.endpoints import (
     SubmitBatchResult,
     SubmitTaskAsyncResponse,
     SubmitTaskResult,
-)
-from resource_server_async.utils import (
-    decode_request_body,
-    load_cluster_adapter,
-    # Wrapper function
-    load_endpoint_adapter,
-    # Response functions
-    update_batch,
 )
 
 from .services import (
@@ -132,7 +126,7 @@ def ensure_staging_area(request: AuthedRequest) -> GlobusStagingAreaPrepared:
 async def get_jobs(request: AuthedRequest, cluster_name: str) -> JobsByStatus:
     """GET request to list the available frameworks and models."""
 
-    cluster = await load_cluster_adapter(cluster_name)
+    cluster = await BaseCluster.load_adapter(cluster_name)
 
     # Make sure the user is authorized to see this cluster
     cluster.check_permission(request.auth, request.user_group_uuids)
@@ -166,7 +160,7 @@ async def post_batch_inference(
     """POST request to send a batch to Globus Compute endpoints."""
 
     # Get cluster wrapper from database
-    cluster = await load_cluster_adapter(cluster_name)
+    cluster = await BaseCluster.load_adapter(cluster_name)
 
     # Error if the cluster is under maintenance
     cluster.check_maintenance().raise_if_down()
@@ -177,7 +171,9 @@ async def post_batch_inference(
             f"Framework {framework!r} not available on cluster {cluster.cluster_name!r}."
         )
 
-    endpoint = await load_endpoint_adapter(cluster_name, framework, batch_data.model)
+    endpoint = await BaseEndpoint.load_adapter(
+        cluster_name, framework, batch_data.model
+    )
 
     # Error if batch is disabled for this endpoint
     if not endpoint.has_batch_enabled():
@@ -254,12 +250,19 @@ async def get_batch_list(
         access_log__user__username=request.auth.username
     ).aiterator():
         # If the batch status needs to be revised ...
-        if batch.status not in [
-            BatchStatus.completed.value,
-            BatchStatus.failed.value,
-        ]:
-            # Get the latest batch status and result (and update database if needed)
-            batch = await update_batch(batch)
+        if (
+            batch.status
+            not in [
+                BatchStatus.completed.value,
+                BatchStatus.failed.value,
+            ]
+            and batch.task_ids
+        ):
+            endpoint = await BaseEndpoint.load_adapter(
+                batch.cluster, batch.framework, batch.model
+            )
+            status_result = await endpoint.get_batch_status(batch)
+            await batch.update(status_result)
 
         # If no optional status filter was provided ...
         # or if the status filter matches the current batch status ...
@@ -289,8 +292,15 @@ async def get_batch_status(request: AuthedRequest, batch_id: str) -> str:
         raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
     # Return status directly if batch already completed or failed
-    if batch.status not in [BatchStatus.completed, BatchStatus.failed]:
-        batch = await update_batch(batch)
+    if (
+        batch.status not in [BatchStatus.completed, BatchStatus.failed]
+        and batch.task_ids
+    ):
+        endpoint = await BaseEndpoint.load_adapter(
+            batch.cluster, batch.framework, batch.model
+        )
+        status_result = await endpoint.get_batch_status(batch)
+        await batch.update(status_result)
 
     return batch.status
 
@@ -316,8 +326,15 @@ async def get_batch_result(request: AuthedRequest, batch_id: str) -> str:
         raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
     # Return status directly if batch already completed or failed
-    if batch.status not in [BatchStatus.completed, BatchStatus.failed]:
-        batch = await update_batch(batch)
+    if (
+        batch.status not in [BatchStatus.completed, BatchStatus.failed]
+        and batch.task_ids
+    ):
+        endpoint = await BaseEndpoint.load_adapter(
+            batch.cluster, batch.framework, batch.model
+        )
+        status_result = await endpoint.get_batch_status(batch)
+        await batch.update(status_result)
 
     if batch.status == BatchStatus.failed:
         raise BatchFailed(f"Batch failed: {batch.result}", 400, request)
@@ -372,13 +389,15 @@ async def sam3_infer(
     Submit single-image inference request to SAM3 Globus Compute endpoint.
     """
     # Get cluster wrapper from database
-    cluster = await load_cluster_adapter("sophia")
+    cluster = await BaseCluster.load_adapter("sophia")
 
     # Error if the cluster is under maintenance
     cluster.check_maintenance().raise_if_down()
 
     # Endpoint slug (sophia-sam3service-sam3 hardcoded for now)
-    endpoint = await load_endpoint_adapter(cluster.cluster_name, "sam3service", "sam3")
+    endpoint = await BaseEndpoint.load_adapter(
+        cluster.cluster_name, "sam3service", "sam3"
+    )
     assert isinstance(endpoint, GlobusComputeEndpoint)
     log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
@@ -402,12 +421,14 @@ async def sam3_get_task_result(
     request: AuthedRequest, task_id: str
 ) -> SubmitTaskResult:
     # Get cluster wrapper from database
-    cluster = await load_cluster_adapter("sophia")
+    cluster = await BaseCluster.load_adapter("sophia")
 
     # Error if the cluster is under maintenance
     cluster.check_maintenance().raise_if_down()
 
-    endpoint = await load_endpoint_adapter(cluster.cluster_name, "sam3service", "sam3")
+    endpoint = await BaseEndpoint.load_adapter(
+        cluster.cluster_name, "sam3service", "sam3"
+    )
     assert isinstance(endpoint, GlobusComputeEndpoint)
     log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 

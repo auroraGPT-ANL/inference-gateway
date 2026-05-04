@@ -61,7 +61,7 @@ class Command(BaseCommand):
             return
 
         # Get cache key prefix
-        prefix = settings.CACHES.get("default", {}).get("KEY_PREFIX", "")
+        prefix = settings.CACHES.get("redis", {}).get("KEY_PREFIX", "")
 
         if clear_all:
             # Clear everything

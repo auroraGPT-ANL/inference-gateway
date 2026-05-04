@@ -2,24 +2,29 @@
 import hashlib
 import logging
 import time
+from dataclasses import dataclass
 from typing import List
 
 import globus_sdk
 
 # Cache tools to limits how many calls are made to Globus servers
-from cachetools import TTLCache, cached
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpRequest
-from pydantic import BaseModel
 
 from resource_server_async.errors import Unauthorized
 from resource_server_async.models import AuthService, User
+from resource_server_async.schemas.auth import (
+    GlobusActiveIntrospectResponse,
+    GlobusIntrospectResponse,
+)
 from resource_server_async.schemas.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
 
-class ATVResponse(BaseModel):
+@dataclass
+class ATVResponse:
     """
     Authenticated, validated Globus access token.
     """
@@ -27,6 +32,13 @@ class ATVResponse(BaseModel):
     user: UserPydantic
     user_group_uuids: List[str] = []
     idp_group_overlap_str: str | None = None
+
+
+@dataclass
+class TokenIntrospectionResult:
+    token_data: GlobusActiveIntrospectResponse | None
+    user_groups: list[str]
+    error: str = ""
 
 
 # Get Globus SDK confidential client
@@ -38,8 +50,7 @@ def get_globus_client() -> globus_sdk.ConfidentialAppAuthClient:
     )
 
 
-# Redis-compatible token introspection with fallback to in-memory cache
-def introspect_token(bearer_token: str):
+def introspect_token(bearer_token: str) -> TokenIntrospectionResult:
     """
     Introspect a token with policies, collect group memberships, and return the response.
     Uses Redis cache for multi-worker support with fallback to in-memory cache.
@@ -51,55 +62,37 @@ def introspect_token(bearer_token: str):
     token_hash = hashlib.sha256(bearer_token.encode()).hexdigest()
     cache_key = f"token_introspect:{token_hash}"
 
-    # Try to get from Redis cache first
-    try:
-        cached_result = cache.get(cache_key)
-        if cached_result is not None:
-            return cached_result
-    except Exception as e:
-        log.warning(f"Redis cache error for token introspection: {e}")
-        # Fall back to in-memory cache
-        return _introspect_token_memory_cache(bearer_token)
+    cached_result: TokenIntrospectionResult | None = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
 
     # If not in cache, perform introspection
-    result = _perform_token_introspection(bearer_token)
-
-    # If the introspection triggered an error ...
-    if result[0] is None:
-        # Set cache time (shorter for errors)
-        ttl = 60
+    try:
+        result = _perform_token_introspection(bearer_token)
+    except Unauthorized as e:
+        # Introspection error!  60 seconds cooldown period before retrying
+        # introspection
+        cache.set(cache_key, TokenIntrospectionResult(None, [], error=str(e)), 60)
+        raise
 
     # If the introspection was successful ...
-    else:
-        # Calculate time until token expiration (Unix timestamp difference)
-        try:
-            introspection_exp = result[0]["exp"]
-            seconds_until_expiration = introspection_exp - int(time.time())
-        except Exception as e:
-            log.warning(f"Failed to extract introspection result[0]['exp']: {e}")
-            seconds_until_expiration = 0
+    assert result.token_data is not None
+    try:
+        introspection_exp = result.token_data["exp"]
+        seconds_until_expiration = introspection_exp - int(time.time())
+    except Exception as e:
+        log.warning(f"Failed to extract token introspection exp claim: {e}")
+        seconds_until_expiration = 0
 
-        # Set cache time and make sure it is not shorter than the time until token expiration
-        ttl = min(600, seconds_until_expiration)
+    # Set cache time and make sure it is not shorter than the time until token expiration
+    ttl = min(600, seconds_until_expiration)
 
     # Cache the result (successful or error)
-    try:
-        cache.set(cache_key, result, ttl)
-    except Exception as e:
-        log.warning(f"Failed to cache token introspection: {e}")
-        # Still return the result even if caching fails
-
+    cache.set(cache_key, result, ttl)
     return result
 
 
-# In-memory cache fallback for token introspection
-@cached(cache=TTLCache(maxsize=1024, ttl=60 * 10))
-def _introspect_token_memory_cache(bearer_token: str):
-    """Fallback in-memory cache for token introspection"""
-    return _perform_token_introspection(bearer_token)
-
-
-def _perform_token_introspection(bearer_token: str):
+def _perform_token_introspection(bearer_token: str) -> TokenIntrospectionResult:
     """
     Perform the actual token introspection and return serializable data.
     """
@@ -107,7 +100,9 @@ def _perform_token_introspection(bearer_token: str):
     try:
         client = get_globus_client()
     except Exception as e:
-        return None, [], f"Error: Could not create Globus confidential client. {e}"
+        raise Unauthorized(
+            f"Token introspection error: Could not create Globus confidential client. {e}"
+        )
 
     # Include the access token and Globus policies (if needed) in the instrospection
     introspect_body = {"token": bearer_token}
@@ -121,21 +116,19 @@ def _perform_token_introspection(bearer_token: str):
             "/v2/oauth2/token/introspect", data=introspect_body, encoding="form"
         )
         # Convert to serializable dict
-        introspection_data = (
-            dict(introspection.data)
+        token_data: GlobusIntrospectResponse = (
+            dict(introspection.data)  # type: ignore[assignment]
             if hasattr(introspection, "data")
-            else dict(introspection)
+            else dict(introspection)  # type: ignore[call-overload]
         )
     except Exception as e:
-        return (
-            None,
-            [],
-            f"Error: Could not introspect token with Globus /v2/oauth2/token/introspect. {e}",
+        raise Unauthorized(
+            f"Could not introspect token with Globus /v2/oauth2/token/introspect. {e}"
         )
 
     # Error if the token is invalid
-    if introspection_data["active"] is False:
-        return None, [], "Error: Token is either not active or invalid"
+    if token_data["active"] is False:
+        raise Unauthorized("Token is either not active or invalid")
 
     # Get dependent access token to view group membership
     try:
@@ -144,10 +137,8 @@ def _perform_token_introspection(bearer_token: str):
             "access_token"
         ]
     except Exception as e:
-        return (
-            None,
-            [],
-            f"Error: Could not recover dependent access token for groups.api.globus.org. {e}",
+        raise Unauthorized(
+            f"Could not recover dependent access token for groups.api.globus.org. {e}"
         )
 
     # Create a Globus Group Client using the access token sent by the user
@@ -155,21 +146,23 @@ def _perform_token_introspection(bearer_token: str):
         authorizer = globus_sdk.AccessTokenAuthorizer(access_token)
         groups_client = globus_sdk.GroupsClient(authorizer=authorizer)
     except Exception as e:
-        return None, [], f"Error: Could not create GroupsClient. {e}"
+        raise Unauthorized(f"Error: Could not create GroupsClient. {e}")
 
     # Get the list of user's group memberships
     try:
         user_groups_response = groups_client.get_my_groups()
-        user_groups = [group["id"] for group in user_groups_response]
+        user_groups: list[str] = [group["id"] for group in user_groups_response]
     except Exception as e:
-        return None, [], f"Error: Could not recover user group memberships. {e}"
+        raise Unauthorized(f"Error: Could not recover user group memberships. {e}")
 
     # Return the introspection data along with the group (with empty error message)
-    return introspection_data, user_groups, ""
+    return TokenIntrospectionResult(token_data, user_groups)
 
 
 # Check Globus Policies
-def check_globus_policies(introspection):
+def check_globus_policies(
+    introspection: GlobusActiveIntrospectResponse,
+) -> tuple[bool, str]:
     """
     Define whether an authenticated user respect the Globus policies.
     User should meet all Globus policies requirements.
@@ -204,7 +197,7 @@ def check_globus_policies(introspection):
 
 
 # User In Allowed Groups
-def check_globus_groups(user_groups):
+def check_globus_groups(user_groups: list[str]) -> tuple[bool, str]:
     """
     Define whether an authenticated user has the proper Globus memberships.
     User should be member of at least in one of the allowed Globus groups.
@@ -220,7 +213,9 @@ def check_globus_groups(user_groups):
 
 
 # Check Session Info
-def check_session_info(introspection, user_groups):
+def check_session_info(
+    introspection: GlobusActiveIntrospectResponse, user_groups: list[str]
+) -> tuple[bool, UserPydantic | None, str]:
     """
     Look into the session_info field of the token introspection
     and check whether the authentication was made through one
@@ -252,14 +247,14 @@ def check_session_info(introspection, user_groups):
                 # Create the User object from the Globus introspection
                 try:
                     user = UserPydantic(
-                        id=identity["sub"],
+                        id=identity["sub"],  # type: ignore
                         name=identity["name"]
                         if isinstance(identity["name"], str)
                         else "",
                         username=identity["username"],
                         user_group_uuids=user_groups,
                         idp_id=identity["identity_provider"],
-                        idp_name=identity["identity_provider_display_name"],
+                        idp_name=identity["identity_provider_display_name"],  # type: ignore
                         auth_service=AuthService.GLOBUS.value,
                     )
                 except Exception as e:
@@ -274,10 +269,10 @@ def check_session_info(introspection, user_groups):
 
     # If user not authorized, extract user details for error message
     try:
-        user_str = []
-        for identity in session_info_identities:
-            user_str.append(f"{identity['name']} ({identity['username']})")
-        user_str = ", ".join(user_str)
+        user_str = ", ".join(
+            f"{identity['name']} ({identity['username']})"
+            for identity in session_info_identities
+        )
         if len(user_str) == 0:
             user_str = "Unknown (no active session found)"
     except Exception:
@@ -297,7 +292,9 @@ def check_session_info(introspection, user_groups):
 
 
 # Check Session Info
-def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
+def check_groups_per_idp(
+    user: UserPydantic, user_groups: List[str]
+) -> tuple[bool, str, str | None]:
     """
     Make sure the user is part of an authorized Globus Group (if any)
     associated with a given identity provider.
@@ -330,22 +327,24 @@ def check_groups_per_idp(user: UserPydantic, user_groups: List[str]):
 
         # Grant request if user is part of at least one authorized Globus Groups
         else:
-            group_overlap = ", ".join(list(group_overlap))
-            return True, "", group_overlap
+            group_overlap_str = ", ".join(list(group_overlap))
+            return True, "", group_overlap_str
 
     # Grant request if no group restriction was found
     return True, "", None
 
 
 # Extract service account client
-def extract_service_account_client(introspection: dict, client_groups: List[str]):
+def extract_service_account_client(
+    introspection: GlobusActiveIntrospectResponse, client_groups: list[str]
+) -> UserPydantic | None:
     """Extract and return the user object if identity is an authorized Globus client."""
 
     # Extract the client ID and full username
     client_id = introspection.get("client_id", "")
     username = introspection.get("username", "")
     domain = username.split("@")[1]
-    name = introspection.get("name", "")
+    name = introspection.get("name", "") or ""
     iss = introspection.get("iss", "")
 
     # Skip client recognition if not enough details
@@ -403,18 +402,21 @@ def validate_access_token(request: HttpRequest) -> ATVResponse:
         raise Unauthorized(f"Something went wrong while reading headers. {e}")
 
     # Introspect the access token
-    introspection, user_groups, error_message = introspect_token(bearer_token)
-    if len(error_message) > 0:
-        raise Unauthorized(f"Token introspection: {error_message}")
+    introspection = introspect_token(bearer_token)
+
+    if introspection.token_data is None:
+        raise Unauthorized(f"Token introspection: {introspection.error}")
 
     # Make sure the token is not expired
-    expires_in = introspection["exp"] - time.time()
+    expires_in = introspection.token_data["exp"] - time.time()
     if expires_in <= 0:
         raise Unauthorized("Access token expired.")
 
     # Try to identify an authorized Globus service account client
     try:
-        user = extract_service_account_client(introspection, user_groups)
+        user = extract_service_account_client(
+            introspection.token_data, introspection.user_groups
+        )
     except Exception as e:
         log.warning(f"Globus introspection extract_service_account_client error: {e}")
         user = None
@@ -422,27 +424,30 @@ def validate_access_token(request: HttpRequest) -> ATVResponse:
     # If the token is NOT from an authorized Globus client ...
     if user is None:
         # Make sure the authentication was made by an authorized identity provider
-        successful, user, error_message = check_session_info(introspection, user_groups)
+        successful, user, error_message = check_session_info(
+            introspection.token_data, introspection.user_groups
+        )
         if not successful:
             raise Unauthorized(str(error_message))
+        assert user is not None
 
         # Make sure the authenticated user comes from an allowed domain
         # Those must be a high-assurance policies
         if settings.NUMBER_OF_GLOBUS_POLICIES > 0:
-            successful, error_message = check_globus_policies(introspection)
+            successful, error_message = check_globus_policies(introspection.token_data)
             if not successful:
                 raise Unauthorized(str(error_message))
 
     # Make sure the user is part of a per-IdP authorized group (if any)
     successful, error_message, idp_group_overlap_str = check_groups_per_idp(
-        user, user_groups
+        user, introspection.user_groups
     )
     if not successful:
         raise Unauthorized(str(error_message))
 
     # Make sure the authenticated user is at least in one of the allowed Globus Groups
     if settings.NUMBER_OF_GLOBUS_GROUPS > 0:
-        successful, error_message = check_globus_groups(user_groups)
+        successful, error_message = check_globus_groups(introspection.user_groups)
         if not successful:
             raise Unauthorized(str(error_message))
 
@@ -458,10 +463,10 @@ def validate_access_token(request: HttpRequest) -> ATVResponse:
         )
 
     # Return valid token response
-    log.info(f"{user.name} requesting {introspection['scope']}")
+    log.info(f"{user.name} requesting {introspection.token_data['scope']}")
     return ATVResponse(
         user=user,
-        user_group_uuids=user_groups,
+        user_group_uuids=introspection.user_groups,
         idp_group_overlap_str=idp_group_overlap_str,
     )
 

@@ -3,13 +3,13 @@ import json
 import logging
 import os
 import time
-from typing import Dict, List, Optional
+from typing import Any, AsyncGenerator, TypedDict
 
 import httpx
 from asgiref.sync import sync_to_async
 from django.http import StreamingHttpResponse
 from django.utils import timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
@@ -29,7 +29,15 @@ log = logging.getLogger(__name__)
 class DirectAPIEndpointConfig(BaseModel):
     api_url: str
     api_key_env_name: str
-    api_request_timeout: Optional[int] = Field(default=120)
+    api_request_timeout: int = 120
+
+
+class StreamingState(TypedDict):
+    chunks: list[str]
+    total_chunks: int
+    completed: bool
+    error: str | None
+    start_time: float
 
 
 # DirectAPI endpoint implementation of a BaseEndpoint
@@ -47,9 +55,9 @@ class DirectAPIEndpoint(BaseEndpoint):
         endpoint_adapter: str,
         tpm_model: int,
         tpm_user: int,
-        allowed_globus_groups: List[str] = None,
-        allowed_domains: List[str] = None,
-        config: dict = None,
+        config: dict[str, Any],
+        allowed_globus_groups: list[str] | None = None,
+        allowed_domains: list[str] | None = None,
     ):
         # Validate and assign endpoint configuration
         self.__config = DirectAPIEndpointConfig(**config)
@@ -78,7 +86,7 @@ class DirectAPIEndpoint(BaseEndpoint):
         )
 
     # Submit task
-    async def submit_task(self, data: dict) -> SubmitTaskResult:
+    async def submit_task(self, data: dict[str, Any]) -> SubmitTaskResult:
         """Submits a single interactive task to the compute resource."""
 
         # Submit POST call and wait for the response
@@ -104,12 +112,12 @@ class DirectAPIEndpoint(BaseEndpoint):
 
     # Call stream API
     async def submit_streaming_task(
-        self, data: dict, request_log_id: str
+        self, data: dict[str, Any], request_log_id: str
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
         # Shared state for tracking streaming (optimized - minimal memory)
-        streaming_state = {
+        streaming_state: StreamingState = {
             "chunks": [],  # Limited to 100 chunks
             "total_chunks": 0,
             "completed": False,
@@ -118,7 +126,7 @@ class DirectAPIEndpoint(BaseEndpoint):
         }
 
         # SSE generator
-        async def sse_generator():
+        async def sse_generator() -> AsyncGenerator[str]:
             """Stream SSE chunks from API."""
 
             # For each streaming chunk ...
@@ -165,16 +173,9 @@ class DirectAPIEndpoint(BaseEndpoint):
                 yield f"data: {json.dumps(error_chunk)}\n\n"
                 yield "data: [DONE]\n\n"
 
-        # Start background task to update log
-        try:
-            asyncio.create_task(
-                self.__update_streaming_log(request_log_id, streaming_state)
-            )
-        except Exception as e:
-            return SubmitStreamingTaskResponse(
-                error_message=f"Error: Could not create asyncio task: {e}",
-                error_code=500,
-            )
+        asyncio.create_task(
+            self.__update_streaming_log(request_log_id, streaming_state)
+        )
 
         # Create streaming response
         response = StreamingHttpResponse(
@@ -186,10 +187,10 @@ class DirectAPIEndpoint(BaseEndpoint):
             response[key] = value
 
         # Return streaming response
-        return SubmitStreamingTaskResponse(response=response)
+        return SubmitStreamingTaskResponse(response=response, task_id=None)
 
     # Get stream chunks
-    async def __get_stream_chunks(self, data: Dict):
+    async def __get_stream_chunks(self, data: dict[str, Any]) -> AsyncGenerator[str]:
         """Make a direct API streaming call to the endpoint."""
 
         # Create an async HTTPx client
@@ -199,7 +200,10 @@ class DirectAPIEndpoint(BaseEndpoint):
             ) as client:
                 # Create a streaming client
                 async with client.stream(
-                    "POST", self.config.api_url, json=data, headers=self.__headers
+                    "POST",
+                    self.config.api_url,
+                    json=data,
+                    headers=self.httpx_client.headers,
                 ) as response:
                     # Return error if something went wrong
                     if response.status_code != 200:
@@ -226,12 +230,14 @@ class DirectAPIEndpoint(BaseEndpoint):
             raise ValueError(f"Error: Unexpected error calling stream API: {e}")
 
     # Update streaming log
-    async def __update_streaming_log(self, request_log_id: str, streaming_state: dict):
+    async def __update_streaming_log(
+        self, request_log_id: str, streaming_state: StreamingState
+    ) -> None:
         """Background task to update RequestLog after streaming completes."""
         try:
             # Wait for completion (efficient polling with timeout)
             max_wait = 600  # 10 minutes
-            waited = 0
+            waited = 0.0
             poll_interval = 0.5  # 500ms
             while not streaming_state["completed"] and waited < max_wait:
                 await asyncio.sleep(poll_interval)
@@ -272,7 +278,7 @@ class DirectAPIEndpoint(BaseEndpoint):
 
     # Read-only access to the configuration
     @property
-    def config(self):
+    def config(self) -> DirectAPIEndpointConfig:
         return self.__config
 
     # Read-only access to HTTPx client
@@ -281,5 +287,5 @@ class DirectAPIEndpoint(BaseEndpoint):
         return self.__httpx_client
 
     # Overwrite function
-    def set_api_url(self, api_url: str):
+    def set_api_url(self, api_url: str) -> None:
         self.__config.api_url = api_url
