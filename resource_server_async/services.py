@@ -3,12 +3,14 @@ import logging
 import uuid
 from typing import Any
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from resource_server_async.api import AuthedRequest
 from resource_server_async.globus_utils import get_transfer_client
 from resource_server_async.schemas.db_models import (
+    BatchLogPydantic,
     RequestLogPydantic,
 )
 from resource_server_async.schemas.openai_chat_completions import (
@@ -20,18 +22,26 @@ from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPyda
 from .clusters import BaseCluster
 from .endpoints import BaseEndpoint
 from .errors import (
+    BatchOngoing,
+    BatchUnavailable,
     EndpointNotFound,
+    QuotaExceeded,
     TooManyRequests,
     UnsupportedEndpoint,
     UnsupportedFramework,
 )
-from .models import Cluster, Endpoint, User
+from .models import BatchLog, Cluster, Endpoint, User
 from .schemas import GlobusStagingAreaPrepared
+from .schemas.batch import (
+    BatchStatus,
+    BatchSubmit,
+)
 from .schemas.clusters import JobsByStatus
 from .schemas.endpoints import (
     ClusterSummary,
     FrameworkSummary,
     ListEndpointsResponse,
+    SubmitBatchResult,
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
@@ -300,3 +310,81 @@ async def submit_openai_inference_request(
     # If not streaming, return the complete response and automate database operations
     else:
         return task_response.result
+
+
+async def submit_batch(
+    request: AuthedRequest, cluster_name: str, framework: str, batch_data: BatchSubmit
+) -> SubmitBatchResult:
+    # Get cluster wrapper from database
+    cluster = await BaseCluster.load_adapter(cluster_name)
+
+    # Error if the cluster is under maintenance
+    cluster.check_maintenance().raise_if_down()
+
+    # Verify that the framework is enabled by the cluster
+    if framework not in cluster.frameworks:
+        raise UnsupportedFramework(
+            f"Framework {framework!r} not available on cluster {cluster.cluster_name!r}."
+        )
+
+    endpoint = await BaseEndpoint.load_adapter(
+        cluster_name, framework, batch_data.model
+    )
+
+    # Error if batch is disabled for this endpoint
+    if not endpoint.has_batch_enabled():
+        raise BatchUnavailable(
+            f"Batch is unavailable for endpoint {endpoint.endpoint_slug}"
+        )
+
+    # Block access if the user is not allowed to use the endpoint
+    endpoint.check_permission(request.auth, request.user_group_uuids)
+
+    # Reject request if the allowed quota per user would be exceeded
+    number_of_active_batches = await BatchLog.objects.filter(
+        access_log__user__username=request.auth.username,
+        status__in=["pending", "running"],
+    ).acount()
+
+    if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
+        raise QuotaExceeded(
+            f"Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
+        )
+
+    # Error if an ongoing batch already exists with the same input_file for the same user
+    existing_batch = (
+        await BatchLog.objects.filter(
+            access_log__user__username=request.auth.username,
+            input_file=batch_data.input_file,
+        )
+        .exclude(
+            status__in=[
+                BatchStatus.failed.value,
+                BatchStatus.completed.value,
+            ],
+        )
+        .afirst()
+    )
+
+    if existing_batch is not None:
+        raise BatchOngoing(
+            f"Input file {batch_data.input_file} "
+            f"already used by ongoing batch {existing_batch.id}."
+        )
+
+    # Submit batch
+    batch_response = await endpoint.submit_batch(batch_data, request.auth.username)
+
+    # Create batch log data
+    request.batch_log_data = BatchLogPydantic(
+        id=batch_response.batch_id,
+        task_ids=batch_response.task_ids,
+        cluster=cluster.cluster_name,
+        framework=framework,
+        model=batch_data.model,
+        input_file=batch_data.input_file,
+        output_folder_path=batch_data.output_folder_path,
+        status=batch_response.status,
+        in_progress_at=timezone.now(),
+    )
+    return batch_response

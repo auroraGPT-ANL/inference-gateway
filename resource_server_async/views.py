@@ -5,7 +5,6 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
-from django.utils import timezone
 from ninja import Query
 
 from logging_config import LOGGING_CONFIG
@@ -29,9 +28,6 @@ from .errors import (
     BatchFailed,
     BatchNotFound,
     BatchOngoing,
-    BatchUnavailable,
-    QuotaExceeded,
-    UnsupportedFramework,
 )
 
 logging.config.dictConfig(LOGGING_CONFIG)
@@ -41,7 +37,6 @@ from resource_server_async.endpoints import BaseEndpoint, GlobusComputeEndpoint
 from resource_server_async.schemas.batch import BatchListFilter
 from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
 from resource_server_async.schemas.db_models import (
-    BatchLogPydantic,
     UserPydantic,
 )
 from resource_server_async.schemas.endpoints import (
@@ -54,6 +49,7 @@ from .services import (
     filter_jobs_for_user,
     get_list_endpoints_data,
     prep_globus_staging_area,
+    submit_batch,
     submit_openai_inference_request,
 )
 
@@ -159,78 +155,7 @@ async def post_batch_inference(
 ) -> SubmitBatchResult:
     """POST request to send a batch to Globus Compute endpoints."""
 
-    # Get cluster wrapper from database
-    cluster = await BaseCluster.load_adapter(cluster_name)
-
-    # Error if the cluster is under maintenance
-    cluster.check_maintenance().raise_if_down()
-
-    # Verify that the framework is enabled by the cluster
-    if framework not in cluster.frameworks:
-        raise UnsupportedFramework(
-            f"Framework {framework!r} not available on cluster {cluster.cluster_name!r}."
-        )
-
-    endpoint = await BaseEndpoint.load_adapter(
-        cluster_name, framework, batch_data.model
-    )
-
-    # Error if batch is disabled for this endpoint
-    if not endpoint.has_batch_enabled():
-        raise BatchUnavailable(
-            f"Batch is unavailable for endpoint {endpoint.endpoint_slug}"
-        )
-
-    # Block access if the user is not allowed to use the endpoint
-    endpoint.check_permission(request.auth, request.user_group_uuids)
-
-    # Reject request if the allowed quota per user would be exceeded
-    number_of_active_batches = await BatchLog.objects.filter(
-        access_log__user__username=request.auth.username,
-        status__in=["pending", "running"],
-    ).acount()
-
-    if number_of_active_batches >= settings.MAX_BATCHES_PER_USER:
-        raise QuotaExceeded(
-            f"Quota of {settings.MAX_BATCHES_PER_USER} active batch(es) per user exceeded."
-        )
-
-    # Error if an ongoing batch already exists with the same input_file for the same user
-    existing_batch = (
-        await BatchLog.objects.filter(
-            access_log__user__username=request.auth.username,
-            input_file=batch_data.input_file,
-        )
-        .exclude(
-            status__in=[
-                BatchStatus.failed.value,
-                BatchStatus.completed.value,
-            ],
-        )
-        .afirst()
-    )
-
-    if existing_batch is not None:
-        raise BatchOngoing(
-            f"Input file {batch_data.input_file} "
-            f"already used by ongoing batch {existing_batch.id}."
-        )
-
-    # Submit batch
-    batch_response = await endpoint.submit_batch(batch_data, request.auth.username)
-
-    # Create batch log data
-    request.batch_log_data = BatchLogPydantic(
-        id=batch_response.batch_id,
-        task_ids=batch_response.task_ids,
-        cluster=cluster.cluster_name,
-        framework=framework,
-        model=batch_data.model,
-        input_file=batch_data.input_file,
-        output_folder_path=batch_data.output_folder_path,
-        status=batch_response.status,
-        in_progress_at=timezone.now(),
-    )
+    batch_response = await submit_batch(request, cluster_name, framework, batch_data)
 
     return batch_response
 

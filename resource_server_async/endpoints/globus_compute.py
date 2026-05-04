@@ -43,10 +43,6 @@ from resource_server_async.streaming import (
 log = logging.getLogger(__name__)
 
 
-class GetEndpointStatusResponse(BaseModel):
-    status: Any
-
-
 class GlobusComputeEndpointConfig(BaseModel):
     api_port: int
     endpoint_uuid: str
@@ -128,7 +124,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         gcc: Client | None = None,
         check_managers: bool = False,
         for_batch: bool = False,
-    ) -> GetEndpointStatusResponse:
+    ) -> dict[str, Any]:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
         # Get Globus Compute client
@@ -180,8 +176,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
                     error_message += "Please try again later."
                     raise EndpointError(error_message, status_code=503)
 
-        # Return endpoint status
-        return GetEndpointStatusResponse(status=endpoint_status)
+        return endpoint_status
 
     async def prepare_executor(self, for_batch: bool = False) -> Executor:
         # Get Globus Compute client and executor

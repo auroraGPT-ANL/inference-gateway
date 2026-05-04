@@ -1,7 +1,5 @@
 import logging
-from typing import Any, Optional
-
-from pydantic import BaseModel
+from typing import Any
 
 from resource_server_async.clusters.metis import MetisCluster
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
@@ -12,15 +10,6 @@ from resource_server_async.schemas.endpoints import (
 )
 
 log = logging.getLogger(__name__)
-
-
-class CheckEndpointStatusResponse(BaseModel):
-    is_running: Optional[bool] = False
-
-
-class ModelStatus(BaseModel):
-    model_info: Any
-    endpoint_id: str
 
 
 # Metis endpoint implementation of a DirectAPIEndpoint
@@ -59,7 +48,7 @@ class MetisEndpoint(DirectAPIEndpoint):
         )
 
     # Check endpoint status
-    async def check_endpoint_status(self) -> CheckEndpointStatusResponse:
+    async def check_endpoint_status(self) -> bool:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
         # Get Metis cluster wrapper from database
@@ -84,7 +73,7 @@ class MetisEndpoint(DirectAPIEndpoint):
             )
 
         # Return that the model is available
-        return CheckEndpointStatusResponse(is_running=True)
+        return True
 
     # Submit task
     async def submit_task(self, data: dict[str, Any]) -> SubmitTaskResult:
