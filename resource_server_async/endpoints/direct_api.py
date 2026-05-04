@@ -126,7 +126,7 @@ class DirectAPIEndpoint(BaseEndpoint):
         }
 
         # SSE generator
-        async def sse_generator() -> AsyncGenerator[str]:
+        async def sse_generator() -> AsyncGenerator[str, None]:
             """Stream SSE chunks from API."""
 
             # For each streaming chunk ...
@@ -190,7 +190,9 @@ class DirectAPIEndpoint(BaseEndpoint):
         return SubmitStreamingTaskResponse(response=response, task_id=None)
 
     # Get stream chunks
-    async def __get_stream_chunks(self, data: dict[str, Any]) -> AsyncGenerator[str]:
+    async def __get_stream_chunks(
+        self, data: dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
         """Make a direct API streaming call to the endpoint."""
 
         # Create an async HTTPx client

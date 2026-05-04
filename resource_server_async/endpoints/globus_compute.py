@@ -316,7 +316,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         )
 
         # Create simple SSE streaming response
-        async def sse_generator() -> AsyncGenerator[str]:
+        async def sse_generator() -> AsyncGenerator[str, None]:
             """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
             try:
                 max_wait_time = 300  # 5 minutes total timeout

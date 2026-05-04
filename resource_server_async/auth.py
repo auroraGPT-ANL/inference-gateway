@@ -2,7 +2,7 @@
 import hashlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 import globus_sdk
@@ -30,7 +30,7 @@ class ATVResponse:
     """
 
     user: UserPydantic
-    user_group_uuids: List[str] = []
+    user_group_uuids: list[str] = field(default_factory=list)
     idp_group_overlap_str: str | None = None
 
 

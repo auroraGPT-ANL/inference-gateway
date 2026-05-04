@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +10,10 @@ import structlog
 _LOG_TO_STDOUT = os.getenv("LOG_TO_STDOUT", "false").lower() in ("true", "1", "t")
 _LOG_ENV = os.getenv("ENV", "production")
 _LOG_DIR = "./logs" if _LOG_ENV == "development" else "/var/log/inference-service"
+
+if not Path(_LOG_DIR).is_dir():
+    _LOG_DIR = "./logs"
+    Path(_LOG_DIR).mkdir(exist_ok=True)
 
 
 def _make_file_handler(

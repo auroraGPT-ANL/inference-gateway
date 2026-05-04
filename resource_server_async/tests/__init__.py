@@ -84,7 +84,7 @@ KWARGS = {"content_type": "application/json"}
 CLIENT = TestAsyncClient(router)
 
 # Load valid test input data (OpenAI format)
-base_path = "utils/tests/json"
+base_path = "resource_server_async/tests/json"
 VALID_PARAMS = {}
 with open(f"{base_path}/valid_completions.json") as json_file:
     VALID_PARAMS["completions"] = json.load(json_file)
