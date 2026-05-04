@@ -1,17 +1,26 @@
 import json
 import logging
-import logging.config
 from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from ninja import Query
 
-from logging_config import LOGGING_CONFIG
+from resource_server_async.endpoints import BaseEndpoint, GlobusComputeEndpoint
 from resource_server_async.schemas.batch import (
+    BatchListFilter,
     BatchLogSummary,
     BatchStatus,
     BatchSubmit,
+)
+from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
+from resource_server_async.schemas.db_models import (
+    UserPydantic,
+)
+from resource_server_async.schemas.endpoints import (
+    SubmitBatchResult,
+    SubmitTaskAsyncResponse,
+    SubmitTaskResult,
 )
 from resource_server_async.streaming import (
     decode_request_body,
@@ -29,22 +38,6 @@ from .errors import (
     BatchNotFound,
     BatchOngoing,
 )
-
-logging.config.dictConfig(LOGGING_CONFIG)
-
-# Local utils
-from resource_server_async.endpoints import BaseEndpoint, GlobusComputeEndpoint
-from resource_server_async.schemas.batch import BatchListFilter
-from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
-from resource_server_async.schemas.db_models import (
-    UserPydantic,
-)
-from resource_server_async.schemas.endpoints import (
-    SubmitBatchResult,
-    SubmitTaskAsyncResponse,
-    SubmitTaskResult,
-)
-
 from .services import (
     filter_jobs_for_user,
     get_list_endpoints_data,
@@ -56,9 +49,6 @@ from .services import (
 log = logging.getLogger(__name__)
 log.info("Utils functions loaded.")
 
-# Django database
-# from resource_server.models import FederatedEndpoint
-# Django Ninja API
 from resource_server_async.api import AuthedRequest, api, router
 from resource_server_async.models import BatchLog
 from resource_server_async.schemas import (

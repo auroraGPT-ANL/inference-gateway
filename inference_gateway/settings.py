@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from pydantic import TypeAdapter
@@ -248,22 +249,93 @@ STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+_LOG_TO_STDOUT = os.getenv("LOG_TO_STDOUT", "false").lower() in ("true", "1", "t")
+_LOG_ENV = os.getenv("ENV", "production")
+_LOG_DIR = "./logs" if _LOG_ENV == "development" else "/var/log/inference-service"
+
+
+def _make_file_handler(
+    filename: str, formatter: str = "default"
+) -> dict[str, str | int]:
+    return {
+        "class": "logging.handlers.TimedRotatingFileHandler",
+        "filename": os.path.join(_LOG_DIR, filename),
+        "when": "midnight",
+        "interval": 1,
+        "utc": True,
+        "backupCount": 0,
+        "formatter": formatter,
+        "encoding": "utf-8",
+    }
+
+
+if _LOG_TO_STDOUT:
+    _log_handlers: dict[str, Any] = {
+        "error_stream": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "default",
+        },
+    }
+    _uvicorn_error_handlers = ["error_stream"]
+    _uvicorn_access_handlers = ["error_stream"]
+    _app_handlers = ["error_stream"]
+    _root_handlers = ["error_stream"]
+else:
+    _log_handlers = {
+        "error_file": _make_file_handler("error.log"),
+        "access_file": _make_file_handler("access.log", formatter="access"),
+        "app_file": _make_file_handler("app.log"),
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+        },
+    }
+    _uvicorn_error_handlers = ["error_file"]
+    _uvicorn_access_handlers = ["access_file"]
+    _app_handlers = ["app_file", "console"]
+    _root_handlers = ["app_file", "console"]
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {
-        "file": {
-            "level": "INFO",
-            "class": "logging.FileHandler",
-            "filename": "info.log",
+    "formatters": {
+        "default": {
+            "()": "uvicorn.logging.DefaultFormatter",
+            "fmt": "%(asctime)s - %(levelname)s - %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "access": {
+            "()": "uvicorn.logging.AccessFormatter",
+            "fmt": '%(asctime)s - %(client_addr)s - "%(request_line)s" %(status_code)s',
+            "datefmt": "%Y-%m-%d %H:%M:%S",
         },
     },
+    "handlers": _log_handlers,
     "loggers": {
-        "django": {
-            "handlers": ["file"],
+        "uvicorn.error": {
+            "handlers": _uvicorn_error_handlers,
             "level": "INFO",
-            "propagate": True,
+            "propagate": False,
         },
+        "uvicorn.access": {
+            "handlers": _uvicorn_access_handlers,
+            "level": "INFO",
+            "propagate": False,
+        },
+        "resource_server_async": {
+            "handlers": _app_handlers,
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": _root_handlers,
     },
 }
 
