@@ -117,7 +117,7 @@ def https_put_to_collection(local_path: Path, remote_path: Path) -> TransferResu
 
     endpoint = tc.get_endpoint(STAGING_COLLECTION_ID)
     https_server = endpoint["https_server"]
-    headers = {"Authorization": https_auth.get_authorization_header()}
+    headers = {"Authorization": str(https_auth.get_authorization_header())}
 
     local_path = Path(local_path).expanduser().resolve()
     assert local_path.is_file()

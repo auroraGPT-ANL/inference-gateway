@@ -29,9 +29,9 @@ def to_ndarray(obj: Any) -> NDArray:
 
     if isinstance(obj, bytes):
         if obj[:2] == b"\x1f\x8b":
-            return np.load(BytesIO(gzip.decompress(obj)), allow_pickle=False)
+            return np.load(BytesIO(gzip.decompress(obj)), allow_pickle=False)  # type: ignore[no-any-return]
         else:
-            return np.load(BytesIO(obj), allow_pickle=False)
+            return np.load(BytesIO(obj), allow_pickle=False)  # type: ignore[no-any-return]
 
     if isinstance(obj, np.ndarray):
         return obj

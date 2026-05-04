@@ -1,12 +1,12 @@
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
-from httpx import Auth, Client, Request, Timeout
+from httpx import Auth, Client, Request, Response, Timeout
 from pydantic import BaseModel
 
 from .auth import get_inference_authorizer
-from .resources import ClusterResource, Sam3Resource
+from .resources import ClientResource, ClusterResource, Sam3Resource
 from .transfer import TransferResult, https_put_to_collection, run_globus_transfer
 
 DEFAULT_BASE_URL = os.environ.get(
@@ -15,12 +15,12 @@ DEFAULT_BASE_URL = os.environ.get(
 
 
 class AutoGlobusAuth(Auth):
-    def auth_flow(self, request: Request):
+    def auth_flow(self, request: Request) -> Generator[Request, Response, None]:
         auth = get_inference_authorizer()
-        auth.ensure_valid_token()
-        assert auth.access_token, "Empty access token"
+        auth.ensure_valid_token()  # type: ignore[attr-defined]
+        assert auth.access_token, "Empty access token"  # type: ignore[attr-defined]
 
-        request.headers["Authorization"] = f"Bearer {auth.access_token}"
+        request.headers["Authorization"] = f"Bearer {auth.access_token}"  # type: ignore[attr-defined]
         yield request
 
 
@@ -43,26 +43,27 @@ class InferenceClient(Client):
             base_url=base_url,
             timeout=timeout,
         )
-        self._resources = {}
-        self._staging_area = None
+        self._resources: dict[str, ClientResource] = {}
+        self._staging_area: StagingAreaResponse | None = None
 
     def __repr__(self) -> str:
         return f"InferenceClient({self.base_url})"
 
     def clusters(self, name: str) -> "ClusterResource":
         key = f"cluster:{name}"
-        return self._resources.setdefault(key, ClusterResource(name, self))
+        return self._resources.setdefault(key, ClusterResource(name, self))  # type: ignore[return-value]
 
     @property
     def sam3(self) -> "Sam3Resource":
-        return self._resources.setdefault(
+        return self._resources.setdefault(  # type: ignore[return-value]
             "sam3", Sam3Resource("sophia/sam3service", self)
         )
 
     def list_endpoints(self) -> dict[str, Any]:
         resp = self.get("list-endpoints")
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def ensure_staging_area(self) -> StagingAreaResponse:
         resp = self.put("data/staging")

@@ -1,5 +1,5 @@
 import logging
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import typer
 from rich import print
@@ -75,11 +75,12 @@ def chat(
     temperature: float = typer.Option(0.7, "--temp", "-t"),
     max_tokens: int = typer.Option(1024, "--max-tokens", "-n"),
     cluster: str = typer.Option("sophia", "--cluster", "-c"),
-):
+) -> None:
     """Send a prompt to an LLM and print the response."""
     client = _cli_state["client"]
     oai = client.clusters(cluster).openai
 
+    response: Any
     if stream:
         collected = []
         with console.status("[dim]Thinking…[/dim]", spinner="dots"):
@@ -115,7 +116,7 @@ def chat(
 
 
 @cli.command()
-def version():
+def version() -> None:
     from importlib.metadata import version
 
     print(version("alcf-ai"))
