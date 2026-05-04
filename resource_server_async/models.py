@@ -3,9 +3,11 @@ import uuid
 from logging import getLogger
 from typing import Any, Iterable, Self, override
 
+import structlog
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.base import ModelBase
+from django.forms.models import model_to_dict
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -20,6 +22,16 @@ from resource_server_async.schemas.db_models import (
 from resource_server_async.schemas.endpoints import BatchStatusResult
 
 logger = getLogger(__name__)
+
+_access_slog = structlog.get_logger("resource_server_async.structured.access_log")
+_request_slog = structlog.get_logger("resource_server_async.structured.request_log")
+_batch_slog = structlog.get_logger("resource_server_async.structured.batch_log")
+_request_metrics_slog = structlog.get_logger(
+    "resource_server_async.structured.request_metrics"
+)
+_batch_metrics_slog = structlog.get_logger(
+    "resource_server_async.structured.batch_metrics"
+)
 
 
 # Supported authentication origins
@@ -151,7 +163,9 @@ class AccessLog(models.Model):
             else:
                 access_log.error = response.content.decode(errors="ignore")
 
-        return await cls.objects.acreate(**access_log.model_dump())
+        obj = await cls.objects.acreate(**access_log.model_dump())
+        _access_slog.info("created", **access_log.model_dump(mode="json"))
+        return obj
 
 
 # Request log model
@@ -228,7 +242,9 @@ class RequestLog(models.Model):
             else:
                 request_log.result = response.content.decode(errors="ignore")
 
-        return await cls.objects.acreate(**request_log.model_dump())
+        obj = await cls.objects.acreate(**request_log.model_dump())
+        _request_slog.info("created", **request_log.model_dump(mode="json"))
+        return obj
 
     async def create_or_update_metrics(
         self,
@@ -262,6 +278,7 @@ class RequestLog(models.Model):
         metrics, _ = await RequestMetrics.objects.aupdate_or_create(
             request=self, defaults=defaults
         )
+        _request_metrics_slog.info("upserted", request_id=self.id, **defaults)
 
         # Mark processed on the request to avoid external re-processing
         if not self.metrics_processed:
@@ -335,7 +352,11 @@ class BatchLog(models.Model):
             else:
                 batch_log.result = response.content.decode(errors="ignore")
 
-        return await cls.objects.acreate(**batch_log.model_dump())
+        obj = await cls.objects.acreate(**batch_log.model_dump())
+        _batch_slog.info(
+            "created", batch_log.model_dump(mode="json", exclude={"access_log"})
+        )
+        return obj
 
     async def create_or_update_metrics(
         self,
@@ -358,6 +379,7 @@ class BatchLog(models.Model):
         obj, _ = await BatchMetrics.objects.aupdate_or_create(
             batch=self, defaults=defaults
         )
+        _batch_metrics_slog.info("upserted", batch_id=self.id, **defaults)
         return obj
 
     async def update(self, new_status: BatchStatusResult) -> None:
@@ -405,6 +427,7 @@ class BatchLog(models.Model):
                 )
 
         await self.asave()
+        _batch_slog.info("updated", **model_to_dict(self, exclude=["access_log"]))
 
 
 # Request metrics model (1:1 with RequestLog)

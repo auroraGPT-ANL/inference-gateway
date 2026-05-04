@@ -31,6 +31,7 @@ dependencies = [
     "python-dotenv<2",
     "redis<7",
     "requests<3",
+    "structlog",
     "uvicorn[standard]>=0.30.6",
     "zstandard",
 ]
