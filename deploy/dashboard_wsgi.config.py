@@ -30,7 +30,7 @@ backlog = 2048
 # worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
-workers = 5
+workers = 1
 threads = 1
 worker_connections = 1000  # Maximum number of simultaneous clients per worker
 
