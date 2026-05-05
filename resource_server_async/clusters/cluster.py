@@ -49,14 +49,8 @@ class BaseCluster(ABC):
         """Verify is the cluster is currently under maintenance."""
 
         # Check Redis cache for cluster status from ALCF facility API
-        cluster_status: ClusterStatus | None
         cache_key = f"cluster_status:{self.cluster_name}"
-
-        try:
-            cluster_status = cache.get(cache_key)
-        except:
-            cluster_status = None
-            log.warning(f"Cache error for {self.cluster_name!r} status", exc_info=True)
+        cluster_status: ClusterStatus | None = cache.get(cache_key)
 
         if not isinstance(cluster_status, dict):
             cluster_status = {"status": "unknown", "message": ""}
