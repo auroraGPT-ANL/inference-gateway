@@ -41,6 +41,16 @@ def _json_default(obj: Any) -> str:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _serializer(obj: Any, **kws: Any) -> str:
+    try:
+        return json.dumps(obj, **kws)
+    except:
+        if "default" in kws:
+            kws["default"] = _json_default
+            return json.dumps(obj, **kws)
+        raise
+
+
 _STRUCTURED_TABLES = [
     "access_log",
     "request_log",
@@ -115,9 +125,7 @@ LOGGING = {
             "processors": [
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                 structlog.processors.JSONRenderer(
-                    serializer=lambda obj, **kw: json.dumps(
-                        obj, default=_json_default, **kw
-                    )
+                    serializer=_serializer,
                 ),
             ],
             "foreign_pre_chain": [
