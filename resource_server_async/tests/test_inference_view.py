@@ -58,12 +58,8 @@ for endpoint in DB_ENDPOINTS:
             url,
         )
 
-        if "allowed_globus_groups" not in endpoint or endpoint[
-            "allowed_globus_groups"
-        ] not in [
-            [],
-            [mock_utils.MOCK_GROUP_UUID],
-        ]:
+        groups = endpoint.get("allowed_globus_groups", [])
+        if groups not in [[], [mock_utils.MOCK_GROUP_UUID]]:
             continue
 
         # If the endpoint can be accessed by the mock access token ...
@@ -71,23 +67,22 @@ for endpoint in DB_ENDPOINTS:
 
         # For each valid set of input parameters ...
         for valid_params in VALID_PARAMS[openai_endpoint]:
-            # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
-            valid_params["model"] = endpoint["model"]
+            params_copy = {**valid_params, "model": endpoint["model"]}
 
             # Make sure the request is not streaming (this is tested in another function)
             # "if" statement needed since not all openai endpoints support streaming
-            if "stream" in valid_params:
-                valid_params["stream"] = False
+            if "stream" in params_copy:
+                params_copy["stream"] = False
 
             InferenceViewTestCase.template_test(
-                "good_post_request", url, valid_params, headers
+                "good_post_request", url, params_copy, headers
             )
 
-            if endpoint["allowed_globus_groups"] == [mock_utils.MOCK_GROUP_UUID]:
+            if groups == [mock_utils.MOCK_GROUP_UUID]:
                 InferenceViewTestCase.template_test(
                     "inaccessible_post_request",
                     url,
-                    valid_params,
+                    params_copy,
                 )
 
         for invalid_params in INVALID_PARAMS[openai_endpoint]:

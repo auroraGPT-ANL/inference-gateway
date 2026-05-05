@@ -61,12 +61,8 @@ for endpoint in DB_ENDPOINTS:
         # Make sure non-POST requests are not allowed
         BatchInferenceViewTestCase.template_test("non_post_request", url)
 
-        if "allowed_globus_groups" not in endpoint or endpoint[
-            "allowed_globus_groups"
-        ] not in [
-            [],
-            [mock_utils.MOCK_GROUP_UUID],
-        ]:
+        groups = endpoint.get("allowed_globus_groups", [])
+        if groups not in [[], [mock_utils.MOCK_GROUP_UUID]]:
             continue
 
         # If the endpoint can be accessed by the mock access token ...
@@ -74,21 +70,21 @@ for endpoint in DB_ENDPOINTS:
 
         # For each valid set of input parameters ...
         for valid_params in VALID_PARAMS["batch"]:
-            # Overwrite the model to match the endpoint model (otherwise the view won't find the endpoint slug)
-            valid_params["model"] = endpoint["model"]
-
-            # Overwrite the input file to make it unique (otherwise will encounter "already used" error)
-            valid_params["input_file"] = f"/path/{str(uuid.uuid4())}"
+            params_copy = {
+                **valid_params,
+                "model": endpoint["model"],
+                "input_file": f"/path/{str(uuid.uuid4())}",
+            }
 
             # Make sure POST requests succeed
             BatchInferenceViewTestCase.template_test(
-                "good_batch_post_request", url, valid_params, headers
+                "good_batch_post_request", url, params_copy, headers
             )
 
             # Make sure users can't access private endpoint if not in allowed groups
-            if endpoint["allowed_globus_groups"] == [mock_utils.MOCK_GROUP_UUID]:
+            if groups == [mock_utils.MOCK_GROUP_UUID]:
                 BatchInferenceViewTestCase.template_test(
-                    "inaccessible_post_request", url, valid_params
+                    "inaccessible_post_request", url, params_copy
                 )
 
         # Make sure POST requests fail when providing invalid inputs

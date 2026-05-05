@@ -17,7 +17,7 @@ import resource_server_async.auth as auth
 import resource_server_async.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async import api
-from resource_server_async.api import router
+from resource_server_async.api import api as ninja_api
 from resource_server_async.endpoints import direct_api, globus_compute, metis
 
 # Overwrite log data initialization
@@ -79,9 +79,17 @@ PREMIUM_HEADERS = mock_utils.get_mock_headers(
     access_token=ACTIVE_PREMIUM_TOKEN, bearer=True
 )
 
+# Import views to trigger route registration on the Ninja API/router
 # Create request Django Ninja test client instance
+# Skip Ninja's namespace registry check — Django's URL loading already registered
+# the NinjaAPI namespace, so TestAsyncClient(api) would hit a false duplicate.
+import os as _os
+
+from resource_server_async import views as _views  # noqa: E402, F401
+
+_os.environ["NINJA_SKIP_REGISTRY"] = "true"
 KWARGS = {"content_type": "application/json"}
-CLIENT = TestAsyncClient(router)
+CLIENT = TestAsyncClient(ninja_api)
 
 # Load valid test input data (OpenAI format)
 base_path = "resource_server_async/tests/json"
@@ -142,7 +150,7 @@ def get_endpoint_urls(endpoint):
     Get endpoint URLs from `ALLOWED_OPENAI_ENDPOINTS`.
     """
     return {
-        openai_endpoint: f"/{endpoint['cluster']}/{endpoint['framework']}/v1/{openai_endpoint}/"
+        openai_endpoint: f"/{endpoint['cluster']}/{endpoint['framework']}/v1/{openai_endpoint}"
         for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint["cluster"]]
     }
 
@@ -157,7 +165,7 @@ def get_wrong_endpoint_urls():
     endpoint = ALLOWED_OPENAI_ENDPOINTS[cluster][0]
 
     return [
-        f"/{c}/{f}/v1/{e}/"
+        f"/{c}/{f}/v1/{e}"
         for c, f, e in (
             ("unsupported-cluster", framework, endpoint),
             (cluster, "unsupported-framework", endpoint),

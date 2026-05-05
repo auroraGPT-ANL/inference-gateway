@@ -1,3 +1,5 @@
+from http import HTTPStatus
+
 import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async.tests import (
     CLIENT,
@@ -16,11 +18,13 @@ class EndpointsViewTestCase(HeaderFailuresTestMixin, ResourceServerTestCase):
 
     async def test_non_get(self):
         """
-        Make sure non-GET requests are not allowed
+        Make sure non-GET requests are not allowed.
+        Ninja's test client raises Exception when the route
+        cannot be resolved for the given HTTP method.
         """
         for method in [CLIENT.post, CLIENT.put, CLIENT.delete]:
-            response = await method(self.url)
-            self.assertEqual(response.status_code, 405)
+            resp = await method(self.url)
+            assert resp.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
     async def good_get_request(self, headers):
         """

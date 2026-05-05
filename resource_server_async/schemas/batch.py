@@ -35,6 +35,7 @@ class BatchListFilter(FilterSchema):
 
 
 class BatchSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     input_file: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     output_folder_path: str | None = None
