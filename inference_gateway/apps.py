@@ -66,7 +66,11 @@ class AuthCheckConfig(AppConfig):
             raise ImproperlyConfigured(
                 "The Django Ninja API does not have an `.auth` attribute defined."
             )
-        if not isinstance(api.auth, GlobalAuth):
+        if (
+            not isinstance(api.auth, list)
+            and len(api.auth) == 1
+            and isinstance(api.auth[0], GlobalAuth)
+        ):
             raise ImproperlyConfigured(
-                "The Django Ninja API `.auth` attribute must be a GlobalAuth instance."
+                "The Django Ninja API `.auth` attribute must be a list containing one GlobalAuth instance."
             )
