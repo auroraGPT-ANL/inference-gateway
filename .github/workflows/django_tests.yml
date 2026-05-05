@@ -86,7 +86,7 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
           uv sync --locked --all-extras --dev
-          mkdir logs/
+          mkdir -p logs/
           uv run -- ./manage.py migrate
           uv run -- ./manage.py loaddata fixtures/endpoints.json
 
