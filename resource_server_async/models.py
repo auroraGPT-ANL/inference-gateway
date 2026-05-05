@@ -246,6 +246,9 @@ class RequestLog(models.Model):
             else:
                 request_log.result = response.content.decode(errors="ignore")
 
+        if request_log.timestamp_compute_response is None:
+            request_log.timestamp_compute_response = timezone.now()
+
         obj = await cls.objects.acreate(**request_log.model_dump())
         _request_slog.info(
             "created",
