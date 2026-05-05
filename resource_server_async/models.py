@@ -7,7 +7,6 @@ import structlog
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.base import ModelBase
-from django.forms.models import model_to_dict
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -164,7 +163,12 @@ class AccessLog(models.Model):
                 access_log.error = response.content.decode(errors="ignore")
 
         obj = await cls.objects.acreate(**access_log.model_dump())
-        _access_slog.info("created", **access_log.model_dump(mode="json"))
+
+        _access_slog.info(
+            "created",
+            **access_log.model_dump(mode="json", exclude={"user"}),
+            user_id=obj.user_id,
+        )
         return obj
 
 
@@ -243,7 +247,11 @@ class RequestLog(models.Model):
                 request_log.result = response.content.decode(errors="ignore")
 
         obj = await cls.objects.acreate(**request_log.model_dump())
-        _request_slog.info("created", **request_log.model_dump(mode="json"))
+        _request_slog.info(
+            "created",
+            **request_log.model_dump(mode="json", exclude={"access_log"}),
+            access_log_id=obj.access_log_id,
+        )
         return obj
 
     async def create_or_update_metrics(
@@ -354,7 +362,9 @@ class BatchLog(models.Model):
 
         obj = await cls.objects.acreate(**batch_log.model_dump())
         _batch_slog.info(
-            "created", batch_log.model_dump(mode="json", exclude={"access_log"})
+            "created",
+            **batch_log.model_dump(mode="json", exclude={"access_log"}),
+            access_log_id=obj.access_log_id,
         )
         return obj
 
@@ -427,7 +437,14 @@ class BatchLog(models.Model):
                 )
 
         await self.asave()
-        _batch_slog.info("updated", **model_to_dict(self, exclude=["access_log"]))
+
+        _batch_slog.info(
+            "updated",
+            **BatchLogPydantic.model_validate(self).model_dump(
+                mode="json", exclude={"access_log"}
+            ),
+            access_log_id=self.access_log_id,
+        )
 
 
 # Request metrics model (1:1 with RequestLog)

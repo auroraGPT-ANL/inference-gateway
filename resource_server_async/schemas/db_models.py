@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserPydantic(BaseModel):
@@ -41,6 +41,7 @@ class RequestLogPydantic(BaseModel):
 
 
 class BatchLogPydantic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     access_log: Optional[Any] = None  # AccessLog object
     input_file: Optional[str] = None
