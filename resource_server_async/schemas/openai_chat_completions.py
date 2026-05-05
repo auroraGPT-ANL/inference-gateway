@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Annotated, Any, List, Literal, Optional, Self, Union
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 # Extra validation for the metadata field
@@ -227,9 +227,10 @@ class ResponseFormatText(BaseModelExtraForbid):
 
 # Response_format - json_schema - json_schema
 class ResponseFormatJsonSchemaJsonSchema(BaseModelExtraForbid):
+    model_config = ConfigDict(populate_by_name=True)
     name: str = Field(..., max_length=64)
     description: Optional[str] = None
-    schema: Optional[dict[str, Any]] = {}  # type: ignore[assignment]
+    json_schema: Optional[dict[str, Any]] = Field(default={}, alias="schema")
     strict: Optional[bool] = False
 
 
