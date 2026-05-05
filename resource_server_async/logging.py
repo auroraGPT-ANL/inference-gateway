@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,13 @@ class UsageTokens:
     response_time_sec: float | None = None
 
 
+def _parse_dict(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return ast.literal_eval(raw)
+
+
 def extract_usage(request: RequestLog) -> UsageTokens:
     def _get_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
         value: dict[str, Any] | None = data.get(key)
@@ -39,6 +47,9 @@ def extract_usage(request: RequestLog) -> UsageTokens:
 
     try:
         data = json.loads(request.result)
+        if isinstance(data, str):
+            data = _parse_dict(data)
+        assert isinstance(data, dict)
     except Exception:
         return UsageTokens()
 
