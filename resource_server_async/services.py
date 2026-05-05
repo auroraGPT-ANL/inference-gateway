@@ -7,8 +7,8 @@ from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
-from resource_server_async.api import AuthedRequest
 from resource_server_async.globus_utils import get_transfer_client
+from resource_server_async.schemas.auth import AuthedRequest
 from resource_server_async.schemas.db_models import (
     BatchLogPydantic,
     RequestLogPydantic,

@@ -4,6 +4,15 @@ Reference: https://docs.globus.org/api/auth/reference/#token-introspect
 
 from typing import Any, Literal, NotRequired, TypedDict
 
+from django.http import HttpRequest
+
+from resource_server_async.models import User
+from resource_server_async.schemas.db_models import (
+    AccessLogPydantic,
+    BatchLogPydantic,
+    RequestLogPydantic,
+)
+
 
 class GlobusAuthentication(TypedDict, total=False):
     """One authentication event within session_info.authentications.
@@ -93,3 +102,11 @@ class GlobusActiveIntrospectResponse(TypedDict):
 GlobusIntrospectResponse = (
     GlobusActiveIntrospectResponse | GlobusInactiveIntrospectResponse
 )
+
+
+class AuthedRequest(HttpRequest):
+    auth: User
+    user_group_uuids: list[str]
+    access_log_data: AccessLogPydantic
+    request_log_data: RequestLogPydantic | None
+    batch_log_data: BatchLogPydantic | None

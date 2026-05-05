@@ -273,7 +273,7 @@ CACHES = {
                 "max_connections": 50,
                 "retry_on_timeout": True,
             },
-            "COMPRESSOR": "django_redis.compressors.zstd.ZstdCompressor",
+            "COMPRESSOR": "django_redis.compressors.zstd.ZStdCompressor",
             # Note: IGNORE_EXCEPTIONS removed — we want exceptions to bubble
             # up so the fallback wrapper can catch them.
         },

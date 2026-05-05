@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
-from ninja import NinjaAPI, Router
+from ninja import NinjaAPI
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle, BaseThrottle
@@ -15,21 +15,12 @@ from resource_server_async.auth import validate_access_token
 from resource_server_async.models import User
 from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
-    BatchLogPydantic,
-    RequestLogPydantic,
 )
 
 from .errors import BaseError, TaskPending
+from .views import router
 
 logger = logging.getLogger(__name__)
-
-
-class AuthedRequest(HttpRequest):
-    auth: User
-    user_group_uuids: list[str]
-    access_log_data: AccessLogPydantic
-    request_log_data: RequestLogPydantic | None
-    batch_log_data: BatchLogPydantic | None
 
 
 # -------------------------------------
@@ -37,7 +28,9 @@ class AuthedRequest(HttpRequest):
 # -------------------------------------
 
 # Ninja API
-api = NinjaAPI(urls_namespace="resource_server_async_api")
+api = NinjaAPI(
+    title="ALCF Inference Service", urls_namespace="resource_server_async_api"
+)
 
 # -------------------------------------
 # ========== API rate limits ==========
@@ -194,8 +187,4 @@ def handle_uncaught_error(request: HttpRequest, exc: Exception) -> HttpResponse:
     )
 
 
-# -------------------------------------------
-# ========== API router definition ==========
-# -------------------------------------------
-
-router = Router()
+api.add_router("/", router)

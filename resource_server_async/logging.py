@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from logging import getLogger
 from typing import Any
 
+from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
 from resource_server_async.schemas.db_models import AccessLogPydantic
@@ -91,6 +92,9 @@ async def write_logs(
 
 
 class AccessLogMiddleware:
+    sync_capable = False
+    async_capable = True
+
     def __init__(
         self,
         get_response: Callable[
@@ -99,6 +103,9 @@ class AccessLogMiddleware:
     ):
         self.get_response = get_response
         self._background_tasks: set[asyncio.Task[None]] = set()
+
+        if iscoroutinefunction(self.get_response):
+            markcoroutinefunction(self)
 
     def _on_done(self, task: asyncio.Task[None]) -> None:
         self._background_tasks.discard(task)

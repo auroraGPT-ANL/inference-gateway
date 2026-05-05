@@ -3,8 +3,9 @@ from typing import Any
 
 from resource_server_async.clusters.metis import MetisCluster
 from resource_server_async.endpoints.direct_api import DirectAPIEndpoint
-from resource_server_async.errors import EndpointError
-from resource_server_async.schemas.endpoints import (
+
+from ..errors import EndpointError
+from ..schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )

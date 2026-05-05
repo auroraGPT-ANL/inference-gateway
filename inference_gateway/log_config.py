@@ -100,13 +100,15 @@ LOGGING = {
     "formatters": {
         "default": {
             "()": "uvicorn.logging.DefaultFormatter",
-            "fmt": "%(asctime)s - %(levelname)s - %(message)s",
+            "fmt": "%(asctime)s.%(msecs)03d | %(levelname)-8s | pid=%(process)d | %(name)s:%(lineno)d | %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
+            "use_colors": False,
         },
         "access": {
             "()": "uvicorn.logging.AccessFormatter",
-            "fmt": '%(asctime)s - %(client_addr)s - "%(request_line)s" %(status_code)s',
+            "fmt": '%(asctime)s.%(msecs)03d | %(levelname)-8s | pid=%(process)d | %(client_addr)s | "%(request_line)s" %(status_code)s',
             "datefmt": "%Y-%m-%d %H:%M:%S",
+            "use_colors": False,
         },
         "json": {
             "()": structlog.stdlib.ProcessorFormatter,

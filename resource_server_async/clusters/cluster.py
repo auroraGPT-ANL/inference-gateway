@@ -8,10 +8,11 @@ from django.core.cache import cache
 from django.forms.models import model_to_dict
 
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
-from resource_server_async.auth import check_permission as auth_utils_check_permission
-from resource_server_async.errors import ClusterNotFound, Unauthorized
-from resource_server_async.models import Cluster, User
-from resource_server_async.schemas.clusters import (
+
+from ..auth import check_permission as auth_utils_check_permission
+from ..errors import ClusterNotFound, Unauthorized
+from ..models import Cluster, User
+from ..schemas.clusters import (
     CheckMaintenanceResult,
     ClusterStatus,
     JobsByStatus,

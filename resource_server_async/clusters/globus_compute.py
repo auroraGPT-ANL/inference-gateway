@@ -9,9 +9,10 @@ from pydantic import BaseModel
 
 from resource_server_async import globus_utils
 from resource_server_async.clusters.cluster import BaseCluster
-from resource_server_async.errors import EndpointError, GetJobsError
-from resource_server_async.models import Endpoint, User
-from resource_server_async.schemas.clusters import JobsByStatus
+
+from ..errors import EndpointError, GetJobsError
+from ..models import Endpoint, User
+from ..schemas.clusters import JobsByStatus
 
 log = logging.getLogger(__name__)
 

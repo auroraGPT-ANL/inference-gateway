@@ -14,14 +14,15 @@ from pydantic import BaseModel
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
 )
-from resource_server_async.errors import EndpointError
 from resource_server_async.httpx_client import AsyncHttpClient
-from resource_server_async.models import RequestLog
-from resource_server_async.schemas.endpoints import (
+from resource_server_async.streaming import create_streaming_response_headers
+
+from ..errors import EndpointError
+from ..models import RequestLog
+from ..schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
-from resource_server_async.streaming import create_streaming_response_headers
 
 log = logging.getLogger(__name__)
 

@@ -6,9 +6,10 @@ from django.core.cache import cache
 from httpx import HTTPError, TimeoutException
 
 from resource_server_async.clusters.direct_api import DirectAPICluster
-from resource_server_async.errors import GetJobsError
-from resource_server_async.models import User
-from resource_server_async.schemas.clusters import JobInfo, JobsByStatus
+
+from ..errors import GetJobsError
+from ..models import User
+from ..schemas.clusters import JobInfo, JobsByStatus
 
 log = logging.getLogger(__name__)
 

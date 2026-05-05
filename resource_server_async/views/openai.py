@@ -1,0 +1,53 @@
+import logging
+from typing import Any
+
+from ninja import Router
+
+from ..schemas.auth import AuthedRequest
+from ..schemas.openai_chat_completions import (
+    OpenAIChatCompletionsPydantic,
+)
+from ..schemas.openai_completions import OpenAICompletionsPydantic
+from ..schemas.openai_embeddings import OpenAIEmbeddingsPydantic
+from ..services import (
+    submit_openai_inference_request,
+)
+
+router = Router()
+log = logging.getLogger(__name__)
+
+
+@router.post("/{cluster_name}/{framework}/v1/chat/completions")
+async def create_chat_completion(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAIChatCompletionsPydantic,
+) -> Any:
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
+    )
+
+
+@router.post("/{cluster_name}/{framework}/v1/completions")
+async def create_completion(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAICompletionsPydantic,
+) -> Any:
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
+    )
+
+
+@router.post("/{cluster_name}/{framework}/v1/embeddings")
+async def create_embedding(
+    request: AuthedRequest,
+    cluster_name: str,
+    framework: str,
+    payload: OpenAIEmbeddingsPydantic,
+) -> Any:
+    return await submit_openai_inference_request(
+        request, cluster_name, framework, payload
+    )

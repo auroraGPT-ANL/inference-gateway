@@ -33,7 +33,7 @@ dependencies = [
     "requests<3",
     "structlog",
     "uvicorn[standard]>=0.30.6",
-    "zstandard",
+    "pyzstd",
 ]
 
 [dependency-groups]
