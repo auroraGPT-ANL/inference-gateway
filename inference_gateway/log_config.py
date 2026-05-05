@@ -146,6 +146,16 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "gunicorn.error": {
+            "handlers": _uvicorn_error_handlers,
+            "level": "INFO",
+            "propagate": False,
+        },
+        "gunicorn.access": {
+            "handlers": _uvicorn_access_handlers,
+            "level": "INFO",
+            "propagate": False,
+        },
         "resource_server_async": {
             "handlers": _app_handlers,
             "level": "INFO",
@@ -154,7 +164,9 @@ LOGGING = {
         **_structured_loggers,
     },
     "root": {
-        "level": "INFO",
+        # Third-party logs fall through to root and get logged WARNING level
+        # Turn this up if you want debug info from e.g. Globus Compute
+        "level": "WARNING",
         "handlers": _root_handlers,
     },
 }

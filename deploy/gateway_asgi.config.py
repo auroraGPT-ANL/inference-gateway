@@ -1,5 +1,7 @@
 import os
 
+from inference_gateway.log_config import LOGGING
+
 """Inference Gateway Gunicorn ASGI server configuration."""
 
 # Determine if we're in production or development
@@ -38,20 +40,19 @@ worker_connections = 1000  # Maximum number of simultaneous clients per worker
 preload_app = False  # Do not preload so that you can keep main process when reloading
 daemon = False  # Run in foreground (managed by systemd)
 
-# Log directory based on environment
+# Django LOGGING config handles file routing
+# Do NOT need duplicate file-based logging here!
 if environment == "development":
-    # Development log files in the current directory
-    accesslog = "./logs/backend_gateway.access.log"
-    errorlog = "./logs/backend_gateway.error.log"
+    accesslog = "-"
+    errorlog = "-"
+    loglevel = "info"
+    logconfig_dict = LOGGING
     bind = "127.0.0.1:8000"
-    # More verbose logging in development
-    loglevel = "debug"
 else:
-    # Production log files in a local directory
-    accesslog = "/var/log/inference-service/backend_gateway.access.log"
-    errorlog = "/var/log/inference-service/backend_gateway.error.log"
-    # Less verbose logging in production
-    loglevel = "debug"
+    accesslog = "-"
+    errorlog = "-"
+    loglevel = "info"
+    logconfig_dict = LOGGING
 
 # Whether to send Django output to the error log
 capture_output = True
