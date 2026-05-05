@@ -267,10 +267,8 @@ def vllm_inference_function(parameters):
 
                     # Handle completion marker
                     if chunk_data.strip() == "data: [DONE]":
-
                         # Send any remaining batched chunks
                         if batch_buffer:
-
                             batch_data = "\n".join(batch_buffer)
                             success = send_data_to_streaming_server(
                                 stream_server_host,
@@ -286,7 +284,7 @@ def vllm_inference_function(parameters):
                                 failed_sends += len(batch_buffer)
 
                         # Send completion to streaming server
-                        done_success = send_done_to_streaming_server(
+                        _ = send_done_to_streaming_server(
                             stream_server_host,
                             stream_server_port,
                             stream_server_protocol,
