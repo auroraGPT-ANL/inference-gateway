@@ -135,7 +135,6 @@ def vllm_inference_function(parameters):
     def send_done_to_streaming_server(host, port, protocol, task_id, task_token):
         """Send completion signal using a fresh session (avoids keep-alive issues)."""
         payload = {"task_id": task_id, "type": "done"}
-        print(f"[STREAMING] Sending completion signal for task {task_id}")
         success, msg = send_to_streaming_server(
             host,
             port,
@@ -147,7 +146,6 @@ def vllm_inference_function(parameters):
             use_fresh_session=True,
         )
         if success:
-            print("[STREAMING] Done signal sent successfully")
             return True
         return False
 
@@ -204,16 +202,6 @@ def vllm_inference_function(parameters):
         stream_server_protocol = payload.get("streaming_server_protocol", "https")
         stream_task_id = payload.get("stream_task_id")
         stream_task_token = payload.get("stream_task_token")
-
-        print(f"[STREAMING] Starting streaming request for task {stream_task_id}")
-        print(
-            f"[STREAMING] Server: {stream_server_protocol}://{stream_server_host}:{stream_server_port}"
-        )
-        print(
-            f"[STREAMING] Token: {stream_task_token[:16]}..."
-            if stream_task_token
-            else "[STREAMING] Token: None"
-        )
 
         # Validate required streaming parameters
         missing_params = []
@@ -279,15 +267,10 @@ def vllm_inference_function(parameters):
 
                     # Handle completion marker
                     if chunk_data.strip() == "data: [DONE]":
-                        print(
-                            f"[STREAMING] Received [DONE] marker from vLLM for task {stream_task_id}"
-                        )
 
                         # Send any remaining batched chunks
                         if batch_buffer:
-                            print(
-                                f"[STREAMING] Sending final batch of {len(batch_buffer)} chunks"
-                            )
+
                             batch_data = "\n".join(batch_buffer)
                             success = send_data_to_streaming_server(
                                 stream_server_host,
@@ -301,7 +284,6 @@ def vllm_inference_function(parameters):
                                 chunks_sent += len(batch_buffer)
                             else:
                                 failed_sends += len(batch_buffer)
-                                print("[STREAMING] Failed to send final batch")
 
                         # Send completion to streaming server
                         done_success = send_done_to_streaming_server(
@@ -311,11 +293,6 @@ def vllm_inference_function(parameters):
                             stream_task_id,
                             stream_task_token,
                         )
-
-                        if not done_success:
-                            print(
-                                "[STREAMING] WARNING: Done signal failed, but continuing..."
-                            )
 
                         break
                     elif chunk_data.strip():
@@ -451,8 +428,6 @@ def vllm_inference_function(parameters):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
         }
-
-        print("parameters", parameters)
 
         # Determine the endpoint based on the URL parameter
         openai_endpoint = model_params.pop("openai_endpoint")
