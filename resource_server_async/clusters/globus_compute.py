@@ -1,3 +1,4 @@
+import ast
 import json
 import logging
 from typing import Any
@@ -15,6 +16,13 @@ from ..models import Endpoint, User
 from ..schemas.clusters import JobsByStatus
 
 log = logging.getLogger(__name__)
+
+
+def parse_config(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return ast.literal_eval(raw)
 
 
 # Custom configuration for Globus Compute Cluster
@@ -115,7 +123,7 @@ class GlobusComputeCluster(BaseCluster):
                     endpoint = await sync_to_async(Endpoint.objects.get)(
                         endpoint_slug=endpoint_slug
                     )
-                    endpoint_config = json.loads(endpoint.config)
+                    endpoint_config = parse_config(endpoint.config)
                     endpoint_uuid = endpoint_config["endpoint_uuid"]
 
                     # Turn the model to "disconnected" if managers are lost
