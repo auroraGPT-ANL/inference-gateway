@@ -145,7 +145,7 @@ class AccessLog(models.Model):
         access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
 
         if not access_log:
-            logger.error("Missing request.access_log_data")
+            logger.debug("Missing request.access_log_data")
             return None
 
         access_log.timestamp_response = timezone.now()

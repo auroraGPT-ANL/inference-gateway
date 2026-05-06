@@ -175,7 +175,9 @@ def handle_pending(request: HttpRequest, exc: TaskPending) -> HttpResponse:
 def handle_uncaught_error(request: HttpRequest, exc: Exception) -> HttpResponse:
     error_id = uuid.uuid4().hex
     logger.exception(
-        f"Uncaught Exception {error_id=} in API View {request.path!r}", exc_info=exc
+        f"Uncaught Exception in API View {request.path!r}",
+        extra={"error_id": error_id},
+        exc_info=exc,
     )
 
     return api.create_response(

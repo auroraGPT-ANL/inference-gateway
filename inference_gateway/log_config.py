@@ -75,10 +75,7 @@ LOGGING: dict[str, Any] = {
         "json": {
             "()": "inference_gateway.log_config.GatewayJsonFormatter",
         },
-        "plain": {
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
-            "datefmt": "%Y-%m-%dT%H:%M:%S",
-        },
+        "plain": {"format": "\n%(message)s\n"},
     },
     "filters": {
         "uvicorn_access_fields": {

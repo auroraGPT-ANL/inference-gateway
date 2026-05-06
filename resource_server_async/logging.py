@@ -80,7 +80,7 @@ async def write_logs(
     access_log = await AccessLog.create_from_response(request, response)
 
     if not access_log:
-        logger.error("Missing request.access_log_data")
+        logger.debug("Missing request.access_log_data")
         return
 
     request_log = await RequestLog.create_from_response(request, response, access_log)
