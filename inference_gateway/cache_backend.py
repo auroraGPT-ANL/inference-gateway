@@ -9,6 +9,11 @@ from django.core.cache.backends.base import DEFAULT_TIMEOUT, BaseCache
 
 log = logging.getLogger(__name__)
 
+# Djanog constructs a new cache instance per request, so this state needs to be
+# module-scoped:
+_primary_healthy = True
+_last_failure_at = 0.0
+
 
 class FallbackCache(BaseCache):
     """
@@ -29,8 +34,6 @@ class FallbackCache(BaseCache):
         self._primary_alias: str = options["PRIMARY_ALIAS"]
         self._fallback_alias: str = options["FALLBACK_ALIAS"]
         self._health_check_interval: float = options.get("HEALTH_CHECK_INTERVAL", 30.0)
-        self._primary_healthy: bool = True
-        self._last_failure_at: float = 0.0
 
     @property
     def _primary(self) -> BaseCache:
@@ -41,23 +44,29 @@ class FallbackCache(BaseCache):
         return caches[self._fallback_alias]
 
     def _should_try_primary(self) -> bool:
-        if self._primary_healthy:
+        global _primary_healthy, _last_failure_at
+
+        if _primary_healthy:
             return True
         # Circuit-breaker: retry primary after the cooldown
-        if time.monotonic() - self._last_failure_at >= self._health_check_interval:
+        if time.monotonic() - _last_failure_at >= self._health_check_interval:
             return True
         return False
 
     def _mark_primary_failed(self, exc: Exception) -> None:
-        if self._primary_healthy:
+        global _primary_healthy, _last_failure_at
+
+        if _primary_healthy:
             log.warning(f"Primary cache failed, falling back: {exc}")
-        self._primary_healthy = False
-        self._last_failure_at = time.monotonic()
+        _primary_healthy = False
+        _last_failure_at = time.monotonic()
 
     def _mark_primary_healthy(self) -> None:
-        if not self._primary_healthy:
+        global _primary_healthy, _last_failure_at
+
+        if not _primary_healthy:
             log.info("Primary cache recovered")
-        self._primary_healthy = True
+        _primary_healthy = True
 
     def _call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
         if self._should_try_primary():
