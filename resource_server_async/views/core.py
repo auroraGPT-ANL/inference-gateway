@@ -1,5 +1,6 @@
 import logging
 
+from django.http import HttpRequest
 from ninja import Router
 
 from ..clusters import BaseCluster
@@ -23,7 +24,7 @@ log = logging.getLogger(__name__)
 # Health Check (GET) - No authentication required
 # Lightweight endpoint for Kubernetes/load balancer health checks
 @router.get("/health", auth=None)
-async def health_check() -> dict[str, str]:
+async def health_check(request: HttpRequest) -> dict[str, str]:
     """Lightweight health check endpoint - returns OK if API is responding."""
     return {"status": "ok"}
 
