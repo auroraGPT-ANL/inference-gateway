@@ -149,17 +149,17 @@ def set_streaming_metadata(
         logger.error(f"Error setting streaming {metadata_type} for task {task_id}: {e}")
 
 
-def get_streaming_metadata(task_id: str, metadata_type: str) -> str | None:
+def get_streaming_metadata(task_id: str, metadata_type: str) -> Any:
     """Get streaming metadata - use direct Redis for consistency with batch operations"""
     try:
         redis_client = get_redis_client()
         if redis_client:
             key = _get_cache_key(metadata_type, task_id)
             value = redis_client.get(key)
-            return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+            return value.decode("utf-8") if isinstance(value, bytes) else value
         else:
             # Fallback to Django cache
-            return str(_cache_get(task_id, metadata_type))
+            return _cache_get(task_id, metadata_type)
     except Exception as e:
         logger.error(f"Error getting streaming {metadata_type} for task {task_id}: {e}")
         return None
@@ -170,7 +170,7 @@ def set_streaming_status(task_id: str, status: str, ttl: int = 3600) -> None:
     set_streaming_metadata(task_id, "status", status, ttl)
 
 
-def get_streaming_status(task_id: str) -> str | None:
+def get_streaming_status(task_id: str) -> Any:
     """Get streaming status"""
     return get_streaming_metadata(task_id, "status")
 
@@ -180,7 +180,7 @@ def set_streaming_error(task_id: str, error: str, ttl: int = 3600) -> None:
     set_streaming_metadata(task_id, "error", error, ttl)
 
 
-def get_streaming_error(task_id: str) -> str | None:
+def get_streaming_error(task_id: str) -> Any:
     """Get streaming error"""
     return get_streaming_metadata(task_id, "error")
 

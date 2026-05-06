@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import Any
 
@@ -90,12 +89,13 @@ class GlobusComputeCluster(BaseCluster):
             raise EndpointError(f"Error: Endpoint {endpoint_slug} is offline.")
 
         # Submit task and wait for result
-        result = await globus_utils.submit_and_get_result(
+        task_result = await globus_utils.submit_and_get_result(
             gce,
             self.config.qstat_endpoint_uuid,
             self.config.qstat_function_uuid,
             timeout=60,
         )
+        result = task_result.result
 
         # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
         try:
