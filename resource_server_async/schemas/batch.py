@@ -1,8 +1,10 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
+from uuid import UUID
 
 from ninja import FilterSchema
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 # Batch status
@@ -28,6 +30,13 @@ class BatchLogSummary(BaseModel):
     @property
     def batch_id(self) -> str:
         return self.id
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_uuid(cls, v: Any) -> Any:
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
 
 class BatchListFilter(FilterSchema):
