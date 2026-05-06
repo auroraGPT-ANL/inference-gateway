@@ -148,7 +148,7 @@ LOGGING = {
         **_structured_loggers,
     },
     "root": {
-        # Third-party logs fall through to root and get logged WARNING level
+        # Third-party logs fall through to root and get logged at WARNING level
         # Turn this up if you want debug info from e.g. Globus Compute
         "level": "WARNING",
         "handlers": _root_handlers,
