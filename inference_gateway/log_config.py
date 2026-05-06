@@ -125,6 +125,11 @@ LOGGING: dict[str, Any] = {
             "level": "INFO",
             "propagate": False,
         },
+        "inference_gateway": {
+            "handlers": ["stdout", "stderr_crash"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
     "root": {
         "level": "WARNING",
