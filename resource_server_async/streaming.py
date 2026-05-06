@@ -15,7 +15,6 @@ from django.http import HttpRequest
 from django.utils import timezone
 from globus_compute_sdk.sdk.asynchronous.compute_future import ComputeFuture
 
-from resource_server_async.endpoints import BaseEndpoint
 from resource_server_async.models import RequestLog
 
 from .cache import get_redis_client
@@ -746,6 +745,9 @@ async def update_streaming_log_async(
             prompt_tokens=None,
             completion_tokens=None,
         )
+
+        from resource_server_async.endpoints import BaseEndpoint
+
         endpoint = await BaseEndpoint.load_adapter(
             log_entry.cluster, log_entry.framework, log_entry.model
         )
