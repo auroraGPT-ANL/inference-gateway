@@ -1,9 +1,7 @@
-import json
 import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 import structlog
 
@@ -36,19 +34,7 @@ def _json_default(obj: Any) -> str:
         return obj.isoformat()
     if isinstance(obj, date):
         return obj.isoformat()
-    if isinstance(obj, UUID):
-        return str(obj)
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
-
-def _serializer(obj: Any, **kws: Any) -> str:
-    try:
-        return json.dumps(obj, **kws)
-    except:
-        if "default" in kws:
-            kws["default"] = _json_default
-            return json.dumps(obj, **kws)
-        raise
+    return str(obj)
 
 
 _STRUCTURED_TABLES = [
@@ -124,9 +110,7 @@ LOGGING = {
             "()": structlog.stdlib.ProcessorFormatter,
             "processors": [
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.processors.JSONRenderer(
-                    serializer=_serializer,
-                ),
+                structlog.processors.JSONRenderer(default=_json_default),
             ],
             "foreign_pre_chain": [
                 structlog.stdlib.add_log_level,
