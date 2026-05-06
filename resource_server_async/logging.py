@@ -130,7 +130,7 @@ class AccessLogMiddleware:
     ) -> HttpResponse | StreamingHttpResponse:
         response = await self.get_response(request)
 
-        if request.path.startswith("/api/streaming"):
+        if "api/streaming" in request.path:
             # Don't log internal streaming requests; this is machine-to-machine
             return response
 
