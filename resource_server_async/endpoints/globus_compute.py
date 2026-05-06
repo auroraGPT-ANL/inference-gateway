@@ -245,6 +245,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         except GlobusTaskPending:
             raise TaskPending(task_id)
         else:
+            result = globus_utils.unwrap_json(result)
             return SubmitTaskResult(result=result, task_id=task_id)
 
     # Submit streaming task

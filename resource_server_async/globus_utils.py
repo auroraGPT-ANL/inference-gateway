@@ -1,4 +1,6 @@
+import ast
 import asyncio
+import json
 import logging
 import time
 from typing import Any, TypedDict
@@ -237,6 +239,8 @@ async def submit_and_get_result(
             info={"task_id": task_id},
         )
 
+    result = unwrap_json(result)
+
     # Task ID not populated immediately; access after wait_for!
     task_id = get_task_uuid(future)
     return SubmitTaskResult(result=result, task_id=task_id)
@@ -285,10 +289,28 @@ def get_batch_status(task_uuids_comma_separated: str) -> dict[str, TaskStatus]:
             result[task_uuid] = {
                 "pending": task["pending"],
                 "status": task["status"],
-                "result": task.get("result", None),
+                "result": unwrap_json(task.get("result", None)),
                 "error": None,
             }
 
     # Cache successful result for 30 seconds
     cache_item(cache_key, result, ttl=30)
     return result
+
+
+def unwrap_json(raw: Any) -> Any:
+    """
+    Best effort to deserialize a JSON or python literal expression
+    """
+    if not isinstance(raw, str):
+        return raw
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        return ast.literal_eval(raw)
+    except:
+        return raw
