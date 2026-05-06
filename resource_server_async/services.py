@@ -268,7 +268,7 @@ async def submit_openai_inference_request(
     # Return 429 status if TPM limits are exceeded
     tpm_check = endpoint.check_token_rate_limit(request.auth)
     if not tpm_check.allow:
-        logger.info(f"Endpoint {endpoint.endpoint_slug} rate-limited: {tpm_check}")
+        logger.info(f"{endpoint.endpoint_slug} rate-limited: {tpm_check}")
         raise TooManyRequests(
             "Tokens/minute limit exceeded",
             info={

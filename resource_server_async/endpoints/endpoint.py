@@ -78,7 +78,7 @@ class BaseEndpoint(ABC):
 
     def check_token_rate_limit(self, auth: User) -> TokenLimiterCheck:
         if self.__token_limiter is None:
-            return TokenLimiterCheck(True, 0, 0)
+            return TokenLimiterCheck(True, 0, 0, 0, 0)
         return self.__token_limiter.check(auth.id)
 
     def record_token_usage(self, auth: User | None, tokens: int) -> None:

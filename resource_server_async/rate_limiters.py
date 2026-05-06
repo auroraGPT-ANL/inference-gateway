@@ -10,6 +10,8 @@ class TokenLimiterCheck(NamedTuple):
     allow: bool
     usage_model: int
     usage_user: int
+    limit_model: int
+    limit_user: int
 
 
 class TokenRateLimiter:
@@ -53,7 +55,9 @@ class TokenRateLimiter:
         logger.debug(
             f"{model_key=} {user_key=} {current_model=}/{self.tpm_model=} {current_user=}/{self.tpm_user=}"
         )
-        return TokenLimiterCheck(allow, current_model, current_user)
+        return TokenLimiterCheck(
+            allow, current_model, current_user, self.tpm_model, self.tpm_user
+        )
 
     def record(self, user_id: str | None, tokens: int) -> None:
         """
