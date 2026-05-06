@@ -91,6 +91,10 @@ logconfig_dict = {
             "propagate": False,
         },
     },
+    "root": {
+        "level": "WARNING",
+        "handlers": ["stdout"],
+    },
 }
 
 # StatsD metrics (if you have StatsD configured)
