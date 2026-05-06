@@ -15,6 +15,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from globus_compute_sdk.sdk.asynchronous.compute_future import ComputeFuture
 
+from resource_server_async.endpoints import BaseEndpoint
 from resource_server_async.models import RequestLog
 
 from .cache import get_redis_client
@@ -662,9 +663,9 @@ async def update_streaming_log_async(
     response_time: float | None = None
     try:
         # Get the RequestLog and AccessLog entry without using lazy loading
-        log_entry = await RequestLog.objects.select_related("access_log").aget(
-            id=log_id
-        )
+        log_entry = await RequestLog.objects.select_related(
+            "access_log", "access_log__user"
+        ).aget(id=log_id)
         access_log = log_entry.access_log  # Safe: already fetched
 
         # Preserve the original task_uuid
@@ -745,6 +746,10 @@ async def update_streaming_log_async(
             prompt_tokens=None,
             completion_tokens=None,
         )
+        endpoint = await BaseEndpoint.load_adapter(
+            log_entry.cluster, log_entry.framework, log_entry.model
+        )
+        endpoint.record_token_usage(access_log.user, int(total_tokens or 0))
 
         logger.info(
             f"Updated streaming log entry {log_id} with final content (status: {response_status})"

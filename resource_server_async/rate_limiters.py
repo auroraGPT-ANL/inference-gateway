@@ -1,6 +1,9 @@
+import logging
 from typing import NamedTuple
 
 from redis import Redis
+
+logger = logging.getLogger(__name__)
 
 
 class TokenLimiterCheck(NamedTuple):
@@ -47,6 +50,9 @@ class TokenRateLimiter:
         if self.tpm_user > 0:
             allow = allow and (current_user < self.tpm_user)
 
+        logger.debug(
+            f"{model_key=} {user_key=} {current_model=}/{self.tpm_model=} {current_user=}/{self.tpm_user=}"
+        )
         return TokenLimiterCheck(allow, current_model, current_user)
 
     def record(self, user_id: str | None, tokens: int) -> None:
