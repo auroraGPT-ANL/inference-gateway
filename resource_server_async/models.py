@@ -447,10 +447,12 @@ class BatchLog(models.Model):
         _batch_slog.info(
             "updated",
             extra={
-                **BatchLogPydantic.model_validate(self).model_dump(
-                    mode="json", exclude={"access_log"}
-                ),
+                "id": self.id,
                 "access_log_id": self.access_log_id,
+                "status": self.status,
+                "result": self.result,
+                "failed_at": self.failed_at,
+                "completed_at": self.completed_at,
             },
         )
 
