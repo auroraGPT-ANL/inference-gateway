@@ -1,6 +1,7 @@
+import json
+import logging
 import os
-
-from inference_gateway.log_config import LOGGING
+from datetime import datetime, timezone
 
 """Inference Gateway Gunicorn ASGI server configuration."""
 
@@ -40,25 +41,57 @@ worker_connections = 1000  # Maximum number of simultaneous clients per worker
 preload_app = False  # Do not preload so that you can keep main process when reloading
 daemon = False  # Run in foreground (managed by systemd)
 
-# Django LOGGING config handles file routing
-# Do NOT need duplicate file-based logging here!
 if environment == "development":
-    accesslog = "-"
-    errorlog = "-"
-    loglevel = "info"
-    logconfig_dict = LOGGING
     bind = "127.0.0.1:8000"
-else:
-    accesslog = "-"
-    errorlog = "-"
-    loglevel = "info"
-    logconfig_dict = LOGGING
 
-# Whether to send Django output to the error log
-capture_output = True
 
-# Enable stdio inheritance for proper logging
-enable_stdio_inheritance = True
+class _GunicornJsonFormatter(logging.Formatter):
+    """Minimal JSON formatter for the gunicorn master process.
+    Workers get the full GatewayJsonFormatter once Django loads."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps(
+            {
+                "timestamp": datetime.fromtimestamp(
+                    record.created, tz=timezone.utc
+                ).isoformat(),
+                "level": record.levelname,
+                "stream": (
+                    "gunicorn.error" if "error" in record.name else "gunicorn.access"
+                ),
+                "logger": record.name,
+                "message": record.getMessage(),
+                "pid": record.process,
+            }
+        )
+
+
+logconfig_dict = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {"()": _GunicornJsonFormatter},
+    },
+    "handlers": {
+        "stdout": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "json",
+        },
+    },
+    "loggers": {
+        "gunicorn.error": {
+            "handlers": ["stdout"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "gunicorn.access": {
+            "handlers": ["stdout"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 
 # StatsD metrics (if you have StatsD configured)
 # statsd_host = 'localhost:8125'

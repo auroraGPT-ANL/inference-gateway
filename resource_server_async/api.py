@@ -11,6 +11,7 @@ from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle, BaseThrottle
 
+from inference_gateway.request_context import access_id_var
 from resource_server_async.auth import validate_access_token
 from resource_server_async.models import User
 from resource_server_async.schemas.db_models import (
@@ -134,8 +135,11 @@ class GlobalAuth(HttpBearer):
             origin_ip = ", ".join(set(ip_list))
 
         # Return data initialization (without a user)
+        # Take Access ID from request-local contextvar
+        # initialized in middleware.
+        # Fallback to locally-generated uuid if middleware disabled:
         return AccessLogPydantic(
-            id=str(uuid.uuid4()),
+            id=access_id_var.get() or str(uuid.uuid4()),
             user=None,
             timestamp_request=timezone.now(),
             api_route=request.path_info,

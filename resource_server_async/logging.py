@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import json
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from logging import getLogger
@@ -9,6 +10,7 @@ from typing import Any
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
+from inference_gateway.request_context import access_id_var
 from resource_server_async.schemas.db_models import AccessLogPydantic
 
 from .cache import should_throttle
@@ -128,7 +130,12 @@ class AccessLogMiddleware:
     async def __call__(
         self, request: HttpRequest
     ) -> HttpResponse | StreamingHttpResponse:
-        response = await self.get_response(request)
+
+        token = access_id_var.set(str(uuid.uuid4()))
+        try:
+            response = await self.get_response(request)
+        finally:
+            access_id_var.reset(token)
 
         if "api/streaming" in request.path:
             # Don't log internal streaming requests; this is machine-to-machine

@@ -3,7 +3,6 @@ import uuid
 from logging import getLogger
 from typing import Any, Iterable, Self, override
 
-import structlog
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.base import ModelBase
@@ -22,15 +21,11 @@ from resource_server_async.schemas.endpoints import BatchStatusResult
 
 logger = getLogger(__name__)
 
-_access_slog = structlog.get_logger("resource_server_async.structured.access_log")
-_request_slog = structlog.get_logger("resource_server_async.structured.request_log")
-_batch_slog = structlog.get_logger("resource_server_async.structured.batch_log")
-_request_metrics_slog = structlog.get_logger(
-    "resource_server_async.structured.request_metrics"
-)
-_batch_metrics_slog = structlog.get_logger(
-    "resource_server_async.structured.batch_metrics"
-)
+_access_slog = getLogger("resource_server_async.structured.access_log")
+_request_slog = getLogger("resource_server_async.structured.request_log")
+_batch_slog = getLogger("resource_server_async.structured.batch_log")
+_request_metrics_slog = getLogger("resource_server_async.structured.request_metrics")
+_batch_metrics_slog = getLogger("resource_server_async.structured.batch_metrics")
 
 
 # Supported authentication origins
@@ -166,8 +161,10 @@ class AccessLog(models.Model):
 
         _access_slog.info(
             "created",
-            **access_log.model_dump(mode="json", exclude={"user"}),
-            user_id=obj.user_id,
+            extra={
+                **access_log.model_dump(mode="json", exclude={"user"}),
+                "user_id": obj.user_id,
+            },
         )
         return obj
 
@@ -252,8 +249,10 @@ class RequestLog(models.Model):
         obj = await cls.objects.acreate(**request_log.model_dump())
         _request_slog.info(
             "created",
-            **request_log.model_dump(mode="json", exclude={"access_log"}),
-            access_log_id=obj.access_log_id,
+            extra={
+                **request_log.model_dump(mode="json", exclude={"access_log"}),
+                "access_log_id": obj.access_log_id,
+            },
         )
         return obj
 
@@ -289,7 +288,9 @@ class RequestLog(models.Model):
         metrics, _ = await RequestMetrics.objects.aupdate_or_create(
             request=self, defaults=defaults
         )
-        _request_metrics_slog.info("upserted", request_id=self.id, **defaults)
+        _request_metrics_slog.info(
+            "upserted", extra={"request_id": self.id, **defaults}
+        )
 
         # Mark processed on the request to avoid external re-processing
         if not self.metrics_processed:
@@ -366,8 +367,10 @@ class BatchLog(models.Model):
         obj = await cls.objects.acreate(**batch_log.model_dump())
         _batch_slog.info(
             "created",
-            **batch_log.model_dump(mode="json", exclude={"access_log"}),
-            access_log_id=obj.access_log_id,
+            extra={
+                **batch_log.model_dump(mode="json", exclude={"access_log"}),
+                "access_log_id": obj.access_log_id,
+            },
         )
         return obj
 
@@ -392,7 +395,7 @@ class BatchLog(models.Model):
         obj, _ = await BatchMetrics.objects.aupdate_or_create(
             batch=self, defaults=defaults
         )
-        _batch_metrics_slog.info("upserted", batch_id=self.id, **defaults)
+        _batch_metrics_slog.info("upserted", extra={"batch_id": self.id, **defaults})
         return obj
 
     async def update(self, new_status: BatchStatusResult) -> None:
@@ -443,10 +446,12 @@ class BatchLog(models.Model):
 
         _batch_slog.info(
             "updated",
-            **BatchLogPydantic.model_validate(self).model_dump(
-                mode="json", exclude={"access_log"}
-            ),
-            access_log_id=self.access_log_id,
+            extra={
+                **BatchLogPydantic.model_validate(self).model_dump(
+                    mode="json", exclude={"access_log"}
+                ),
+                "access_log_id": self.access_log_id,
+            },
         )
 
 

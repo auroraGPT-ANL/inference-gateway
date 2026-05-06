@@ -1,41 +1,20 @@
-import os
-from datetime import date, datetime
-from pathlib import Path
+import logging
+from datetime import date, datetime, timezone
 from typing import Any
 
-import structlog
+from pythonjsonlogger.json import JsonFormatter
 
-_LOG_TO_STDOUT = os.getenv("LOG_TO_STDOUT", "false").lower() in ("true", "1", "t")
-_LOG_ENV = os.getenv("ENV", "production")
-_LOG_DIR = "./logs" if _LOG_ENV == "development" else "/var/log/inference-service"
+from inference_gateway.request_context import access_id_var
 
-if not Path(_LOG_DIR).is_dir():
-    _LOG_DIR = "./logs"
-    Path(_LOG_DIR).mkdir(exist_ok=True)
+_STRUCTURED_PREFIX = "resource_server_async.structured."
 
-
-def _make_file_handler(
-    filename: str, formatter: str = "default"
-) -> dict[str, str | int]:
-    return {
-        "class": "logging.handlers.TimedRotatingFileHandler",
-        "filename": os.path.join(_LOG_DIR, filename),
-        "when": "midnight",
-        "interval": 1,
-        "utc": True,
-        "backupCount": 0,
-        "formatter": formatter,
-        "encoding": "utf-8",
-    }
-
-
-def _json_default(obj: Any) -> str:
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, date):
-        return obj.isoformat()
-    return str(obj)
-
+_STREAM_MAP = {
+    "uvicorn.access": "uvicorn.access",
+    "uvicorn.error": "uvicorn.error",
+    "uvicorn": "uvicorn.error",
+    "gunicorn.error": "gunicorn.error",
+    "gunicorn.access": "gunicorn.access",
+}
 
 _STRUCTURED_TABLES = [
     "access_log",
@@ -45,124 +24,111 @@ _STRUCTURED_TABLES = [
     "batch_metrics",
 ]
 
-if _LOG_TO_STDOUT:
-    _log_handlers: dict[str, Any] = {
-        "error_stream": {
-            "class": "logging.StreamHandler",
-            "stream": "ext://sys.stderr",
-            "formatter": "default",
+
+class GatewayJsonFormatter(JsonFormatter):
+    def add_fields(
+        self,
+        log_record: dict[str, Any],
+        record: logging.LogRecord,
+        message_dict: dict[str, Any],
+    ) -> None:
+        super().add_fields(log_record, record, message_dict)
+
+        log_record["timestamp"] = datetime.fromtimestamp(
+            record.created, tz=timezone.utc
+        ).isoformat()
+        log_record["level"] = record.levelname
+        log_record["logger"] = record.name
+        log_record["pid"] = record.process
+        log_record["lineno"] = record.lineno
+
+        if record.name.startswith(_STRUCTURED_PREFIX):
+            log_record["stream"] = record.name[len(_STRUCTURED_PREFIX) :]
+        else:
+            log_record["stream"] = _STREAM_MAP.get(record.name, "app")
+
+        acc_id = access_id_var.get(None)
+        if acc_id is not None:
+            log_record["access_id"] = acc_id
+
+    @staticmethod
+    def json_default(obj: Any) -> str:
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return str(obj)
+
+
+class UvicornAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 5:
+            record.client_addr = record.args[0]
+            record.method = record.args[1]
+            record.path = record.args[2]
+            record.http_version = record.args[3]
+            record.status_code = record.args[4]
+            record.msg = ""
+            record.args = None
+        return True
+
+
+LOGGING: dict[str, Any] = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": "inference_gateway.log_config.GatewayJsonFormatter",
         },
-        "structured_stream": {
+    },
+    "filters": {
+        "uvicorn_access_fields": {
+            "()": "inference_gateway.log_config.UvicornAccessFilter",
+        },
+    },
+    "handlers": {
+        "stdout": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "json",
         },
-    }
-    _uvicorn_error_handlers = ["error_stream"]
-    _uvicorn_access_handlers = ["error_stream"]
-    _app_handlers = ["error_stream"]
-    _root_handlers = ["error_stream"]
-    _structured_handlers = {t: ["structured_stream"] for t in _STRUCTURED_TABLES}
-else:
-    _log_handlers = {
-        "error_file": _make_file_handler("error.log"),
-        "access_file": _make_file_handler("access.log", formatter="access"),
-        "app_file": _make_file_handler("app.log"),
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "default",
-        },
-    }
-    for t in _STRUCTURED_TABLES:
-        _log_handlers[f"{t}_jsonl"] = _make_file_handler(f"{t}.jsonl", formatter="json")
-    _uvicorn_error_handlers = ["error_file"]
-    _uvicorn_access_handlers = ["access_file"]
-    _app_handlers = ["app_file"]
-    _root_handlers = ["app_file", "console"]
-    _structured_handlers = {t: [f"{t}_jsonl"] for t in _STRUCTURED_TABLES}
-
-_structured_loggers = {
-    f"resource_server_async.structured.{t}": {
-        "handlers": h,
-        "level": "INFO",
-        "propagate": False,
-    }
-    for t, h in _structured_handlers.items()
-}
-
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "default": {
-            "()": "uvicorn.logging.DefaultFormatter",
-            "fmt": "%(asctime)s.%(msecs)03d | %(levelname)-8s | pid=%(process)d | %(name)s:%(lineno)d | %(message)s",
-            "datefmt": "%Y-%m-%d %H:%M:%S",
-            "use_colors": False,
-        },
-        "access": {
-            "()": "uvicorn.logging.AccessFormatter",
-            "fmt": '%(asctime)s.%(msecs)03d | %(levelname)-8s | pid=%(process)d | %(client_addr)s | "%(request_line)s" %(status_code)s',
-            "datefmt": "%Y-%m-%d %H:%M:%S",
-            "use_colors": False,
-        },
-        "json": {
-            "()": structlog.stdlib.ProcessorFormatter,
-            "processors": [
-                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.processors.JSONRenderer(default=_json_default),
-            ],
-            "foreign_pre_chain": [
-                structlog.stdlib.add_log_level,
-                structlog.processors.TimeStamper(fmt="iso", utc=True),
-            ],
-        },
     },
-    "handlers": _log_handlers,
     "loggers": {
         "uvicorn.error": {
-            "handlers": _uvicorn_error_handlers,
+            "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
         },
         "uvicorn.access": {
-            "handlers": _uvicorn_access_handlers,
+            "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
+            "filters": ["uvicorn_access_fields"],
         },
         "gunicorn.error": {
-            "handlers": _uvicorn_error_handlers,
+            "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
         },
         "gunicorn.access": {
-            "handlers": _uvicorn_access_handlers,
+            "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
         },
         "resource_server_async": {
-            "handlers": _app_handlers,
+            "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
         },
-        **_structured_loggers,
+        **{
+            f"resource_server_async.structured.{t}": {
+                "handlers": ["stdout"],
+                "level": "INFO",
+                "propagate": False,
+            }
+            for t in _STRUCTURED_TABLES
+        },
     },
     "root": {
-        # Third-party logs fall through to root and get logged at WARNING level
-        # Turn this up if you want debug info from e.g. Globus Compute
         "level": "WARNING",
-        "handlers": _root_handlers,
+        "handlers": ["stdout"],
     },
 }
-
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
-        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-    ],
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    wrapper_class=structlog.stdlib.BoundLogger,
-    cache_logger_on_first_use=True,
-)
