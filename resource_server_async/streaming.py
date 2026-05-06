@@ -197,7 +197,7 @@ def generate_and_store_streaming_token(task_id: str, ttl: int = 600) -> str:
             _cache_set(task_id, "token", token, ttl)
     except Exception as e:
         logger.error(f"Error storing token for task {task_id}: {e}")
-    logger.info(f"Generated and stored streaming token for task {task_id}")
+    logger.debug(f"Generated and stored streaming token for task {task_id}")
     return token
 
 
@@ -769,7 +769,7 @@ def cleanup_streaming_data(task_id: str) -> None:
             for key_type in key_types:
                 cache.delete(_get_cache_key(key_type, task_id))
 
-        logger.info(f"Cleaned up streaming data for task {task_id}")
+        logger.debug(f"Cleaned up streaming data for task {task_id}")
     except Exception as e:
         logger.error(f"Error cleaning up streaming data for task {task_id}: {e}")
 

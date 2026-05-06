@@ -463,7 +463,7 @@ def validate_access_token(request: HttpRequest) -> ATVResponse:
         )
 
     # Return valid token response
-    log.info(f"{user.name} requesting {introspection.token_data['scope']}")
+    log.debug(f"{user.name} requesting {introspection.token_data['scope']}")
     return ATVResponse(
         user=user,
         user_group_uuids=introspection.user_groups,

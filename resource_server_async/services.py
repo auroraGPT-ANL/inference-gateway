@@ -258,7 +258,7 @@ async def submit_openai_inference_request(
     endpoint = await BaseEndpoint.load_adapter(
         cluster.cluster_name, framework, payload.model
     )
-    logger.info(
+    logger.debug(
         f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}"
     )
 
