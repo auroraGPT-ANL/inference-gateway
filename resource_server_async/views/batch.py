@@ -45,10 +45,10 @@ async def post_batch_inference(
 async def get_batch_list(
     request: AuthedRequest,
     filters: Query[BatchListFilter],
-) -> list[BatchLog]:
+) -> list[BatchLogSummary]:
     """GET request to list all batches linked to the authenticated user."""
 
-    batch_list: list[BatchLog] = []
+    batch_list = []
 
     # For each batch object owned by the user ...
     async for batch in BatchLog.objects.filter(
@@ -72,7 +72,7 @@ async def get_batch_list(
         # If no optional status filter was provided ...
         # or if the status filter matches the current batch status ...
         if filters.status is None or filters.status == batch.status:
-            batch_list.append(batch)
+            batch_list.append(BatchLogSummary.model_validate(batch))
 
     return batch_list
 
