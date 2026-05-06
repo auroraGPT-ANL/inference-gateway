@@ -16,14 +16,6 @@ _STREAM_MAP = {
     "gunicorn.access": "gunicorn.access",
 }
 
-_STRUCTURED_TABLES = [
-    "access_log",
-    "request_log",
-    "batch_log",
-    "request_metrics",
-    "batch_metrics",
-]
-
 
 class GatewayJsonFormatter(JsonFormatter):
     def add_fields(
@@ -117,14 +109,6 @@ LOGGING: dict[str, Any] = {
             "handlers": ["stdout"],
             "level": "INFO",
             "propagate": False,
-        },
-        **{
-            f"resource_server_async.structured.{t}": {
-                "handlers": ["stdout"],
-                "level": "INFO",
-                "propagate": False,
-            }
-            for t in _STRUCTURED_TABLES
         },
     },
     "root": {
