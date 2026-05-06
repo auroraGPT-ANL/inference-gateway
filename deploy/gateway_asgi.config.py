@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 
 """Inference Gateway Gunicorn ASGI server configuration."""
 
@@ -50,20 +51,26 @@ class _GunicornJsonFormatter(logging.Formatter):
     Workers get the full GatewayJsonFormatter once Django loads."""
 
     def format(self, record: logging.LogRecord) -> str:
-        return json.dumps(
-            {
-                "timestamp": datetime.fromtimestamp(
-                    record.created, tz=timezone.utc
-                ).isoformat(),
-                "level": record.levelname,
-                "stream": (
-                    "gunicorn.error" if "error" in record.name else "gunicorn.access"
-                ),
-                "logger": record.name,
-                "message": record.getMessage(),
-                "pid": record.process,
-            }
-        )
+        doc: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
+            "level": record.levelname,
+            "stream": (
+                "gunicorn.error" if "error" in record.name else "gunicorn.access"
+            ),
+            "logger": record.name,
+            "message": record.getMessage(),
+            "pid": record.process,
+        }
+        if record.exc_info and record.exc_info[1] is not None:
+            doc["traceback"] = self.formatException(record.exc_info)
+        return json.dumps(doc)
+
+
+class _TracebackOnly(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.exc_info is not None and record.exc_info[1] is not None
 
 
 logconfig_dict = {
@@ -71,6 +78,13 @@ logconfig_dict = {
     "disable_existing_loggers": False,
     "formatters": {
         "json": {"()": _GunicornJsonFormatter},
+        "plain": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            "datefmt": "%Y-%m-%dT%H:%M:%S",
+        },
+    },
+    "filters": {
+        "traceback_only": {"()": _TracebackOnly},
     },
     "handlers": {
         "stdout": {
@@ -78,10 +92,16 @@ logconfig_dict = {
             "stream": "ext://sys.stdout",
             "formatter": "json",
         },
+        "stderr_crash": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "plain",
+            "filters": ["traceback_only"],
+        },
     },
     "loggers": {
         "gunicorn.error": {
-            "handlers": ["stdout"],
+            "handlers": ["stdout", "stderr_crash"],
             "level": "INFO",
             "propagate": False,
         },
@@ -93,7 +113,7 @@ logconfig_dict = {
     },
     "root": {
         "level": "WARNING",
-        "handlers": ["stdout"],
+        "handlers": ["stdout", "stderr_crash"],
     },
 }
 

@@ -50,6 +50,11 @@ class GatewayJsonFormatter(JsonFormatter):
         return str(obj)
 
 
+class TracebackOnly(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.exc_info is not None and record.exc_info[1] is not None
+
+
 class UvicornAccessFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple) and len(record.args) >= 5:
@@ -70,10 +75,17 @@ LOGGING: dict[str, Any] = {
         "json": {
             "()": "inference_gateway.log_config.GatewayJsonFormatter",
         },
+        "plain": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            "datefmt": "%Y-%m-%dT%H:%M:%S",
+        },
     },
     "filters": {
         "uvicorn_access_fields": {
             "()": "inference_gateway.log_config.UvicornAccessFilter",
+        },
+        "traceback_only": {
+            "()": "inference_gateway.log_config.TracebackOnly",
         },
     },
     "handlers": {
@@ -82,10 +94,16 @@ LOGGING: dict[str, Any] = {
             "stream": "ext://sys.stdout",
             "formatter": "json",
         },
+        "stderr_crash": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "plain",
+            "filters": ["traceback_only"],
+        },
     },
     "loggers": {
         "uvicorn.error": {
-            "handlers": ["stdout"],
+            "handlers": ["stdout", "stderr_crash"],
             "level": "INFO",
             "propagate": False,
         },
@@ -96,7 +114,7 @@ LOGGING: dict[str, Any] = {
             "filters": ["uvicorn_access_fields"],
         },
         "gunicorn.error": {
-            "handlers": ["stdout"],
+            "handlers": ["stdout", "stderr_crash"],
             "level": "INFO",
             "propagate": False,
         },
@@ -106,13 +124,13 @@ LOGGING: dict[str, Any] = {
             "propagate": False,
         },
         "resource_server_async": {
-            "handlers": ["stdout"],
+            "handlers": ["stdout", "stderr_crash"],
             "level": "INFO",
             "propagate": False,
         },
     },
     "root": {
         "level": "WARNING",
-        "handlers": ["stdout"],
+        "handlers": ["stdout", "stderr_crash"],
     },
 }
