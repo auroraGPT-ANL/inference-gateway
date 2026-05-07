@@ -10,6 +10,7 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskPending as GlobusTaskPending
 from pydantic import BaseModel
 
+from inference_gateway.request_context import request_var
 from resource_server_async import globus_utils
 from resource_server_async.cache import (
     cache_item,
@@ -31,7 +32,7 @@ from resource_server_async.streaming import (
 )
 
 from ..errors import BatchNotFound, EndpointError, TaskPending
-from ..models import BatchLog
+from ..models import BatchLog, User
 from ..schemas.batch import BatchStatus, BatchSubmit
 from ..schemas.endpoints import (
     BatchStatusResult,
@@ -304,18 +305,20 @@ class GlobusComputeEndpoint(BaseEndpoint):
         cache_item(cache_key, True, ttl=600)
 
         # Start background processing for metrics collection (fire and forget)
-        asyncio.create_task(
-            process_streaming_completion_async(
-                task_uuid,
-                stream_task_id,
-                request_log_id,
-                future,
-                streaming_start_time,
-                extract_prompt(data["model_params"])
-                if data.get("model_params")
-                else None,
+        user: User | None = getattr(request_var.get(), "auth", None)
+        if user:
+            asyncio.create_task(
+                process_streaming_completion_async(
+                    task_uuid,
+                    stream_task_id,
+                    request_log_id,
+                    user,
+                    streaming_start_time,
+                    extract_prompt(data["model_params"])
+                    if data.get("model_params")
+                    else None,
+                )
             )
-        )
 
         # Create simple SSE streaming response
         async def sse_generator() -> AsyncGenerator[str, None]:

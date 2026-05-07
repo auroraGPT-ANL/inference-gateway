@@ -6,7 +6,6 @@ import time
 from typing import Any, AsyncGenerator, TypedDict
 
 import httpx
-from asgiref.sync import sync_to_async
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from pydantic import BaseModel
@@ -18,7 +17,6 @@ from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.streaming import create_streaming_response_headers
 
 from ..errors import EndpointError
-from ..models import RequestLog
 from ..schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
@@ -250,19 +248,16 @@ class DirectAPIEndpoint(BaseEndpoint):
             duration = time.time() - streaming_state["start_time"]
             total_chunks = streaming_state["total_chunks"]
 
-            # Get database object from database
-            db_log = await sync_to_async(RequestLog.objects.get)(id=request_log_id)
-
             # Log error if something went wrong
             if streaming_state["error"]:
-                db_log.result = f"error: {streaming_state['error']}"
+                result = f"error: {streaming_state['error']}"
                 log.error(
                     f"API streaming failed for {self.endpoint_slug}: {streaming_state['error']}"
                 )
 
             # Store limited chunks or completion marker
             else:
-                db_log.result = (
+                result = (
                     "\n".join(streaming_state["chunks"])
                     if streaming_state["chunks"]
                     else "streaming_completed"
@@ -271,9 +266,10 @@ class DirectAPIEndpoint(BaseEndpoint):
                     f"Metis streaming completed for {self.endpoint_slug}: {total_chunks} chunks in {duration:.2f}s"
                 )
 
-            # Update log entry in the database
-            db_log.timestamp_compute_response = timezone.now()
-            await sync_to_async(db_log.save, thread_sensitive=True)()
+            from resource_server_async.logging import update_request_log
+
+            timestamp_compute_response = timezone.now()
+            update_request_log(request_log_id, result, timestamp_compute_response)
 
         # Log error if something went wrong
         except Exception as e:

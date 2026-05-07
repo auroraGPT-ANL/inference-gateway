@@ -13,11 +13,10 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest
 from django.utils import timezone
-from globus_compute_sdk.sdk.asynchronous.compute_future import ComputeFuture
-
-from resource_server_async.models import RequestLog
 
 from .cache import get_redis_client
+from .models import User
+from .schemas.db_models import RequestLogPydantic
 
 logger = getLogger(__name__)
 
@@ -652,24 +651,19 @@ def collect_and_aggregate_streaming_content(
 
 async def update_streaming_log_async(
     log_id: str,
+    user: User,
     final_metrics: dict[str, Any],
     complete_response: dict[str, Any] | None,
     stream_task_id: str | None = None,
 ) -> None:
-    """Asynchronously update streaming log entry with final content"""
+    """
+    Asynchronously update streaming log entry with final content
+    """
 
     total_tokens: int | None = None
     response_time: float | None = None
+
     try:
-        # Get the RequestLog and AccessLog entry without using lazy loading
-        log_entry = await RequestLog.objects.select_related(
-            "access_log", "access_log__user"
-        ).aget(id=log_id)
-        access_log = log_entry.access_log  # Safe: already fetched
-
-        # Preserve the original task_uuid
-        original_task_uuid = log_entry.task_uuid
-
         # Check if there was a streaming error
         error_status = final_metrics.get("final_status")
         streaming_error = None
@@ -681,9 +675,6 @@ async def update_streaming_log_async(
             if streaming_error:
                 # Extract status code using the simple utility function
                 response_status = extract_status_code_from_error(streaming_error)
-
-        # Update the response status in the log entry
-        access_log.status_code = response_status
 
         if complete_response and not streaming_error:
             # Calculate and add basic metrics to match non-streaming format
@@ -702,7 +693,8 @@ async def update_streaming_log_async(
                 complete_response["response_time"] = response_time
                 complete_response["throughput_tokens_per_second"] = throughput
 
-            log_entry.result = json.dumps(complete_response, indent=4)
+            result = json.dumps(complete_response, indent=4)
+            error = None
         elif streaming_error:
             # Handle error case - store the full original error message
             error_response = {
@@ -713,11 +705,11 @@ async def update_streaming_log_async(
                 "throughput_tokens_per_second": 0,
                 "status": "failed",
             }
-            log_entry.result = None
-            access_log.error = json.dumps(error_response, indent=4)
+            result = None
+            error = json.dumps(error_response, indent=4)
         else:
             # Fallback if we couldn't reconstruct the response
-            log_entry.result = json.dumps(
+            result = json.dumps(
                 {
                     "streaming_response": True,
                     "error": "Could not reconstruct complete response",
@@ -727,20 +719,20 @@ async def update_streaming_log_async(
                 },
                 indent=4,
             )
-
-        log_entry.timestamp_compute_response = timezone.now()
-
-        # Ensure task_uuid is preserved (don't let it get overwritten)
-        if original_task_uuid and not log_entry.task_uuid:
-            log_entry.task_uuid = original_task_uuid
-
-        # Save the updated log and access entries
-        await access_log.asave()
-        await log_entry.asave()
+            error = None
 
         # Write RequestMetrics for streaming (derive from final data)
         from resource_server_async.endpoints import BaseEndpoint
         from resource_server_async.logging import UsageTokens, write_request_metrics
+
+        log_entry = RequestLogPydantic(
+            id=log_id,
+            cluster="",
+            framework="",
+            model="",
+            timestamp_compute_response=timezone.now(),
+            result=result or error,
+        )
 
         write_request_metrics(
             log_entry,
@@ -750,7 +742,7 @@ async def update_streaming_log_async(
         endpoint = await BaseEndpoint.load_adapter(
             log_entry.cluster, log_entry.framework, log_entry.model
         )
-        endpoint.record_token_usage(access_log.user, int(total_tokens or 0))
+        endpoint.record_token_usage(user, int(total_tokens or 0))
 
         logger.info(
             f"Updated streaming log entry {log_id} with final content (status: {response_status})"
@@ -784,7 +776,7 @@ async def process_streaming_completion_async(
     task_id: str,
     stream_task_id: str,
     log_id: str,
-    globus_task_future: ComputeFuture,
+    user: User,
     start_time: float,
     original_prompt: str | list[str | dict[str, Any]] | None = None,
 ) -> None:
@@ -817,7 +809,7 @@ async def process_streaming_completion_async(
 
         # Update the database log entry with final data
         await update_streaming_log_async(
-            log_id, simple_metrics, complete_response, stream_task_id
+            log_id, user, simple_metrics, complete_response, stream_task_id
         )
 
         # Wait a moment before cleanup to ensure SSE generator reads the "completed" status
@@ -834,7 +826,11 @@ async def process_streaming_completion_async(
         try:
             # Try to update log with error info
             await update_streaming_log_async(
-                log_id, {"error": str(e), "final_status": "error"}, None, stream_task_id
+                log_id,
+                user,
+                {"error": str(e), "final_status": "error"},
+                None,
+                stream_task_id,
             )
         except:
             pass

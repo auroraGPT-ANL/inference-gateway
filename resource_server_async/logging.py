@@ -11,7 +11,7 @@ from typing import Any
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
-from inference_gateway.request_context import access_id_var
+from inference_gateway.request_context import access_id_var, request_var
 from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
     RequestLogPydantic,
@@ -143,6 +143,19 @@ def _write_request_log(
     return request_log
 
 
+def update_request_log(
+    request_id: str, result: str | None, timestamp_compute_response: datetime
+) -> None:
+    _request_slog.info(
+        "updated",
+        extra={
+            "id": request_id,
+            "result": result,
+            "timestamp_compute_response": timestamp_compute_response,
+        },
+    )
+
+
 def write_request_metrics(
     request: RequestLogPydantic | RequestLog, usage: UsageTokens
 ) -> None:
@@ -225,11 +238,13 @@ class AccessLogMiddleware:
         self, request: HttpRequest
     ) -> HttpResponse | StreamingHttpResponse:
 
-        token = access_id_var.set(str(uuid.uuid4()))
+        _aid_token = access_id_var.set(str(uuid.uuid4()))
+        _r_token = request_var.set(request)
         try:
             response = await self.get_response(request)
         finally:
-            access_id_var.reset(token)
+            access_id_var.reset(_aid_token)
+            request_var.reset(_r_token)
 
         if "api/streaming" in request.path:
             # Don't log internal streaming requests; this is machine-to-machine
