@@ -46,10 +46,9 @@ async def status_check(request: HttpRequest) -> dict[str, bool]:
     user_group_uuids = []
 
     # Get list of all publicy-available clusters
-    db_clusters = [c async for c in Cluster.objects.all()]
     authorized_clusters = [
         c
-        for db_cluster in db_clusters
+        async for db_cluster in Cluster.objects.all()
         if (c := await BaseCluster.load_adapter(db_cluster.cluster_name))
         and c.check_permission(user, user_group_uuids, raise_exc=False)
     ]
