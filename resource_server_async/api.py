@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from asgiref.sync import sync_to_async
+from cachetools import TTLCache
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponse
@@ -22,6 +22,8 @@ from .errors import BaseError, TaskPending
 from .views import router
 
 logger = logging.getLogger(__name__)
+
+_user_cache: TTLCache[str, User] = TTLCache(maxsize=1024, ttl=30)
 
 
 # -------------------------------------
@@ -85,10 +87,9 @@ class GlobalAuth(HttpBearer):
         access_log_data.authorized_groups = atv_response.idp_group_overlap_str
 
         # Create a new database entry for the user (or get existing entry if already exist)
-        try:
-            user, created = await sync_to_async(
-                User.objects.get_or_create, thread_sensitive=True
-            )(
+        user = _user_cache.get(atv_response.user.id)
+        if user is None:
+            user, created = await User.objects.aget_or_create(
                 id=atv_response.user.id,
                 defaults={
                     "name": atv_response.user.name,
@@ -98,11 +99,7 @@ class GlobalAuth(HttpBearer):
                     "auth_service": atv_response.user.auth_service,
                 },
             )
-        except Exception as e:
-            error_message = (
-                f"Error: Could not create or recover user entry in the database: {e}"
-            )
-            raise HttpError(500, error_message)
+            _user_cache[atv_response.user.id] = user
 
         # Add user database object to the access log pydantic data
         access_log_data.user = user

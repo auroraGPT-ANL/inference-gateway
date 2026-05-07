@@ -3,6 +3,7 @@ import importlib
 from abc import ABC, abstractmethod
 from typing import Any, List, Type
 
+from cachetools import TTLCache
 from django.forms.models import model_to_dict
 from django.utils.text import slugify
 
@@ -23,6 +24,8 @@ from ..schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
+
+_adapter_cache: TTLCache[str, "BaseEndpoint"] = TTLCache(maxsize=128, ttl=60)
 
 
 class BaseEndpoint(ABC):
@@ -188,6 +191,10 @@ class BaseEndpoint(ABC):
     ) -> "BaseEndpoint":
         """Extract the endpoint from the database and return its underlying adapter object."""
         endpoint_slug = slugify(f"{cluster} {framework} {model.lower()}")
+
+        if (adapter := _adapter_cache.get(endpoint_slug)) is not None:
+            return adapter
+
         try:
             db_endpoint = await Endpoint.objects.aget(endpoint_slug=endpoint_slug)
         except Endpoint.DoesNotExist:
@@ -212,4 +219,5 @@ class BaseEndpoint(ABC):
 
         # Instantiate the adaptor class
         endpoint = AdapterClass(**endpoint_dictionary)
+        _adapter_cache[endpoint_slug] = endpoint
         return endpoint

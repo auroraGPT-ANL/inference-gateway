@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Self, Type
 
+from cachetools import TTLCache
 from django.core.cache import cache
 from django.forms.models import model_to_dict
 
@@ -19,6 +20,8 @@ from ..schemas.clusters import (
 )
 
 log = logging.getLogger(__name__)
+
+_adapter_cache: TTLCache[str, "BaseCluster"] = TTLCache(maxsize=64, ttl=60)
 
 
 class BaseCluster(ABC):
@@ -138,6 +141,11 @@ class BaseCluster(ABC):
     @classmethod
     async def load_adapter(cls, cluster_name: str) -> Self:
         """Extract the cluster from the database and return its underlying wrapper object."""
+        if (adapter := _adapter_cache.get(cluster_name)) is not None and isinstance(
+            adapter, cls
+        ):
+            return adapter
+
         try:
             db_cluster = await Cluster.objects.aget(cluster_name=cluster_name)
         except Cluster.DoesNotExist:
@@ -167,4 +175,5 @@ class BaseCluster(ABC):
                 f"Cannot load {db_cluster.cluster_adapter!r} from {cls.__name__}.load_adapter"
             )
 
+        _adapter_cache[cluster_name] = cluster_adapter
         return cluster_adapter
