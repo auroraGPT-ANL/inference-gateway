@@ -29,9 +29,9 @@ class AccessLogPydantic(BaseModel):
 class RequestLogPydantic(BaseModel):
     id: str
     access_log: Optional[Any] = None  # AccessLog object
-    cluster: Optional[str] = None
-    framework: Optional[str] = None
-    model: Optional[str] = None
+    cluster: str
+    framework: str
+    model: str
     openai_endpoint: Optional[str] = None
     timestamp_compute_request: Optional[datetime] = None
     timestamp_compute_response: Optional[datetime] = None

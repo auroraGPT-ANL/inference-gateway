@@ -15,16 +15,11 @@ from resource_server_async.schemas.batch import BatchStatus
 from resource_server_async.schemas.db_models import (
     AccessLogPydantic,
     BatchLogPydantic,
-    RequestLogPydantic,
 )
 from resource_server_async.schemas.endpoints import BatchStatusResult
 
 logger = getLogger(__name__)
-
-_access_slog = getLogger("resource_server_async.structured.access_log")
-_request_slog = getLogger("resource_server_async.structured.request_log")
 _batch_slog = getLogger("resource_server_async.structured.batch_log")
-_request_metrics_slog = getLogger("resource_server_async.structured.request_metrics")
 _batch_metrics_slog = getLogger("resource_server_async.structured.batch_metrics")
 
 
@@ -142,6 +137,16 @@ class AccessLog(models.Model):
     async def create_from_response(
         cls, request: HttpRequest, response: HttpResponse | StreamingHttpResponse
     ) -> Self | None:
+        """
+        Create AccessLog DB record: used for BatchLog only.
+
+        This is no longer populated on every request; instead access logs are
+        simply written to stdout using the AccessLogMiddleware.
+
+        We have to retain this method for now, because the Batch services rely
+        on a JOIN from BatchLog-->AccessLog-->User to filter the batches that
+        belong to the client making each request.
+        """
         access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
 
         if not access_log:
@@ -158,14 +163,6 @@ class AccessLog(models.Model):
                 access_log.error = response.content.decode(errors="ignore")
 
         obj = await cls.objects.acreate(**access_log.model_dump())
-
-        _access_slog.info(
-            "created",
-            extra={
-                **access_log.model_dump(mode="json", exclude={"user"}),
-                "user_id": obj.user_id,
-            },
-        )
         return obj
 
 
@@ -222,83 +219,6 @@ class RequestLog(models.Model):
             f"<Request - {username} - {self.cluster} - {self.framework} - {self.model}>"
         )
 
-    @classmethod
-    async def create_from_response(
-        cls,
-        request: HttpRequest,
-        response: HttpResponse | StreamingHttpResponse,
-        access_log: AccessLog,
-    ) -> Self | None:
-        request_log: RequestLogPydantic | None = getattr(
-            request, "request_log_data", None
-        )
-
-        if not request_log:
-            return None
-
-        request_log.access_log = access_log
-        if response.status_code < 300:
-            if isinstance(response, StreamingHttpResponse):
-                request_log.result = "streaming_response_in_progress"
-            else:
-                request_log.result = response.content.decode(errors="ignore")
-
-        if request_log.timestamp_compute_response is None:
-            request_log.timestamp_compute_response = timezone.now()
-
-        obj = await cls.objects.acreate(**request_log.model_dump())
-        _request_slog.info(
-            "created",
-            extra={
-                **request_log.model_dump(mode="json", exclude={"access_log"}),
-                "access_log_id": obj.access_log_id,
-            },
-        )
-        return obj
-
-    async def create_or_update_metrics(
-        self,
-        response_time_sec: float | None,
-        prompt_tokens: int | None,
-        completion_tokens: int | None,
-        total_tokens: int | None,
-    ) -> "RequestMetrics":
-        if (
-            isinstance(total_tokens, (int, float))
-            and isinstance(response_time_sec, (int, float))
-            and response_time_sec > 1e-9
-        ):
-            throughput_tokens_per_sec = total_tokens / response_time_sec
-        else:
-            throughput_tokens_per_sec = None
-
-        defaults = {
-            "cluster": self.cluster,
-            "framework": self.framework,
-            "model": self.model,
-            "status_code": self.access_log.status_code,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-            "response_time_sec": response_time_sec,
-            "throughput_tokens_per_sec": throughput_tokens_per_sec,
-            "timestamp_compute_request": self.timestamp_compute_request,
-            "timestamp_compute_response": self.timestamp_compute_response,
-        }
-        metrics, _ = await RequestMetrics.objects.aupdate_or_create(
-            request=self, defaults=defaults
-        )
-        _request_metrics_slog.info(
-            "upserted", extra={"request_id": self.id, **defaults}
-        )
-
-        # Mark processed on the request to avoid external re-processing
-        if not self.metrics_processed:
-            self.metrics_processed = True
-            await self.asave()
-
-        return metrics
-
 
 # Batch log model
 class BatchLog(models.Model):
@@ -349,11 +269,12 @@ class BatchLog(models.Model):
         cls,
         request: HttpRequest,
         response: HttpResponse | StreamingHttpResponse,
-        access_log: AccessLog,
     ) -> Self | None:
+
+        access_log = await AccessLog.create_from_response(request, response)
         batch_log: BatchLogPydantic | None = getattr(request, "batch_log_data", None)
 
-        if not batch_log:
+        if not batch_log or not access_log:
             return None
 
         batch_log.access_log = access_log

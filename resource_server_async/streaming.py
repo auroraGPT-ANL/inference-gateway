@@ -738,15 +738,14 @@ async def update_streaming_log_async(
         await access_log.asave()
         await log_entry.asave()
 
-        # Upsert RequestMetrics for streaming (derive from final data)
-        await log_entry.create_or_update_metrics(
-            response_time_sec=response_time,
-            total_tokens=total_tokens,
-            prompt_tokens=None,
-            completion_tokens=None,
-        )
-
+        # Write RequestMetrics for streaming (derive from final data)
         from resource_server_async.endpoints import BaseEndpoint
+        from resource_server_async.logging import UsageTokens, write_request_metrics
+
+        write_request_metrics(
+            log_entry,
+            UsageTokens(response_time_sec=response_time, total_tokens=total_tokens),
+        )
 
         endpoint = await BaseEndpoint.load_adapter(
             log_entry.cluster, log_entry.framework, log_entry.model

@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from logging import getLogger
 from typing import Any
 
@@ -11,13 +12,19 @@ from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
 from inference_gateway.request_context import access_id_var
-from resource_server_async.schemas.db_models import AccessLogPydantic
+from resource_server_async.schemas.db_models import (
+    AccessLogPydantic,
+    RequestLogPydantic,
+)
 
 from .cache import should_throttle
 from .endpoints import BaseEndpoint
-from .models import AccessLog, BatchLog, RequestLog
+from .models import BatchLog, RequestLog
 
 logger = getLogger(__name__)
+_access_slog = getLogger("resource_server_async.structured.access_log")
+_request_slog = getLogger("resource_server_async.structured.request_log")
+_request_metrics_slog = getLogger("resource_server_async.structured.request_metrics")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +42,7 @@ def _parse_dict(raw: str) -> Any:
         return ast.literal_eval(raw)
 
 
-def extract_usage(request: RequestLog) -> UsageTokens:
+def extract_usage(request: RequestLogPydantic) -> UsageTokens:
     def _get_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
         value: dict[str, Any] | None = data.get(key)
         return value if isinstance(value, dict) else {}
@@ -44,7 +51,11 @@ def extract_usage(request: RequestLog) -> UsageTokens:
         value = data.get(key)
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
-    if request.access_log.status_code >= 300 or not request.result:
+    if (
+        not request.access_log
+        or request.access_log.status_code >= 300
+        or not request.result
+    ):
         return UsageTokens()
 
     try:
@@ -74,31 +85,114 @@ def extract_usage(request: RequestLog) -> UsageTokens:
     )
 
 
+def _write_access_log(
+    request: HttpRequest, response: HttpResponse | StreamingHttpResponse
+) -> AccessLogPydantic | None:
+    access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
+
+    if not access_log:
+        logger.debug("Missing request.access_log_data")
+        return None
+
+    access_log.timestamp_response = datetime.now(timezone.utc)
+    access_log.status_code = response.status_code
+
+    if response.status_code >= 400:
+        if isinstance(response, StreamingHttpResponse):
+            access_log.error = "<streaming response error>"
+        else:
+            access_log.error = response.content.decode(errors="ignore")
+
+    _access_slog.info(
+        "created",
+        extra={
+            **access_log.model_dump(mode="json", exclude={"user"}),
+            "user_id": access_log.user.id,
+        },
+    )
+    return access_log
+
+
+def _write_request_log(
+    request: HttpRequest,
+    response: HttpResponse | StreamingHttpResponse,
+    access_log: AccessLogPydantic,
+) -> RequestLogPydantic | None:
+    request_log: RequestLogPydantic | None = getattr(request, "request_log_data", None)
+
+    if not request_log:
+        return None
+
+    request_log.access_log = access_log
+    if response.status_code < 300:
+        if isinstance(response, StreamingHttpResponse):
+            request_log.result = "streaming_response_in_progress"
+        else:
+            request_log.result = response.content.decode(errors="ignore")
+
+    if request_log.timestamp_compute_response is None:
+        request_log.timestamp_compute_response = datetime.now(timezone.utc)
+
+    _request_slog.info(
+        "created",
+        extra={
+            **request_log.model_dump(mode="json", exclude={"access_log"}),
+            "access_log_id": request_log.access_log.id,
+        },
+    )
+    return request_log
+
+
+def write_request_metrics(
+    request: RequestLogPydantic | RequestLog, usage: UsageTokens
+) -> None:
+    if (
+        isinstance(usage.total_tokens, (int, float))
+        and isinstance(usage.response_time_sec, (int, float))
+        and usage.response_time_sec > 1e-9
+    ):
+        throughput_tokens_per_sec = usage.total_tokens / usage.response_time_sec
+    else:
+        throughput_tokens_per_sec = None
+
+    status_code = request.access_log.status_code if request.access_log else None
+
+    defaults = {
+        "cluster": request.cluster,
+        "framework": request.framework,
+        "model": request.model,
+        "status_code": status_code,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+        "response_time_sec": usage.response_time_sec,
+        "throughput_tokens_per_sec": throughput_tokens_per_sec,
+        "timestamp_compute_request": request.timestamp_compute_request,
+        "timestamp_compute_response": request.timestamp_compute_response,
+    }
+    _request_metrics_slog.info("upserted", extra={"request_id": request.id, **defaults})
+
+
 async def write_logs(
     request: HttpRequest, response: HttpResponse | StreamingHttpResponse
 ) -> None:
-    access_log = await AccessLog.create_from_response(request, response)
+    access_log = _write_access_log(request, response)
 
     if not access_log:
         logger.debug("Missing request.access_log_data")
         return
 
-    request_log = await RequestLog.create_from_response(request, response, access_log)
+    request_log = _write_request_log(request, response, access_log)
 
     if request_log is not None and not isinstance(response, StreamingHttpResponse):
         usage = extract_usage(request_log)
-        await request_log.create_or_update_metrics(
-            usage.response_time_sec,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
-        )
+        write_request_metrics(request_log, usage)
         endpoint = await BaseEndpoint.load_adapter(
             request_log.cluster, request_log.framework, request_log.model
         )
         endpoint.record_token_usage(access_log.user, int(usage.total_tokens or 0))
 
-    batch_log = await BatchLog.create_from_response(request, response, access_log)
+    batch_log = await BatchLog.create_from_response(request, response)
     if batch_log is not None:
         # Create BatchMetrics skeleton; later updates can fill tokens/throughput
         await batch_log.create_or_update_metrics(None, None, None, None)
