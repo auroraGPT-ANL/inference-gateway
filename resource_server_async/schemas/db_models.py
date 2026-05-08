@@ -116,10 +116,8 @@ class RequestLogPydantic(BaseModel):
         Call emit(response) to set the result before calling emit_metrics().
         Otherwise, uses the provided token usage data.
         """
-        if usage is None and self.result:
-            usage = extract_usage(self.result)
-        else:
-            usage = UsageTokens()
+        if usage is None:
+            usage = extract_usage(self.result) if self.result else UsageTokens()
 
         metrics = RequestMetricsPydantic(
             request_id=self.id,
