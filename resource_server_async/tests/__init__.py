@@ -19,6 +19,12 @@ import resource_server_async.tests.mock_utils as mock_utils
 from resource_server_async import api
 from resource_server_async.api import api as ninja_api
 from resource_server_async.endpoints import direct_api, globus_compute, metis
+from resource_server_async.logging import (
+    RequestContext,
+)
+from resource_server_async.logging import (
+    __request_context as _request_context_var,
+)
 
 # Overwrite log data initialization
 api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
@@ -276,6 +282,13 @@ class ResourceServerTestCase(TestCase):
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()
+
+    @override
+    def setUp(self):
+        super().setUp()
+        _request_context_var.set(
+            RequestContext(mock_utils.mock_initialize_access_log_data(None, None))
+        )
 
     @classmethod
     def template_test(cls, test_name, *args, **kwargs):
