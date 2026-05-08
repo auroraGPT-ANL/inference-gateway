@@ -23,7 +23,7 @@ from resource_server_async.logging import (
     RequestContext,
 )
 from resource_server_async.logging import (
-    __request_context as _request_context_var,
+    _request_context as _request_context_var,
 )
 
 # Overwrite log data initialization

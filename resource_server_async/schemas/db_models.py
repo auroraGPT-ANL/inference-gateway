@@ -35,7 +35,13 @@ class UserPydantic(BaseModel):
         """
         Emit user info to log
         """
-        _user_slog.info("authenticated", extra=self.model_dump(mode="json"))
+        _user_slog.info(
+            "authenticated",
+            extra={
+                **self.model_dump(mode="json", exclude={"name"}),
+                "user.name": self.name,
+            },
+        )
 
 
 class AccessLogPydantic(BaseModel):

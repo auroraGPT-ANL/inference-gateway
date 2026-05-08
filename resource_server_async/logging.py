@@ -28,7 +28,7 @@ class RequestContext:
     request_log: RequestLogPydantic | None = None
 
 
-__request_context: ContextVar[RequestContext] = ContextVar("__request_context")
+_request_context: ContextVar[RequestContext] = ContextVar("_request_context")
 
 
 def get_request_context() -> RequestContext:
@@ -38,7 +38,7 @@ def get_request_context() -> RequestContext:
     Raises LookupError if called outside of a request span wrapped by the
     AccessLogMiddleware.
     """
-    return __request_context.get()
+    return _request_context.get()
 
 
 def initialize_access_log(request: HttpRequest) -> AccessLogPydantic:
@@ -106,13 +106,13 @@ class AccessLogMiddleware:
         self, request: HttpRequest
     ) -> HttpResponse | StreamingHttpResponse:
 
-        token = __request_context.set(RequestContext(initialize_access_log(request)))
+        token = _request_context.set(RequestContext(initialize_access_log(request)))
 
         try:
             response = await self.get_response(request)
-            ctx_data = __request_context.get()
+            ctx_data = _request_context.get()
         finally:
-            __request_context.reset(token)
+            _request_context.reset(token)
 
         if should_skip_logging(ctx_data, request, response):
             return response
