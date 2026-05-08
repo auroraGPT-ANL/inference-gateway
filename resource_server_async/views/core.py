@@ -4,9 +4,8 @@ from django.http import HttpRequest
 from ninja import Router
 
 from ..clusters import BaseCluster
-from ..schemas import (
-    ListEndpointsResponse,
-)
+from ..models import Cluster, User
+from ..schemas import ListEndpointsResponse
 from ..schemas.auth import AuthedRequest
 from ..schemas.clusters import JobInfo, JobsByStatus
 from ..schemas.db_models import (
@@ -27,6 +26,38 @@ log = logging.getLogger(__name__)
 async def health_check(request: HttpRequest) -> dict[str, str]:
     """Lightweight health check endpoint - returns OK if API is responding."""
     return {"status": "ok"}
+
+
+# Status Check (GET) - No authentication required
+@router.get("/status", auth=None)
+async def status_check(request: HttpRequest) -> dict[str, bool]:
+    """Status check of publicly-available clusters - True if up, False if down."""
+
+    # Mock auth user with basic permissions
+    prefix = "ALCF-public-status-check"
+    mock_user_data = {
+        "id": f"{prefix}-id",
+        "name": f"{prefix}-name",
+        "username": f"{prefix}-username@no-domain.com",
+        "idp_id": f"{prefix}-idp-id",
+        "idp_name": f"{prefix}-idp-name",
+    }
+    user = User(**mock_user_data)
+    user_group_uuids = []
+
+    # Get list of all publicy-available clusters
+    authorized_clusters = [
+        c
+        async for db_cluster in Cluster.objects.all()
+        if (c := await BaseCluster.load_adapter(db_cluster.cluster_name))
+        and c.check_permission(user, user_group_uuids, raise_exc=False)
+    ]
+
+    # Build status
+    return {
+        cluster.cluster_name: not cluster.check_maintenance().is_under_maintenance
+        for cluster in authorized_clusters
+    }
 
 
 # Whoami (GET)
