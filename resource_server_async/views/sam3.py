@@ -39,7 +39,7 @@ async def sam3_infer(
     log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
-    endpoint.check_permission(request.auth, request.user_group_uuids)
+    endpoint.check_permission(request.auth)
 
     # Submit task
     data = payload.model_dump(exclude={"weights_dir_override"})
@@ -70,5 +70,5 @@ async def sam3_get_task_result(
     log.info(f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}")
 
     # Block access if the user is not allowed to use the endpoint
-    endpoint.check_permission(request.auth, request.user_group_uuids)
+    endpoint.check_permission(request.auth)
     return await endpoint.get_task_result(task_id)

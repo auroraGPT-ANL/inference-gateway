@@ -8,8 +8,8 @@ from httpx import HTTPError, TimeoutException
 from resource_server_async.clusters.direct_api import DirectAPICluster
 
 from ..errors import GetJobsError
-from ..models import User
 from ..schemas.clusters import JobInfo, JobsByStatus
+from ..schemas.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class MetisCluster(DirectAPICluster):
 
     # Get formatted cluster status
     @override
-    async def get_jobs(self, _auth: User | None) -> JobsByStatus:
+    async def get_jobs(self, _auth: UserPydantic | None) -> JobsByStatus:
         """Fetch and return cluster status. Can be overwritten to format output."""
 
         # Redis cache key

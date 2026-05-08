@@ -12,12 +12,13 @@ from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
 
 from ..auth import check_permission as auth_utils_check_permission
 from ..errors import ClusterNotFound, Unauthorized
-from ..models import Cluster, User
+from ..models import Cluster
 from ..schemas.clusters import (
     CheckMaintenanceResult,
     ClusterStatus,
     JobsByStatus,
 )
+from ..schemas.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -78,9 +79,7 @@ class BaseCluster(ABC):
         return CheckMaintenanceResult(is_under_maintenance=False, message="")
 
     # Check permission
-    def check_permission(
-        self, auth: User, user_group_uuids: List[str], *, raise_exc: bool = True
-    ) -> bool:
+    def check_permission(self, auth: UserPydantic, *, raise_exc: bool = True) -> bool:
         """
         Verify is the user is permitted to access this endpoint.
         If raise_exc is True, raises Unauthorized.
@@ -90,7 +89,7 @@ class BaseCluster(ABC):
         # Check permission
         try:
             auth_utils_check_permission(
-                auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains
+                auth, self.allowed_globus_groups, self.allowed_domains
             )
         except Unauthorized:
             if raise_exc:
@@ -103,7 +102,7 @@ class BaseCluster(ABC):
     # ---------------------
 
     @abstractmethod
-    async def get_jobs(self, auth: User) -> JobsByStatus:
+    async def get_jobs(self, auth: UserPydantic) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
         pass
 

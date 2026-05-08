@@ -6,17 +6,18 @@ from typing import Any, Iterable, Self, override
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.base import ModelBase
-from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
 
 from resource_server_async.schemas.batch import BatchStatus
 from resource_server_async.schemas.db_models import (
-    AccessLogPydantic,
     BatchLogPydantic,
 )
 from resource_server_async.schemas.endpoints import BatchStatusResult
+
+from .logging import RequestContext
+from .schemas.endpoints import SubmitBatchResult
 
 logger = getLogger(__name__)
 _batch_slog = getLogger("resource_server_async.structured.batch_log")
@@ -133,38 +134,6 @@ class AccessLog(models.Model):
             username = "Unauthorized"
         return f"<Access - {username} - {self.api_route} - {self.status_code}>"
 
-    @classmethod
-    async def create_from_response(
-        cls, request: HttpRequest, response: HttpResponse | StreamingHttpResponse
-    ) -> Self | None:
-        """
-        Create AccessLog DB record: used for BatchLog only.
-
-        This is no longer populated on every request; instead access logs are
-        simply written to stdout using the AccessLogMiddleware.
-
-        We have to retain this method for now, because the Batch services rely
-        on a JOIN from BatchLog-->AccessLog-->User to filter the batches that
-        belong to the client making each request.
-        """
-        access_log: AccessLogPydantic | None = getattr(request, "access_log_data", None)
-
-        if not access_log:
-            logger.debug("Missing request.access_log_data")
-            return None
-
-        access_log.timestamp_response = timezone.now()
-        access_log.status_code = response.status_code
-
-        if response.status_code >= 400:
-            if isinstance(response, StreamingHttpResponse):
-                access_log.error = "<streaming response error>"
-            else:
-                access_log.error = response.content.decode(errors="ignore")
-
-        obj = await cls.objects.acreate(**access_log.model_dump())
-        return obj
-
 
 # Request log model
 class RequestLog(models.Model):
@@ -224,14 +193,8 @@ class RequestLog(models.Model):
 class BatchLog(models.Model):
     # Unique request ID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Link to the access log tied to this request
-    access_log = models.OneToOneField(
-        AccessLog,
-        on_delete=models.PROTECT,
-        related_name="batch_log",  # reverse relation (e.g., access_log.batch_log)
-        db_index=True,
-    )
+    access_log_id = models.CharField(max_length=100, editable=False)
+    user_id = models.CharField(max_length=100)
 
     # What did the user request?
     input_file = models.CharField(max_length=500)
@@ -265,43 +228,39 @@ class BatchLog(models.Model):
         ]
 
     @classmethod
-    async def create_from_response(
+    async def create(
         cls,
-        request: HttpRequest,
-        response: HttpResponse | StreamingHttpResponse,
-    ) -> Self | None:
-
-        access_log = await AccessLog.create_from_response(request, response)
-        batch_log: BatchLogPydantic | None = getattr(request, "batch_log_data", None)
-
-        if not batch_log or not access_log:
-            return None
-
-        batch_log.access_log = access_log
-
-        if response.status_code < 300:
-            if isinstance(response, StreamingHttpResponse):
-                batch_log.result = "streaming_response_in_progress"
-            else:
-                batch_log.result = response.content.decode(errors="ignore")
-
-        obj = await cls.objects.acreate(**batch_log.model_dump())
-        _batch_slog.info(
-            "created",
-            extra={
-                **batch_log.model_dump(mode="json", exclude={"access_log"}),
-                "access_log_id": obj.access_log_id,
-            },
+        context: RequestContext,
+        submit_response: SubmitBatchResult,
+        cluster: str,
+        framework: str,
+        model: str,
+    ) -> Self:
+        obj = await cls.objects.acreate(
+            id=submit_response.batch_id,
+            access_log_id=context.access_log.id,
+            user_id=context.user.id if context.user else "",
+            input_file=submit_response.input_file,
+            output_folder_path=submit_response.output_folder_path,
+            cluster=cluster,
+            framework=framework,
+            model=model,
+            task_ids=submit_response.task_ids,
+            status=BatchStatus.pending,
+            in_progress_at=timezone.now(),
         )
+
+        batch_log = BatchLogPydantic.model_validate(obj)
+        _batch_slog.info("submitted-batch", extra=batch_log.model_dump(mode="json"))
         return obj
 
-    async def create_or_update_metrics(
+    async def log_metrics(
         self,
         total_tokens: int | None,
         num_responses: int | None,
         response_time_sec: float | None,
         throughput_tokens_per_sec: float | None,
-    ) -> "BatchMetrics":
+    ) -> None:
         defaults = {
             "cluster": self.cluster,
             "framework": self.framework,
@@ -313,11 +272,7 @@ class BatchLog(models.Model):
             "throughput_tokens_per_sec": throughput_tokens_per_sec,
             "completed_at": self.completed_at,
         }
-        obj, _ = await BatchMetrics.objects.aupdate_or_create(
-            batch=self, defaults=defaults
-        )
         _batch_metrics_slog.info("upserted", extra={"batch_id": self.id, **defaults})
-        return obj
 
     async def update(self, new_status: BatchStatusResult) -> None:
         status = new_status.status
@@ -356,7 +311,7 @@ class BatchLog(models.Model):
             except Exception:
                 pass
             else:
-                await self.create_or_update_metrics(
+                await self.log_metrics(
                     total_tokens=total_tokens,
                     num_responses=num_responses,
                     response_time_sec=response_time_sec,
@@ -364,18 +319,8 @@ class BatchLog(models.Model):
                 )
 
         await self.asave()
-
-        _batch_slog.info(
-            "updated",
-            extra={
-                "id": self.id,
-                "access_log_id": self.access_log_id,
-                "status": self.status,
-                "result": self.result,
-                "failed_at": self.failed_at,
-                "completed_at": self.completed_at,
-            },
-        )
+        batch_log = BatchLogPydantic.model_validate(self)
+        _batch_slog.info("updated", extra=batch_log.model_dump(mode="json"))
 
 
 # Request metrics model (1:1 with RequestLog)

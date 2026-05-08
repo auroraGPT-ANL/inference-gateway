@@ -4,7 +4,7 @@ from typing import Any
 
 from pythonjsonlogger.json import JsonFormatter
 
-from inference_gateway.request_context import access_id_var
+from resource_server_async.logging import get_request_context
 
 _STRUCTURED_PREFIX = "resource_server_async.structured."
 
@@ -39,9 +39,11 @@ class GatewayJsonFormatter(JsonFormatter):
         else:
             log_record["stream"] = _STREAM_MAP.get(record.name, "app")
 
-        acc_id = access_id_var.get(None)
-        if acc_id is not None:
-            log_record["access_id"] = acc_id
+        try:
+            context = get_request_context()
+            log_record["access_id"] = context.access_log.id
+        except LookupError:
+            pass
 
     @staticmethod
     def json_default(obj: Any) -> str:

@@ -9,6 +9,7 @@ from ..errors import (
     BatchNotFound,
     BatchOngoing,
 )
+from ..logging import get_request_context
 from ..models import BatchLog
 from ..schemas.auth import AuthedRequest
 from ..schemas.batch import (
@@ -35,8 +36,12 @@ async def post_batch_inference(
 ) -> SubmitBatchResult:
     """POST request to send a batch to Globus Compute endpoints."""
 
-    batch_response = await submit_batch(request, cluster_name, framework, batch_data)
-
+    context = get_request_context()
+    batch_response = await submit_batch(context, cluster_name, framework, batch_data)
+    context = get_request_context()
+    await BatchLog.create(
+        context, batch_response, cluster_name, framework, batch_data.model
+    )
     return batch_response
 
 
@@ -51,9 +56,7 @@ async def get_batch_list(
     batch_list = []
 
     # For each batch object owned by the user ...
-    async for batch in BatchLog.objects.filter(
-        access_log__user__username=request.auth.username
-    ).aiterator():
+    async for batch in BatchLog.objects.filter(user_id=request.auth.id).aiterator():
         # If the batch status needs to be revised ...
         if (
             batch.status
@@ -83,17 +86,12 @@ async def get_batch_list(
 async def get_batch_status(request: AuthedRequest, batch_id: str) -> str:
     """GET request to query status of an existing batch job."""
     try:
-        batch: BatchLog = await BatchLog.objects.select_related(
-            "access_log", "access_log__user"
-        ).aget(id=batch_id)
+        batch: BatchLog = await BatchLog.objects.aget(id=batch_id)
     except BatchLog.DoesNotExist:
         raise BatchNotFound(f"Batch {batch_id} does not exist")
 
     # Make sure user has permission to access this batch_id
-    if not (
-        batch.access_log.user
-        and request.auth.username == batch.access_log.user.username
-    ):
+    if not batch.user_id == request.auth.id:
         raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
     # Return status directly if batch already completed or failed
@@ -117,17 +115,12 @@ async def get_batch_result(request: AuthedRequest, batch_id: str) -> str:
     """GET request to recover result from an existing batch job."""
 
     try:
-        batch: BatchLog = await BatchLog.objects.select_related(
-            "access_log", "access_log__user"
-        ).aget(id=batch_id)
+        batch: BatchLog = await BatchLog.objects.aget(id=batch_id)
     except BatchLog.DoesNotExist:
         raise BatchNotFound(f"Batch {batch_id} does not exist")
 
     # Make sure user has permission to access this batch_id
-    if not (
-        batch.access_log.user
-        and request.auth.username == batch.access_log.user.username
-    ):
+    if not batch.user_id == request.auth.id:
         raise AccessDenied(f"Permission denied to Batch {batch_id}.")
 
     # Return status directly if batch already completed or failed

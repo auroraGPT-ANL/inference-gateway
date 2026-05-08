@@ -8,9 +8,7 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from resource_server_async.globus_utils import get_transfer_client
-from resource_server_async.schemas.auth import AuthedRequest
 from resource_server_async.schemas.db_models import (
-    BatchLogPydantic,
     RequestLogPydantic,
 )
 from resource_server_async.schemas.openai_chat_completions import (
@@ -30,13 +28,15 @@ from .errors import (
     UnsupportedEndpoint,
     UnsupportedFramework,
 )
-from .models import BatchLog, Cluster, Endpoint, User
+from .logging import RequestContext
+from .models import BatchLog, Cluster, Endpoint
 from .schemas import GlobusStagingAreaPrepared
 from .schemas.batch import (
     BatchStatus,
     BatchSubmit,
 )
 from .schemas.clusters import JobsByStatus
+from .schemas.db_models import UserPydantic
 from .schemas.endpoints import (
     ClusterSummary,
     FrameworkSummary,
@@ -53,11 +53,8 @@ OpenAIRequestPayload = (
 logger = logging.getLogger(__name__)
 
 
-async def get_list_endpoints_data(
-    user: User, user_group_uuids: list[str]
-) -> ListEndpointsResponse:
+async def get_list_endpoints_data(user: UserPydantic) -> ListEndpointsResponse:
     """Prepare and return data for the list of available frameworks and models."""
-
     by_cluster: dict[str, ClusterSummary] = {}
 
     # Get list of all clusters
@@ -66,7 +63,7 @@ async def get_list_endpoints_data(
         c
         for db_cluster in db_clusters
         if (c := await BaseCluster.load_adapter(db_cluster.cluster_name))
-        and c.check_permission(user, user_group_uuids, raise_exc=False)
+        and c.check_permission(user, raise_exc=False)
     ]
 
     for cluster in authorized_clusters:
@@ -79,7 +76,7 @@ async def get_list_endpoints_data(
             )
 
             # If the user is allowed to see this endpoint ...
-            if endpoint.check_permission(user, user_group_uuids, raise_exc=False):
+            if endpoint.check_permission(user, raise_exc=False):
                 # Add framework if needed
                 if endpoint.framework not in frameworks:
                     frameworks[endpoint.framework] = FrameworkSummary(
@@ -163,7 +160,7 @@ def prep_globus_staging_area(
 
 
 async def _should_show(
-    cluster: str, framework: str, model: str, user: User, user_group_uuids: list[str]
+    cluster: str, framework: str, model: str, user: UserPydantic
 ) -> bool:
     """
     Return whether user is authorized to see this endpoint.
@@ -172,11 +169,11 @@ async def _should_show(
         endpoint = await BaseEndpoint.load_adapter(cluster, framework, model)
     except EndpointNotFound:
         return False
-    return endpoint.check_permission(user, user_group_uuids, raise_exc=False)
+    return endpoint.check_permission(user, raise_exc=False)
 
 
 async def filter_jobs_for_user(
-    cluster: BaseCluster, user: User, user_group_uuids: list[str]
+    cluster: BaseCluster, user: UserPydantic
 ) -> JobsByStatus:
     """
     Report jobs from the given cluster, grouped by status and filtered according
@@ -203,9 +200,7 @@ async def filter_jobs_for_user(
             visible_models = [
                 model
                 for model in models
-                if await _should_show(
-                    block.Cluster, block.Framework, model, user, user_group_uuids
-                )
+                if await _should_show(block.Cluster, block.Framework, model, user)
             ]
 
             # Remove block if no model should be visible
@@ -220,7 +215,7 @@ async def filter_jobs_for_user(
 
 
 async def submit_openai_inference_request(
-    request: AuthedRequest,
+    context: RequestContext,
     cluster_name: str,
     framework: str,
     payload: OpenAIRequestPayload,
@@ -236,6 +231,8 @@ async def submit_openai_inference_request(
         prompt = payload.input
     else:
         raise ValueError(f"Invalid {payload=}")
+
+    assert context.user is not None
 
     # Get cluster wrapper from database
     cluster = await BaseCluster.load_adapter(cluster_name)
@@ -259,14 +256,14 @@ async def submit_openai_inference_request(
         cluster.cluster_name, framework, payload.model
     )
     logger.debug(
-        f"endpoint_slug: {endpoint.endpoint_slug} - user: {request.auth.username}"
+        f"endpoint_slug: {endpoint.endpoint_slug} - user: {context.user.username}"
     )
 
     # Block access if the user is not allowed to use the endpoint
-    endpoint.check_permission(request.auth, request.user_group_uuids)
+    endpoint.check_permission(context.user)
 
     # Return 429 status if TPM limits are exceeded
-    tpm_check = endpoint.check_token_rate_limit(request.auth)
+    tpm_check = endpoint.check_token_rate_limit(context.user)
     if not tpm_check.allow:
         logger.info(f"{endpoint.endpoint_slug} rate-limited: {tpm_check}")
         raise TooManyRequests(
@@ -278,13 +275,15 @@ async def submit_openai_inference_request(
         )
 
     # Initialize the request log
-    request.request_log_data = RequestLogPydantic(
+    context.request_log = RequestLogPydantic(
         id=str(uuid.uuid4()),
+        access_log_id=context.access_log.id,
+        user_id=context.user.id,
         cluster=cluster.cluster_name,
         framework=framework,
+        model=payload.model,
         openai_endpoint=payload.openai_endpoint,
         prompt=json.dumps(prompt),
-        model=payload.model,
         timestamp_compute_request=timezone.now(),
     )
 
@@ -293,15 +292,13 @@ async def submit_openai_inference_request(
     # Submit task
     task_response: SubmitStreamingTaskResponse | SubmitTaskResult
     if stream:
-        task_response = await endpoint.submit_streaming_task(
-            data, request.request_log_data.id
-        )
+        task_response = await endpoint.submit_streaming_task(data)
     else:
         task_response = await endpoint.submit_task(data)
 
     # Update request log data
-    request.request_log_data.task_uuid = task_response.task_id
-    request.request_log_data.timestamp_compute_response = timezone.now()
+    context.request_log.task_uuid = task_response.task_id
+    context.request_log.timestamp_compute_response = timezone.now()
 
     # If streaming, meaning that the StreamingHttpResponse object will be returned directly ...
     if isinstance(task_response, SubmitStreamingTaskResponse):
@@ -313,8 +310,10 @@ async def submit_openai_inference_request(
 
 
 async def submit_batch(
-    request: AuthedRequest, cluster_name: str, framework: str, batch_data: BatchSubmit
+    context: RequestContext, cluster_name: str, framework: str, batch_data: BatchSubmit
 ) -> SubmitBatchResult:
+    assert context.user is not None
+
     # Get cluster wrapper from database
     cluster = await BaseCluster.load_adapter(cluster_name)
 
@@ -338,11 +337,11 @@ async def submit_batch(
         )
 
     # Block access if the user is not allowed to use the endpoint
-    endpoint.check_permission(request.auth, request.user_group_uuids)
+    endpoint.check_permission(context.user)
 
     # Reject request if the allowed quota per user would be exceeded
     number_of_active_batches = await BatchLog.objects.filter(
-        access_log__user__username=request.auth.username,
+        user_id=context.user.id,
         status__in=["pending", "running"],
     ).acount()
 
@@ -354,7 +353,7 @@ async def submit_batch(
     # Error if an ongoing batch already exists with the same input_file for the same user
     existing_batch = (
         await BatchLog.objects.filter(
-            access_log__user__username=request.auth.username,
+            user_id=context.user.id,
             input_file=batch_data.input_file,
         )
         .exclude(
@@ -373,18 +372,4 @@ async def submit_batch(
         )
 
     # Submit batch
-    batch_response = await endpoint.submit_batch(batch_data, request.auth.username)
-
-    # Create batch log data
-    request.batch_log_data = BatchLogPydantic(
-        id=batch_response.batch_id,
-        task_ids=batch_response.task_ids,
-        cluster=cluster.cluster_name,
-        framework=framework,
-        model=batch_data.model,
-        input_file=batch_data.input_file,
-        output_folder_path=batch_data.output_folder_path,
-        status=batch_response.status,
-        in_progress_at=timezone.now(),
-    )
-    return batch_response
+    return await endpoint.submit_batch(batch_data, context.user.username)

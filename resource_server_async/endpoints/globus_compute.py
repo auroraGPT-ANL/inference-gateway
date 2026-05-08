@@ -10,7 +10,6 @@ from globus_compute_sdk import Client, Executor
 from globus_compute_sdk.errors import TaskPending as GlobusTaskPending
 from pydantic import BaseModel
 
-from inference_gateway.request_context import request_var
 from resource_server_async import globus_utils
 from resource_server_async.cache import (
     cache_item,
@@ -32,7 +31,8 @@ from resource_server_async.streaming import (
 )
 
 from ..errors import BatchNotFound, EndpointError, TaskPending
-from ..models import BatchLog, User
+from ..logging import get_request_context
+from ..models import BatchLog
 from ..schemas.batch import BatchStatus, BatchSubmit
 from ..schemas.endpoints import (
     BatchStatusResult,
@@ -252,7 +252,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
     # Submit streaming task
     @override
     async def submit_streaming_task(
-        self, data: dict[str, Any], request_log_id: str
+        self, data: dict[str, Any]
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
@@ -304,19 +304,25 @@ class GlobusComputeEndpoint(BaseEndpoint):
         cache_key = f"endpoint_triggered:{self.endpoint_slug}"
         cache_item(cache_key, True, ttl=600)
 
+        try:
+            context = get_request_context()
+        except LookupError:
+            context = None
+
         # Start background processing for metrics collection (fire and forget)
-        user: User | None = getattr(request_var.get(), "auth", None)
-        if user:
+        if context is not None:
+            original_prompt = (
+                extract_prompt(data["model_params"])
+                if data.get("model_params")
+                else None
+            )
             asyncio.create_task(
                 process_streaming_completion_async(
                     task_uuid,
                     stream_task_id,
-                    request_log_id,
-                    user,
+                    context,
                     streaming_start_time,
-                    extract_prompt(data["model_params"])
-                    if data.get("model_params")
-                    else None,
+                    original_prompt,
                 )
             )
 
@@ -538,6 +544,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
             input_file=batch_data.input_file,
             task_ids=globus_task_uuids,
             status=BatchStatus.pending,
+            output_folder_path=batch_data.output_folder_path,
         )
 
     # Get batch status

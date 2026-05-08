@@ -40,6 +40,7 @@ class SubmitStreamingTaskResponse:
 class SubmitBatchResult(BaseModel):
     batch_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     input_file: str
+    output_folder_path: str | None = None
     task_ids: str | None = None
     status: BatchStatus = Field(default=BatchStatus.failed)
 

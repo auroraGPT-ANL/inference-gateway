@@ -10,8 +10,9 @@ from resource_server_async import globus_utils
 from resource_server_async.clusters.cluster import BaseCluster
 
 from ..errors import EndpointError, GetJobsError
-from ..models import Endpoint, User
+from ..models import Endpoint
 from ..schemas.clusters import JobsByStatus
+from ..schemas.db_models import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class GlobusComputeCluster(BaseCluster):
         )
 
     # Get jobs
-    async def get_jobs(self, auth: User) -> JobsByStatus:
+    async def get_jobs(self, auth: UserPydantic) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key

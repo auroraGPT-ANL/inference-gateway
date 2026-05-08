@@ -1,29 +1,23 @@
 import logging
 import uuid
 
-from cachetools import TTLCache
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
-from django.utils import timezone
 from ninja import NinjaAPI
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle, BaseThrottle
 
-from inference_gateway.request_context import access_id_var
 from resource_server_async.auth import validate_access_token
-from resource_server_async.models import User
-from resource_server_async.schemas.db_models import (
-    AccessLogPydantic,
-)
+from resource_server_async.schemas.db_models import UserPydantic
 
 from .errors import BaseError, TaskPending
+from .logging import get_request_context
 from .views import router
 
 logger = logging.getLogger(__name__)
-
-_user_cache: TTLCache[str, User] = TTLCache(maxsize=1024, ttl=30)
 
 
 # -------------------------------------
@@ -59,10 +53,10 @@ if not settings.RUNNING_AUTOMATED_TEST_SUITE:
 # Global authorization check that applies to all API routes
 class GlobalAuth(HttpBearer):
     # Django User class to populate request.user
-    RequestLightWeigthUser = get_user_model()
+    RequestLightWeightUser = get_user_model()
 
     # Custom error message if Authorization headers is missing
-    async def __call__(self, request: HttpRequest) -> User | None:
+    async def __call__(self, request: HttpRequest) -> UserPydantic:
         auth = request.headers.get("Authorization")
         if not auth:
             raise HttpError(
@@ -74,74 +68,33 @@ class GlobalAuth(HttpBearer):
         )  # Request is the object being used by the validate_access_token function
 
     # Auth check
-    async def authenticate(self, request: HttpRequest, token: str | None) -> User:
-        # Initialize the access log data for the database entry
-        access_log_data = self.__initialize_access_log_data(request)
-        request.access_log_data = access_log_data  # type: ignore[attr-defined]
-
+    async def authenticate(
+        self, request: HttpRequest, token: str | None
+    ) -> UserPydantic:
         # Introspect and validate the access token
         # Raises Unauthorized (HTTP 401) if authentication fails:
         atv_response = validate_access_token(request)
 
-        # Add whether the access token got granted because of a special Globus Groups membership
-        access_log_data.authorized_groups = atv_response.idp_group_overlap_str
+        ctx = get_request_context()
 
-        # Create a new database entry for the user (or get existing entry if already exist)
-        user = _user_cache.get(atv_response.user.id)
-        if user is None:
-            user, created = await User.objects.aget_or_create(
-                id=atv_response.user.id,
-                defaults={
-                    "name": atv_response.user.name,
-                    "username": atv_response.user.username,
-                    "idp_id": atv_response.user.idp_id,
-                    "idp_name": atv_response.user.idp_name,
-                    "auth_service": atv_response.user.auth_service,
-                },
-            )
-            _user_cache[atv_response.user.id] = user
+        # Add whether the access token got granted because of a special Globus Groups membership
+        ctx.access_log.authorized_groups = atv_response.idp_group_overlap_str
 
         # Add user database object to the access log pydantic data
-        access_log_data.user = user
-
-        # Add info to the request object
-        request.user_group_uuids = atv_response.user_group_uuids  # type: ignore[attr-defined]
+        ctx.user = atv_response.user
 
         # Add User object to request so that Ninja throttle can be applied per authenticated user (AuthRateThrottle)
-        request.user = self.RequestLightWeigthUser(
+        request.user = self.RequestLightWeightUser(
             id=atv_response.user.id,
             username=atv_response.user.username,
             is_superuser=False,
         )
 
-        # Make the user database object accessible through the request.auth attribute
-        return user
+        if cache.add(f"authed_user:{ctx.user.id}", "", timeout=120):
+            ctx.user.emit()
 
-    # Initialize access log data
-    def __initialize_access_log_data(self, request: HttpRequest) -> AccessLogPydantic:
-        """Return initial state of an AccessLogPydantic entry"""
-
-        # Extract the origin IP address
-        origin_ip = request.META.get("HTTP_X_FORWARDED_FOR")
-        if origin_ip is None:
-            origin_ip = request.META.get("REMOTE_ADDR")
-
-        # Remove duplicate if any
-        if origin_ip:
-            ip_list = [ip.strip() for ip in origin_ip.split(",")]
-            origin_ip = ", ".join(set(ip_list))
-
-        # Return data initialization (without a user)
-        # Take Access ID from request-local contextvar
-        # initialized in middleware.
-        # Fallback to locally-generated uuid if middleware disabled:
-        return AccessLogPydantic(
-            id=access_id_var.get() or str(uuid.uuid4()),
-            user=None,
-            timestamp_request=timezone.now(),
-            api_route=request.path_info,
-            origin_ip=origin_ip,
-        )
+        # Makes the user accessible through the request.auth attribute:
+        return ctx.user
 
 
 # Apply the authorization requirement to all routes

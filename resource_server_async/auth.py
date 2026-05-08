@@ -2,7 +2,7 @@
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List
 
 import globus_sdk
@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.http import HttpRequest
 
 from resource_server_async.errors import Unauthorized
-from resource_server_async.models import AuthService, User
+from resource_server_async.models import AuthService
 from resource_server_async.schemas.auth import (
     GlobusActiveIntrospectResponse,
     GlobusIntrospectResponse,
@@ -30,7 +30,6 @@ class ATVResponse:
     """
 
     user: UserPydantic
-    user_group_uuids: list[str] = field(default_factory=list)
     idp_group_overlap_str: str | None = None
 
 
@@ -466,15 +465,13 @@ def validate_access_token(request: HttpRequest) -> ATVResponse:
     log.debug(f"{user.name} requesting {introspection.token_data['scope']}")
     return ATVResponse(
         user=user,
-        user_group_uuids=introspection.user_groups,
         idp_group_overlap_str=idp_group_overlap_str,
     )
 
 
 # Check permission
 def check_permission(
-    auth: User,
-    user_group_uuids: list[str],
+    auth: UserPydantic,
     allowed_globus_groups: list[str] | None,
     allowed_domains: list[str] | None,
 ) -> None:
@@ -485,7 +482,7 @@ def check_permission(
 
     # Look at Globus Group permissions
     if allowed_globus_groups:
-        if len(set(user_group_uuids) & set(allowed_globus_groups)) == 0:
+        if len(set(auth.user_group_uuids) & set(allowed_globus_groups)) == 0:
             raise Unauthorized("Permission denied due to Globus Group restrictions.")
 
     # Extract user's domain from the IdP used during authentication

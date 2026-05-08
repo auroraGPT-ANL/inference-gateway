@@ -63,23 +63,17 @@ async def status_check(request: HttpRequest) -> dict[str, bool]:
 # Whoami (GET)
 @router.get("/whoami", response=UserPydantic)
 async def whoami(request: AuthedRequest) -> UserPydantic:
-    """GET basic user information from access token, or error message otherwise."""
-    return UserPydantic(
-        id=request.auth.id,
-        name=request.auth.name,
-        username=request.auth.username,
-        user_group_uuids=request.user_group_uuids,
-        idp_id=request.auth.idp_id,
-        idp_name=request.auth.idp_name,
-        auth_service=request.auth.auth_service,
-    )
+    """
+    GET basic user information from access token, or error message otherwise.
+    """
+    return request.auth
 
 
 # List Endpoints (GET)
 @router.get("/list-endpoints", response=ListEndpointsResponse)
 async def get_list_endpoints(request: AuthedRequest) -> ListEndpointsResponse:
     """GET request to list the available frameworks and models."""
-    return await get_list_endpoints_data(request.auth, request.user_group_uuids)
+    return await get_list_endpoints_data(request.auth)
 
 
 # List running and queue models (GET)
@@ -90,13 +84,11 @@ async def get_jobs(request: AuthedRequest, cluster_name: str) -> JobsByStatus:
     cluster = await BaseCluster.load_adapter(cluster_name)
 
     # Make sure the user is authorized to see this cluster
-    cluster.check_permission(request.auth, request.user_group_uuids)
+    cluster.check_permission(request.auth)
 
     # If the cluster is under maintenance, report all jobs stopped:
     if cluster.check_maintenance().is_under_maintenance:
-        all_endpoints = await get_list_endpoints_data(
-            request.auth, request.user_group_uuids
-        )
+        all_endpoints = await get_list_endpoints_data(request.auth)
         cluster_info = all_endpoints.clusters.get(cluster.cluster_name)
         frameworks = cluster_info.frameworks if cluster_info else {}
 
@@ -108,6 +100,4 @@ async def get_jobs(request: AuthedRequest, cluster_name: str) -> JobsByStatus:
             ]
         )
     else:
-        return await filter_jobs_for_user(
-            cluster, request.auth, request.user_group_uuids
-        )
+        return await filter_jobs_for_user(cluster, request.auth)

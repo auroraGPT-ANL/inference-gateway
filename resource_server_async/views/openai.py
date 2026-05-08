@@ -3,6 +3,7 @@ from typing import Any
 
 from ninja import Router
 
+from ..logging import get_request_context
 from ..schemas.auth import AuthedRequest
 from ..schemas.openai_chat_completions import (
     OpenAIChatCompletionsPydantic,
@@ -25,7 +26,7 @@ async def create_chat_completion(
     payload: OpenAIChatCompletionsPydantic,
 ) -> Any:
     return await submit_openai_inference_request(
-        request, cluster_name, framework, payload
+        get_request_context(), cluster_name, framework, payload
     )
 
 
@@ -37,7 +38,7 @@ async def create_completion(
     payload: OpenAICompletionsPydantic,
 ) -> Any:
     return await submit_openai_inference_request(
-        request, cluster_name, framework, payload
+        get_request_context(), cluster_name, framework, payload
     )
 
 
@@ -49,5 +50,5 @@ async def create_embedding(
     payload: OpenAIEmbeddingsPydantic,
 ) -> Any:
     return await submit_openai_inference_request(
-        request, cluster_name, framework, payload
+        get_request_context(), cluster_name, framework, payload
     )

@@ -1,7 +1,7 @@
 import ast
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, List, Type
+from typing import Any, Type
 
 from cachetools import TTLCache
 from django.forms.models import model_to_dict
@@ -16,8 +16,9 @@ from ..errors import (
     EndpointNotFound,
     Unauthorized,
 )
-from ..models import BatchLog, Endpoint, User
+from ..models import BatchLog, Endpoint
 from ..schemas.batch import BatchSubmit
+from ..schemas.db_models import UserPydantic
 from ..schemas.endpoints import (
     BatchStatusResult,
     SubmitBatchResult,
@@ -59,9 +60,7 @@ class BaseEndpoint(ABC):
         )
 
     # Check permission
-    def check_permission(
-        self, auth: User, user_group_uuids: List[str], *, raise_exc: bool = True
-    ) -> bool:
+    def check_permission(self, auth: UserPydantic, *, raise_exc: bool = True) -> bool:
         """
         Verify is the user is permitted to access this endpoint.
         If raise_exc is True, raises Unauthorized.
@@ -70,7 +69,7 @@ class BaseEndpoint(ABC):
 
         try:
             auth_utils_check_permission(
-                auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains
+                auth, self.allowed_globus_groups, self.allowed_domains
             )
         except Unauthorized:
             if raise_exc:
@@ -79,16 +78,15 @@ class BaseEndpoint(ABC):
 
         return True
 
-    def check_token_rate_limit(self, auth: User) -> TokenLimiterCheck:
+    def check_token_rate_limit(self, auth: UserPydantic) -> TokenLimiterCheck:
         if self.__token_limiter is None:
             return TokenLimiterCheck(True, 0, 0, 0, 0)
         return self.__token_limiter.check(auth.id)
 
-    def record_token_usage(self, auth: User | None, tokens: int) -> None:
+    def record_token_usage(self, user_id: str, tokens: int) -> None:
         if self.__token_limiter is None:
             return
 
-        user_id = auth.id if auth is not None else None
         self.__token_limiter.record(user_id, tokens)
 
     # Mandatory definitions
@@ -101,7 +99,7 @@ class BaseEndpoint(ABC):
 
     @abstractmethod
     async def submit_streaming_task(
-        self, data: dict[str, Any], request_log_id: str
+        self, data: dict[str, Any]
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
         pass

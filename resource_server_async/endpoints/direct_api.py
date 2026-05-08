@@ -7,7 +7,6 @@ from typing import Any, AsyncGenerator, TypedDict
 
 import httpx
 from django.http import StreamingHttpResponse
-from django.utils import timezone
 from pydantic import BaseModel
 
 from resource_server_async.endpoints.endpoint import (
@@ -17,6 +16,7 @@ from resource_server_async.httpx_client import AsyncHttpClient
 from resource_server_async.streaming import create_streaming_response_headers
 
 from ..errors import EndpointError
+from ..logging import RequestContext, get_request_context
 from ..schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
@@ -111,7 +111,7 @@ class DirectAPIEndpoint(BaseEndpoint):
 
     # Call stream API
     async def submit_streaming_task(
-        self, data: dict[str, Any], request_log_id: str
+        self, data: dict[str, Any]
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
@@ -172,9 +172,11 @@ class DirectAPIEndpoint(BaseEndpoint):
                 yield f"data: {json.dumps(error_chunk)}\n\n"
                 yield "data: [DONE]\n\n"
 
-        asyncio.create_task(
-            self.__update_streaming_log(request_log_id, streaming_state)
-        )
+        try:
+            context = get_request_context()
+            asyncio.create_task(self.__update_streaming_log(context, streaming_state))
+        except LookupError:
+            pass
 
         # Create streaming response
         response = StreamingHttpResponse(
@@ -232,9 +234,9 @@ class DirectAPIEndpoint(BaseEndpoint):
 
     # Update streaming log
     async def __update_streaming_log(
-        self, request_log_id: str, streaming_state: StreamingState
+        self, context: RequestContext, streaming_state: StreamingState
     ) -> None:
-        """Background task to update RequestLog after streaming completes."""
+        """Background task to log after streaming completes."""
         try:
             # Wait for completion (efficient polling with timeout)
             max_wait = 600  # 10 minutes
@@ -266,10 +268,8 @@ class DirectAPIEndpoint(BaseEndpoint):
                     f"Metis streaming completed for {self.endpoint_slug}: {total_chunks} chunks in {duration:.2f}s"
                 )
 
-            from resource_server_async.logging import update_request_log
-
-            timestamp_compute_response = timezone.now()
-            update_request_log(request_log_id, result, timestamp_compute_response)
+            if context.request_log:
+                context.request_log.emit(result, status_code=None)
 
         # Log error if something went wrong
         except Exception as e:

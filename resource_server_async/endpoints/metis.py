@@ -99,7 +99,7 @@ class MetisEndpoint(DirectAPIEndpoint):
 
     # Submit streaming task
     async def submit_streaming_task(
-        self, data: dict[str, Any], request_log_id: str
+        self, data: dict[str, Any]
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
@@ -119,4 +119,4 @@ class MetisEndpoint(DirectAPIEndpoint):
         log.info(f"Making Metis API call for model {self.model} (stream=True)")
 
         # Send streaming request to Metis using parent submit_task
-        return await super().submit_streaming_task(api_request_data, request_log_id)
+        return await super().submit_streaming_task(api_request_data)
