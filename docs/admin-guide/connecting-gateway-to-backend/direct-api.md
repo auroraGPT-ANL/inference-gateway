@@ -24,7 +24,7 @@ You can simply reuse the `DirectAPIEndpoint` endpoint adaptor and add your entri
 }
 ```
 
-Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names. 
+Here, `YOUR_MODEL_70B_API_KEY` is an environment variable that includes the actual API key. Such variable can have arbitrary names.
 
 Make sure that `endpoint_slug` has the following format: `cluster-framework-model` (with no `/` or `.` character, all lower case). For example, the `meta-llama/Meta-Llama-3.1-70B-Instruct` model hosted on `my-cluster` and served with `my-framework` should have the following slug: `my-cluster-my-framework-meta-llamameta-llama-31-70b-instruct`. You can also use the Django `slugify` tool.
 ```python
@@ -39,7 +39,7 @@ from resource_server_async.endpoints.endpoint import BaseEndpoint, SubmitTaskRes
 
 class CustomEndpoint(DirectAPIEndpoint):
     """Custom endpoint implementation of DirectAPIEndpoint."""
-    
+
     # Class initialization
     def __init__(self,
         id: str,
@@ -48,6 +48,8 @@ class CustomEndpoint(DirectAPIEndpoint):
         framework: str,
         model: str,
         endpoint_adapter: str,
+        tpm_model: int,
+        tpm_user: int,
         allowed_globus_groups: List[str] = None,
         allowed_domains: List[str] = None,
         config: dict = None
@@ -59,6 +61,8 @@ class CustomEndpoint(DirectAPIEndpoint):
             framework,
             model,
             endpoint_adapter,
+            tpm_model,
+            tpm_user,
             allowed_globus_groups,
             allowed_domains,
             config
@@ -75,14 +79,14 @@ class CustomEndpoint(DirectAPIEndpoint):
                 error_message=response.error_message,
                 error_code=response.error_code
             )
-            
+
         # Modify input data to be compliant with the backend API
         api_request_data = {**data["model_params"]}
         api_request_data["stream"] = False
-            
+
         # Additional logging
         log.info(f"Making API call to model {self.model}")
-            
+
         # Call sumbit_task function of the parent DirectAPIEndpoint class
         return await super().submit_task(api_request_data)
 ```
@@ -117,7 +121,7 @@ from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse
 
 class CustomCluster(BaseCluster):
     """Custom implementation of BaseCluster."""
-    
+
     # Class initialization
     def __init__(self,
         id: str,
@@ -155,7 +159,7 @@ class CustomCluster(BaseCluster):
             return GetJobsResponse(jobs=cluster_status)
         except Exception as e:
             return GetJobsResponse(
-                error_message=f"Error: Could not generate GetJobsResponse: {e}", 
+                error_message=f"Error: Could not generate GetJobsResponse: {e}",
                 error_code=500
             )
 ```

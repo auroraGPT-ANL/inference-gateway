@@ -25,7 +25,7 @@
             "model": "Your-Model-120B",
             "endpoint_adapter": "resource_server_async.endpoints.direct_api.DirectAPIEndpoint",
             "config": {
-                "api_url": "https://your-targetted-api.com/v1/your-model/chat/completions",
+                "api_url": "http://127.0.0.1:8080",
                 "api_key_env_name": "YOUR_MODEL_120B_API_KEY"
             }
         }

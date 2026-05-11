@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import Any
 
 from openai import OpenAI
 
@@ -6,7 +7,7 @@ from .resource import ClientResource
 
 
 class ClusterResource(ClientResource):
-    def get_jobs(self) -> None:
+    def get_jobs(self) -> Any:
         resp = self._client.get(f"/{self.name}/jobs")
         resp.raise_for_status()
         return resp.json()

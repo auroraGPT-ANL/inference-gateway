@@ -13,12 +13,18 @@ from django.core.management import call_command
 from django.test import TestCase
 from ninja.testing import TestAsyncClient
 
+import resource_server_async.auth as auth
+import resource_server_async.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
-import utils.auth_utils as auth_utils
-import utils.globus_utils as globus_utils
 from resource_server_async import api
-from resource_server_async.api import router
+from resource_server_async.api import api as ninja_api
 from resource_server_async.endpoints import direct_api, globus_compute, metis
+from resource_server_async.logging import (
+    RequestContext,
+)
+from resource_server_async.logging import (
+    _request_context as _request_context_var,
+)
 
 # Overwrite log data initialization
 api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
@@ -26,12 +32,12 @@ api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
 )
 
 # Overwrite Globus SDK classes and functions
-auth_utils.get_globus_client = mock_utils.get_globus_client
+auth.get_globus_client = mock_utils.get_globus_client
 globus_utils.get_compute_client_from_globus_app = (
     mock_utils.get_compute_client_from_globus_app
 )
 globus_utils.get_compute_executor = mock_utils.get_compute_executor
-auth_utils.introspect_token = mock_utils.introspect_token
+auth.introspect_token = mock_utils.introspect_token
 
 # Overwrite future
 asyncio.wrap_future = mock_utils.wrap_future
@@ -79,12 +85,20 @@ PREMIUM_HEADERS = mock_utils.get_mock_headers(
     access_token=ACTIVE_PREMIUM_TOKEN, bearer=True
 )
 
+# Import views to trigger route registration on the Ninja API/router
 # Create request Django Ninja test client instance
+# Skip Ninja's namespace registry check — Django's URL loading already registered
+# the NinjaAPI namespace, so TestAsyncClient(api) would hit a false duplicate.
+import os as _os
+
+from resource_server_async import views as _views  # noqa: E402, F401
+
+_os.environ["NINJA_SKIP_REGISTRY"] = "true"
 KWARGS = {"content_type": "application/json"}
-CLIENT = TestAsyncClient(router)
+CLIENT = TestAsyncClient(ninja_api)
 
 # Load valid test input data (OpenAI format)
-base_path = "utils/tests/json"
+base_path = "resource_server_async/tests/json"
 VALID_PARAMS = {}
 with open(f"{base_path}/valid_completions.json") as json_file:
     VALID_PARAMS["completions"] = json.load(json_file)
@@ -142,7 +156,7 @@ def get_endpoint_urls(endpoint):
     Get endpoint URLs from `ALLOWED_OPENAI_ENDPOINTS`.
     """
     return {
-        openai_endpoint: f"/{endpoint['cluster']}/{endpoint['framework']}/v1/{openai_endpoint}/"
+        openai_endpoint: f"/{endpoint['cluster']}/{endpoint['framework']}/v1/{openai_endpoint}"
         for openai_endpoint in ALLOWED_OPENAI_ENDPOINTS[endpoint["cluster"]]
     }
 
@@ -157,7 +171,7 @@ def get_wrong_endpoint_urls():
     endpoint = ALLOWED_OPENAI_ENDPOINTS[cluster][0]
 
     return [
-        f"/{c}/{f}/v1/{e}/"
+        f"/{c}/{f}/v1/{e}"
         for c, f, e in (
             ("unsupported-cluster", framework, endpoint),
             (cluster, "unsupported-framework", endpoint),
@@ -268,6 +282,13 @@ class ResourceServerTestCase(TestCase):
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()
+
+    @override
+    def setUp(self):
+        super().setUp()
+        _request_context_var.set(
+            RequestContext(mock_utils.mock_initialize_access_log_data(None, None))
+        )
 
     @classmethod
     def template_test(cls, test_name, *args, **kwargs):

@@ -362,14 +362,14 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 # Cluster-filtered query using INNER JOIN - only count requests that reached this cluster
                 cursor.execute(
                     """
-                    SELECT 
+                    SELECT
                         COUNT(*)::bigint AS total_all_requests,
                         COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful_requests,
                         COUNT(*) FILTER (WHERE al.status_code IN (401, 403)) AS auth_failures,
                         COUNT(*) FILTER (WHERE al.status_code >= 300 AND al.status_code NOT IN (401, 403)) AS failed_inference,
                         (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm WHERE rm.cluster = %s) AS total_tokens
                     FROM resource_server_async_accesslog al
-                    INNER JOIN resource_server_async_requestlog rl 
+                    INNER JOIN resource_server_async_requestlog rl
                         ON rl.access_log_id = al.id AND rl.cluster = %s
                     """,
                     [cluster.lower(), cluster.lower()],
@@ -379,15 +379,15 @@ def get_realtime_metrics(request, cluster: str = "all"):
                 cursor.execute(
                     """
                     WITH access_with_request AS (
-                        SELECT 
+                        SELECT
                             al.id,
                             al.status_code,
                             CASE WHEN rl.id IS NOT NULL THEN 1 ELSE 0 END AS has_request_log
                         FROM resource_server_async_accesslog al
-                        LEFT JOIN resource_server_async_requestlog rl 
+                        LEFT JOIN resource_server_async_requestlog rl
                             ON rl.access_log_id = al.id
                     )
-                    SELECT 
+                    SELECT
                         COUNT(*)::bigint AS total_all_requests,
                         COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
                         COUNT(*) FILTER (WHERE (
@@ -708,7 +708,7 @@ def get_users_table(request, cluster: str = "all"):
             if cluster and cluster.lower() != "all":
                 cursor.execute(
                     """
-                    SELECT 
+                    SELECT
                       u.name,
                       u.username,
                       MAX(al.timestamp_request) AS last_access,
@@ -728,7 +728,7 @@ def get_users_table(request, cluster: str = "all"):
             else:
                 cursor.execute(
                     """
-                    SELECT 
+                    SELECT
                       u.name,
                       u.username,
                       MAX(al.timestamp_request) AS last_access,
@@ -1002,11 +1002,8 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     try:
         from asgiref.sync import async_to_sync
 
-        from resource_server_async.clusters.cluster import GetJobsResponse, Jobs
-        from resource_server_async.utils import (
-            ClusterWrapperResponse,
-            get_cluster_wrapper,
-        )
+        from resource_server_async.clusters import BaseCluster
+        from resource_server_async.schemas.clusters import JobsByStatus
 
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
@@ -1028,18 +1025,17 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         mock_auth = User(**mock_auth_data)
 
         # Get the jobs response from the cluster wrapper
-        wrapper_response: ClusterWrapperResponse = async_to_sync(get_cluster_wrapper)(
-            cluster
-        )
-        if wrapper_response.cluster:
-            jobs_response: GetJobsResponse = async_to_sync(
-                wrapper_response.cluster.get_jobs
-            )(mock_auth)
-            err: str = jobs_response.error_message
-            cluster_status: Jobs = jobs_response.jobs
-        else:
-            err: str = wrapper_response.error_message
+        try:
+            cluster_adapter = async_to_sync(BaseCluster.load_adapter)(cluster)
+        except Exception as exc:
+            err = str(exc)
             cluster_status = None
+        else:
+            jobs_response: JobsByStatus = async_to_sync(cluster_adapter.get_jobs)(
+                mock_auth
+            )
+            err = jobs_response.error_message
+            cluster_status = jobs_response.jobs
 
         # Empty (or cached values) if error occured
         if err or not cluster_status:
@@ -1217,10 +1213,10 @@ def get_batch_overview(request):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT 
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object' 
+                SELECT
+                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
                                      THEN (result::jsonb -> 'metrics' ->> 'total_tokens')::bigint ELSE 0 END)),0) AS tokens,
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object' 
+                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
                                      THEN (result::jsonb -> 'metrics' ->> 'num_responses')::bigint ELSE 0 END)),0) AS requests,
                   COUNT(*)::bigint AS total_jobs,
                   COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
@@ -1257,7 +1253,7 @@ def get_batch_model_summary(request, model: str):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT 
+                SELECT
                   AVG(throughput_tokens_per_sec),
                   PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
                   PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),

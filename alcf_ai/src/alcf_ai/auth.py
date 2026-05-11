@@ -4,6 +4,7 @@ import time
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import globus_sdk
 import globus_sdk.gare
@@ -64,14 +65,14 @@ _collection_opt = Option(
 
 # Error handler to guide user through specific identity providers
 class DomainBasedErrorHandler:
-    def __call__(self, app, error):
+    def __call__(self, app: globus_sdk.GlobusApp, error: Exception) -> None:
         logger.error(f"Encountered error '{error}', initiating login...")
         app.login(auth_params=GA_PARAMS)
 
 
 def _build_scope_requirements(
     transfer_collection_id: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     Build the scope_requirements dict for the UserApp.
 
@@ -87,7 +88,7 @@ def _build_scope_requirements(
     )
 
     # Gather scopes for inference, transfer, https
-    scopes: dict = {
+    scopes: dict[str, Any] = {
         GATEWAY_CLIENT_ID: [GATEWAY_SCOPE],
         TRANSFER_RESOURCE_SERVER: [transfer_scope],
         STAGING_COLLECTION_ID: https_scope,
@@ -177,7 +178,7 @@ def get_time_until_token_expiration() -> timedelta:
 
     # Gather the time difference between now and the expiration time (both Unix timestamps)
     now = time.time()
-    return timedelta(seconds=auth.expires_at - now)
+    return timedelta(seconds=auth.expires_at - now)  # type: ignore[attr-defined]
 
 
 cli = Typer(no_args_is_help=True)
@@ -214,10 +215,10 @@ def get_access_token() -> None:
     auth = get_inference_authorizer()
 
     # Make sure the stored access token if valid, and refresh otherwise
-    auth.ensure_valid_token()
+    auth.ensure_valid_token()  # type: ignore[attr-defined]
 
     # Return the access token
-    print(auth.access_token)
+    print(auth.access_token)  # type: ignore[attr-defined]
 
 
 @cli.command()

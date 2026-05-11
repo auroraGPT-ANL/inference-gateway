@@ -17,10 +17,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import TypeAdapter
 
+from inference_gateway.log_config import LOGGING
 from inference_gateway.utils import (
     GlobusCredentials,
     textfield_to_strlist,
 )
+
+assert LOGGING
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -72,9 +75,9 @@ DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 INFERENCE_SERVICE_URL = os.getenv("INFERENCE_SERVICE_URL", "")
 
 # Extract Globus policies that will determine which domains get access
-GLOBUS_POLICIES = textfield_to_strlist(os.getenv("GLOBUS_POLICIES", ""))
-NUMBER_OF_GLOBUS_POLICIES = len(GLOBUS_POLICIES)
-GLOBUS_POLICIES = ",".join(GLOBUS_POLICIES)
+_policy_list = textfield_to_strlist(os.getenv("GLOBUS_POLICIES", ""))
+NUMBER_OF_GLOBUS_POLICIES = len(_policy_list)
+GLOBUS_POLICIES = ",".join(_policy_list)
 
 # Extract allowed Globus groups that will determine which individuals get access
 GLOBUS_GROUPS = textfield_to_strlist(os.getenv("GLOBUS_GROUPS", ""))
@@ -128,42 +131,21 @@ APPEND_SLASH = False
 
 # Application definition
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
-    "resource_server",
     "resource_server_async",
-    "drf_spectacular",
     # Configuration checks (mostly for making sure auth guards are in place)
     "inference_gateway.apps.AuthCheckConfig",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "resource_server_async.logging.AccessLogMiddleware",
 ]
-
-REST_FRAMEWORK = {
-    # YOUR SETTINGS
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Inference Gateway API",
-    "DESCRIPTION": "Inference Gateway",
-    "VERSION": "0.0.1",
-    "SERVE_INCLUDE_SCHEMA": False,
-    # OTHER SETTINGS
-}
 
 ROOT_URLCONF = "inference_gateway.urls"
 
@@ -263,61 +245,42 @@ STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "file": {
-            "level": "INFO",
-            "class": "logging.FileHandler",
-            "filename": "info.log",
-        },
-    },
-    "loggers": {
-        "django": {
-            "handlers": ["file"],
-            "level": "INFO",
-            "propagate": True,
-        },
-    },
-}
-
 # Static files directory for deployment
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
-
-# Cache configuration - Redis with fallback to local memory for development
-if os.environ.get("USE_REDIS_CACHE", "false").lower() == "true":
-    # Redis cache configuration for production
-    CACHES = {
-        "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1"),
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "CONNECTION_POOL_KWARGS": {
-                    "max_connections": 50,
-                    "retry_on_timeout": True,
-                },
-                "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
-                "IGNORE_EXCEPTIONS": True,  # Fallback to database if Redis fails
+CACHES = {
+    "default": {
+        "BACKEND": "inference_gateway.cache_backend.FallbackCache",
+        "LOCATION": "default",
+        "OPTIONS": {
+            "PRIMARY_ALIAS": "redis",
+            "FALLBACK_ALIAS": "locmem",
+            "HEALTH_CHECK_INTERVAL": 30.0,  # seconds before retrying Redis
+        },
+    },
+    "redis": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
             },
-            "TIMEOUT": 3600,  # 1 hour default timeout
-            "KEY_PREFIX": "inference_gateway",
-        }
-    }
-else:
-    # Local memory cache for development (not shared across workers)
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "inference_gateway_cache",
-            "TIMEOUT": 3600,  # 1 hour default timeout
-            "OPTIONS": {
-                "MAX_ENTRIES": 10000,
-            },
-        }
-    }
+            "COMPRESSOR": "django_redis.compressors.zstd.ZStdCompressor",
+            # Note: IGNORE_EXCEPTIONS removed — we want exceptions to bubble
+            # up so the fallback wrapper can catch them.
+        },
+        "TIMEOUT": 3600,  # 1 hour default
+        "KEY_PREFIX": "inference_gateway",
+    },
+    "locmem": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "inference_gateway_fallback",
+        "TIMEOUT": 3600,  # 1 hour default
+        "OPTIONS": {"MAX_ENTRIES": 10000},
+    },
+}
 
 # Session engine - use cached_db for speed + reliability (perfect for OAuth)
 # This gives you Redis speed with DB persistence as fallback

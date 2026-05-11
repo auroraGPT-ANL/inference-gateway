@@ -48,23 +48,18 @@ if STREAMING_TEST_CASES:
         cluster = endpoint["cluster"]
         if "chat/completions" in ALLOWED_OPENAI_ENDPOINTS[cluster]:
             # Build the targeted Django URL for chat/completions
-            url = f"/{cluster}/{endpoint['framework']}/v1/chat/completions/"
+            url = f"/{cluster}/{endpoint['framework']}/v1/chat/completions"
 
-            if "allowed_globus_groups" not in endpoint or endpoint[
-                "allowed_globus_groups"
-            ] not in [
-                [],
-                [mock_utils.MOCK_GROUP_UUID],
-            ]:
+            groups = endpoint.get("allowed_globus_groups", [])
+            if groups not in [[], [mock_utils.MOCK_GROUP_UUID]]:
                 continue
 
             # If the endpoint can be accessed by the mock access token ...
             # Test each streaming test case from the JSON data
             for streaming_params in STREAMING_TEST_CASES:
-                # Overwrite the model to match the endpoint model
-                streaming_params["model"] = endpoint["model"]
+                params_copy = {**streaming_params, "model": endpoint["model"]}
 
                 # Test streaming request
                 StreamInferenceViewTestCase.template_test(
-                    "good_streaming_post_request", url, streaming_params
+                    "good_streaming_post_request", url, params_copy
                 )

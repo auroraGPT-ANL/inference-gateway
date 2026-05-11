@@ -1,9 +1,25 @@
+import json
 import uuid
+from logging import getLogger
+from typing import Any, Iterable, Self, override
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.base import ModelBase
+from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import now
+
+from resource_server_async.schemas.batch import BatchStatus
+from resource_server_async.schemas.endpoints import BatchStatusResult
+from resource_server_async.schemas.structured_logs import (
+    BatchLogPydantic,
+)
+
+from .logging import RequestContext
+from .schemas.endpoints import SubmitBatchResult
+
+logger = getLogger(__name__)
 
 
 # Supported authentication origins
@@ -12,7 +28,7 @@ class AuthService(models.TextChoices):
 
 
 # Function to validate that some inputs are list of strings
-def validate_str_list(value):
+def validate_str_list(value: Any) -> None:
     if not isinstance(value, list):
         raise ValidationError("Value must be a list.")
     if not all(isinstance(v, str) for v in value):
@@ -21,14 +37,14 @@ def validate_str_list(value):
 
 # JSON field specifically containing a list of strings
 class StrListJSONField(models.JSONField):
-    def get_prep_value(self, value):
+    def get_prep_value(self, value: Any) -> Any:
         validate_str_list(value)
         return super().get_prep_value(value)
 
 
 # OpenAI endpoint list
 class OpenAIEndpointListJSONField(models.JSONField):
-    def get_prep_value(self, value):
+    def get_prep_value(self, value: Any) -> Any:
         validate_str_list(value)
         if value:
             for endpoint in value:
@@ -58,7 +74,7 @@ class User(models.Model):
     )
 
     # Custom display
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<User - {self.name} - {self.username} - {self.idp_name}>"
 
 
@@ -109,7 +125,7 @@ class AccessLog(models.Model):
         ]
 
     # Custom display
-    def __str__(self):
+    def __str__(self) -> str:
         if self.user:
             username = self.user.username
         else:
@@ -162,22 +178,21 @@ class RequestLog(models.Model):
         ]
 
     # Custom display
-    def __str__(self):
-        return f"<Request - {self.access_log.user.username} - {self.cluster} - {self.framework} - {self.model}>"
+    def __str__(self) -> str:
+        username = (
+            self.access_log.user.username if self.access_log.user else "<anonymous>"
+        )
+        return (
+            f"<Request - {username} - {self.cluster} - {self.framework} - {self.model}>"
+        )
 
 
 # Batch log model
 class BatchLog(models.Model):
     # Unique request ID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Link to the access log tied to this request
-    access_log = models.OneToOneField(
-        AccessLog,
-        on_delete=models.PROTECT,
-        related_name="batch_log",  # reverse relation (e.g., access_log.batch_log)
-        db_index=True,
-    )
+    access_log_id = models.CharField(max_length=100, editable=False)
+    user_id = models.CharField(max_length=100)
 
     # What did the user request?
     input_file = models.CharField(max_length=500)
@@ -209,6 +224,82 @@ class BatchLog(models.Model):
                 fields=["status"], name="idx_batchlog_status"
             ),  # Status filtering
         ]
+
+    @classmethod
+    async def create(
+        cls,
+        context: RequestContext,
+        submit_response: SubmitBatchResult,
+        cluster: str,
+        framework: str,
+        model: str,
+    ) -> Self:
+        obj = await cls.objects.acreate(
+            id=submit_response.batch_id,
+            access_log_id=context.access_log.id,
+            user_id=context.user.id if context.user else "",
+            input_file=submit_response.input_file,
+            output_folder_path=submit_response.output_folder_path,
+            cluster=cluster,
+            framework=framework,
+            model=model,
+            task_ids=submit_response.task_ids,
+            status=BatchStatus.pending,
+            in_progress_at=timezone.now(),
+        )
+
+        batch_log = BatchLogPydantic.model_validate(obj)
+        batch_log.emit("submitted-batch")
+        return obj
+
+    async def update(self, new_status: BatchStatusResult) -> None:
+        status = new_status.status
+        result = new_status.result
+
+        # No status change:
+        if self.status == status:
+            return
+
+        # Update status and result
+        self.status = status
+
+        # Adjust timestamp
+        if self.status == BatchStatus.failed:
+            self.failed_at = timezone.now()
+        elif self.status == BatchStatus.completed:
+            self.completed_at = timezone.now()
+
+        if result:
+            self.result = result
+
+        await self.asave()
+        batch_log = BatchLogPydantic.model_validate(self)
+        batch_log.emit("updated")
+
+        # Try to parse metrics summary from result if available
+        if result:
+            total_tokens = None
+            num_responses = None
+            response_time_sec = None
+            throughput = None
+
+            try:
+                result_data: dict[str, Any] = json.loads(self.result)
+                if "metrics" in result_data:
+                    metrics: dict[str, Any] = result_data.get("metrics", {})
+                    total_tokens = metrics.get("total_tokens")
+                    num_responses = metrics.get("num_responses")
+                    response_time_sec = metrics.get("response_time_sec")
+                    throughput = metrics.get("throughput_tokens_per_sec")
+            except Exception:
+                pass
+            else:
+                batch_log.emit_metrics(
+                    total_tokens=total_tokens,
+                    num_responses=num_responses,
+                    response_time_sec=response_time_sec,
+                    throughput_tokens_per_sec=throughput,
+                )
 
 
 # Request metrics model (1:1 with RequestLog)
@@ -254,7 +345,7 @@ class RequestMetrics(models.Model):
             models.Index(fields=["model"], name="idx_requestmetrics_model"),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Metrics - {self.request_id}>"
 
 
@@ -287,7 +378,7 @@ class BatchMetrics(models.Model):
     #         models.Index(fields=["cluster", "framework"]),
     #     ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<BatchMetrics - {self.batch_id}>"
 
 
@@ -320,21 +411,43 @@ class Endpoint(models.Model):
     # Example: ["anl.gov", "alcf.anl.gov"]
     allowed_domains = StrListJSONField(default=list, blank=True)
 
+    # tokens/minute rate limit for the model (total usage by all users).
+    # Set to 0 to disable.
+    tpm_model = models.IntegerField(default=100_000)
+
+    # tokens/minute rate limit for the model per-user.
+    # Set to 0 to disable.
+    tpm_user = models.IntegerField(default=60_000)
+
     # Extra configuration needed to instantiate the endpoint class
     # Should be json.dumps string. Will be converted into a python dictionaty within the endpoint object
     config = models.TextField(blank=True)
 
     # String function
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Endpoint {self.endpoint_slug}>"
 
     # Automatically generate slug if not provided
-    def save(self, *args, **kwargs):
+    @override
+    def save(
+        self,
+        *args: Any,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
         if self.endpoint_slug is None or self.endpoint_slug == "":
             self.endpoint_slug = slugify(
                 " ".join([self.cluster, self.framework, self.model])
             )
-        super(Endpoint, self).save(*args, **kwargs)
+        super().save(
+            *args,
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields,
+        )
 
 
 # Details of a given inference cluster
@@ -366,5 +479,5 @@ class Cluster(models.Model):
     config = models.TextField(blank=True)
 
     # String function
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Cluster {self.cluster_name}>"

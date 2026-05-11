@@ -1,6 +1,6 @@
 name: Django
 
-on: 
+on:
   push:
     branches:
       - main
@@ -76,9 +76,8 @@ jobs:
       - name: Lint
         run: make lint
 
-      # To add in the future:
-      # -  name: Type check
-      #    run: make typecheck
+      -  name: Type check
+         run: make mypy
 
       -  name: Format Check
          run: make format-check
@@ -87,10 +86,10 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |
           uv sync --locked --all-extras --dev
-          mkdir logs/
+          mkdir -p logs/
           uv run -- ./manage.py migrate
           uv run -- ./manage.py loaddata fixtures/endpoints.json
-      
+
       - name: Run Django tests
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: |

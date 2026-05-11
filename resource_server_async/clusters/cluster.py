@@ -1,46 +1,28 @@
+import ast
+import importlib
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import List, Self, Type
 
+from cachetools import TTLCache
 from django.core.cache import cache
-from pydantic import BaseModel, Field
+from django.forms.models import model_to_dict
 
 from inference_gateway.settings import MAINTENANCE_ERROR_NOTICES
-from resource_server_async.models import User
-from utils.auth_utils import CheckPermissionResponse
-from utils.auth_utils import check_permission as auth_utils_check_permission
+
+from ..auth import check_permission as auth_utils_check_permission
+from ..errors import ClusterNotFound, Unauthorized
+from ..models import Cluster
+from ..schemas.clusters import (
+    CheckMaintenanceResult,
+    ClusterStatus,
+    JobsByStatus,
+)
+from ..schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 
-
-class BaseModelWithError(BaseModel):
-    error_message: Optional[str] = Field(default=None)
-    error_code: Optional[int] = Field(default=None)
-
-
-class CheckMaintenanceResponse(BaseModelWithError):
-    is_under_maintenance: bool
-
-
-class JobInfo(BaseModel):
-    Models: str
-    Framework: str
-    Cluster: str
-    model_config = {"extra": "allow"}  # Open dictionary that allow more fields
-
-
-class Jobs(BaseModel):
-    running: List[JobInfo] = Field(default_factory=list)
-    queued: List[JobInfo] = Field(default_factory=list)
-    stopped: List[JobInfo] = Field(default_factory=list)
-    others: List[JobInfo] = Field(default_factory=list)
-    private_batch_running: List[JobInfo] = Field(default_factory=list)
-    private_batch_queued: List[JobInfo] = Field(default_factory=list)
-    cluster_status: Dict = Field(default_factory=dict)
-
-
-class GetJobsResponse(BaseModelWithError):
-    jobs: Optional[Jobs] = None
+_adapter_cache: TTLCache[str, "BaseCluster"] = TTLCache(maxsize=64, ttl=60)
 
 
 class BaseCluster(ABC):
@@ -67,89 +49,60 @@ class BaseCluster(ABC):
         self.__allowed_domains = allowed_domains
 
     # Check maintenance
-    def check_maintenance(self) -> CheckMaintenanceResponse:
+    def check_maintenance(self) -> CheckMaintenanceResult:
         """Verify is the cluster is currently under maintenance."""
 
-        try:
-            # Check Redis cache for cluster status from ALCF facility API
-            cache_key = f"cluster_status:{self.cluster_name}"
-            cluster_status = cache.get(cache_key)
+        # Check Redis cache for cluster status from ALCF facility API
+        cache_key = f"cluster_status:{self.cluster_name}"
+        cluster_status: ClusterStatus | None = cache.get(cache_key)
 
-            # If there is a cached status ...
-            if cluster_status is not None:
-                status = cluster_status.get("status", "unknown")
+        if not isinstance(cluster_status, dict):
+            cluster_status = {"status": "unknown", "message": ""}
 
-                # If the cluster is reported as down
-                if status == "down":
-                    error_msg = cluster_status.get(
-                        "message", f"Cluster {self.cluster_name} is currently down."
-                    )
-                    return CheckMaintenanceResponse(
-                        is_under_maintenance=True,
-                        error_message=f"Error: {error_msg}",
-                        error_code=503,
-                    )
+        if cluster_status.get("status") == "down":
+            msg = cluster_status.get(
+                "message", f"Cluster {self.cluster_name} is currently down."
+            )
+            return CheckMaintenanceResult(is_under_maintenance=True, message=msg)
 
-                # If there was an error fetching the status
-                elif status == "error":
-                    log.warning(
-                        f"Cluster status check error for {self.cluster_name}: {cluster_status.get('error')}"
-                    )
-                    # Continue to parent check even on error
-
-        except Exception as e:
+        if cluster_status.get("status") == "error":
             log.warning(
-                f"Failed to check cluster status from cache for {self.cluster_name}: {e}"
+                f"Cluster status check error for {self.cluster_name}: {cluster_status}"
             )
-            # Continue to parent check even on exception
 
-        # Try to check for maintenance from environment variables
-        try:
-            # If the cluster is under maintenance ...
-            if self.cluster_name in MAINTENANCE_ERROR_NOTICES:
-                return CheckMaintenanceResponse(
-                    is_under_maintenance=True,
-                    error_message=f"Error: {MAINTENANCE_ERROR_NOTICES[self.cluster_name]}",
-                    error_code=503,
-                )
-
-            # If the cluster is not under maintenance ...
-            else:
-                return CheckMaintenanceResponse(is_under_maintenance=False)
-
-        # Error if something went wrong
-        except Exception as e:
-            return CheckMaintenanceResponse(
-                is_under_maintenance=False,
-                error_message=f"Error: Could not check maintenance for {self.cluster_name}: {e}",
-                error_code=500,
+        if notice := MAINTENANCE_ERROR_NOTICES.get(self.cluster_name):
+            return CheckMaintenanceResult(
+                is_under_maintenance=True,
+                message=notice,
             )
+
+        return CheckMaintenanceResult(is_under_maintenance=False, message="")
 
     # Check permission
-    def check_permission(
-        self, auth: User, user_group_uuids: List[str]
-    ) -> CheckPermissionResponse:
-        """Verify is the user is permitted to access this endpoint."""
+    def check_permission(self, auth: UserPydantic, *, raise_exc: bool = True) -> bool:
+        """
+        Verify is the user is permitted to access this endpoint.
+        If raise_exc is True, raises Unauthorized.
+        Otherwise, returns authorization status as boolean.
+        """
 
         # Check permission
-        response = auth_utils_check_permission(
-            auth, user_group_uuids, self.allowed_globus_groups, self.allowed_domains
-        )
-        if response.error_message:
-            return CheckPermissionResponse(
-                is_authorized=False,
-                error_message=response.error_message,
-                error_code=response.error_code,
+        try:
+            auth_utils_check_permission(
+                auth, self.allowed_globus_groups, self.allowed_domains
             )
+        except Unauthorized:
+            if raise_exc:
+                raise
+            return False
 
-        # Return permission check result
-        return CheckPermissionResponse(is_authorized=response.is_authorized)
+        return True
 
     # Mandatory definitions
     # ---------------------
 
     @abstractmethod
-    async def get_jobs(self, auth: User) -> GetJobsResponse:
+    async def get_jobs(self, auth: UserPydantic) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
         pass
 
@@ -157,29 +110,69 @@ class BaseCluster(ABC):
     # --------------------
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     @property
-    def cluster_name(self):
+    def cluster_name(self) -> str:
         return self.__cluster_name
 
     @property
-    def cluster_adapter(self):
+    def cluster_adapter(self) -> str:
         return self.__cluster_adapter
 
     @property
-    def frameworks(self):
+    def frameworks(self) -> list[str]:
         return self.__frameworks
 
     @property
-    def openai_endpoints(self):
+    def openai_endpoints(self) -> list[str]:
         return self.__openai_endpoints
 
     @property
-    def allowed_globus_groups(self):
+    def allowed_globus_groups(self) -> list[str]:
         return self.__allowed_globus_groups
 
     @property
-    def allowed_domains(self):
+    def allowed_domains(self) -> list[str]:
         return self.__allowed_domains
+
+    @classmethod
+    async def load_adapter(cls, cluster_name: str) -> Self:
+        """Extract the cluster from the database and return its underlying wrapper object."""
+        if (adapter := _adapter_cache.get(cluster_name)) is not None and isinstance(
+            adapter, cls
+        ):
+            return adapter
+
+        try:
+            db_cluster = await Cluster.objects.aget(cluster_name=cluster_name)
+        except Cluster.DoesNotExist:
+            raise ClusterNotFound(
+                f"The requested cluster {cluster_name!r} does not exist."
+            )
+
+        # Convert the config field into a dictionary
+        cluster_dictionary = model_to_dict(db_cluster)
+        cluster_dictionary["config"] = ast.literal_eval(db_cluster.config)
+
+        # Extract the adapter class from the cluster's database configuration
+        parts = db_cluster.cluster_adapter.rsplit(".", 1)
+        module = importlib.import_module(parts[0])
+        AdapterClass: Type[BaseCluster] = getattr(module, parts[1])
+
+        # Make sure the adaptor inherits from the BaseCluster generic class
+        if not issubclass(AdapterClass, BaseCluster):
+            raise AssertionError(
+                f"Cluster adapter {db_cluster.cluster_adapter} should inherit from BaseCluster."
+            )
+
+        # Instantiate the adaptor class
+        cluster_adapter = AdapterClass(**cluster_dictionary)
+        if not isinstance(cluster_adapter, cls):
+            raise AssertionError(
+                f"Cannot load {db_cluster.cluster_adapter!r} from {cls.__name__}.load_adapter"
+            )
+
+        _adapter_cache[cluster_name] = cluster_adapter
+        return cluster_adapter

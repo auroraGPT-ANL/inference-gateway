@@ -35,8 +35,8 @@ django.setup()
 from django.core.cache import cache
 from django.db import connection
 
-import utils.globus_utils as globus_utils
-from resource_server.models import Endpoint
+import resource_server_async.globus_utils as globus_utils
+from resource_server_async.models import Endpoint
 
 # Setup logging
 logging.basicConfig(

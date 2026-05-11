@@ -1,17 +1,18 @@
-import json
-
-# Tool to log access requests
 import logging
-from typing import List
+from typing import Any
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.utils.text import slugify
 from pydantic import BaseModel
 
-from resource_server_async.clusters.cluster import BaseCluster, GetJobsResponse, Jobs
-from resource_server_async.models import Endpoint, User
-from utils import globus_utils
+from resource_server_async import globus_utils
+from resource_server_async.clusters.cluster import BaseCluster
+
+from ..errors import EndpointError, GetJobsError
+from ..models import Endpoint
+from ..schemas.clusters import JobsByStatus
+from ..schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +33,11 @@ class GlobusComputeCluster(BaseCluster):
         id: str,
         cluster_name: str,
         cluster_adapter: str,
-        frameworks: List[str],
-        openai_endpoints: List[str],
-        allowed_globus_groups: List[str] = [],
-        allowed_domains: List[str] = [],
-        config: ClusterConfig = None,
+        frameworks: list[str],
+        openai_endpoints: list[str],
+        config: dict[str, Any],
+        allowed_globus_groups: list[str] = [],
+        allowed_domains: list[str] = [],
     ):
         # Validate endpoint configuration
         self.__config = ClusterConfig(**config)
@@ -53,26 +54,23 @@ class GlobusComputeCluster(BaseCluster):
         )
 
     # Get jobs
-    async def get_jobs(self, auth: User) -> GetJobsResponse:
+    async def get_jobs(self, auth: UserPydantic) -> JobsByStatus:
         """Provides a status of the cluster as a whole, including which models are running."""
 
         # Redis cache key
         cache_key = f"qstat_details:{auth.username}:{auth.id}:{self.cluster_name}"
 
         # Try to get qstat details from Redis
-        try:
-            cached_result = cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
-        except Exception as e:
-            log.warning(f"Redis cache error for cluster status: {e}")
+        cached_result: JobsByStatus | None = cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
 
         # Get Globus Compute client and executor
         try:
             gcc = globus_utils.get_compute_client_from_globus_app()
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
-            return GetJobsResponse(error_message=str(e), error_code=500)
+            raise GetJobsError(str(e))
 
         # Build temporary qstat endpoint slug
         endpoint_slug = f"{self.cluster_name}/jobs"
@@ -84,35 +82,25 @@ class GlobusComputeCluster(BaseCluster):
             client=gcc,
             endpoint_slug=endpoint_slug,
         )
-        if len(error_message) > 0:
-            return GetJobsResponse(error_message=error_message, error_code=500)
+        if error_message:
+            raise EndpointError(error_message)
 
         # Return error message if endpoint is not online
-        if not endpoint_status["status"] == "online":
-            return GetJobsResponse(
-                error_message=f"Error: Endpoint {endpoint_slug} is offline.",
-                error_code=500,
-            )
+        if not (endpoint_status and endpoint_status.get("status") == "online"):
+            raise EndpointError(f"Error: Endpoint {endpoint_slug} is offline.")
 
         # Submit task and wait for result
-        (
-            result,
-            task_uuid,
-            error_message,
-            error_code,
-        ) = await globus_utils.submit_and_get_result(
+        task_result = await globus_utils.submit_and_get_result(
             gce,
             self.config.qstat_endpoint_uuid,
             self.config.qstat_function_uuid,
             timeout=60,
         )
-        if len(error_message) > 0:
-            return GetJobsResponse(error_message=error_message, error_code=error_code)
+        result = task_result.result
 
         # Try to refine the status of each endpoint (in case Globus Compute managers are lost)
         try:
             # For each running endpoint ...
-            result = json.loads(result)
             for i, running in enumerate(result["running"]):
                 # If the model is in a "running" state (not "starting")
                 if running["Model Status"] == "running":
@@ -126,7 +114,7 @@ class GlobusComputeCluster(BaseCluster):
                     endpoint = await sync_to_async(Endpoint.objects.get)(
                         endpoint_slug=endpoint_slug
                     )
-                    endpoint_config = json.loads(endpoint.config)
+                    endpoint_config = globus_utils.unwrap_json(endpoint.config)
                     endpoint_uuid = endpoint_config["endpoint_uuid"]
 
                     # Turn the model to "disconnected" if managers are lost
@@ -135,41 +123,29 @@ class GlobusComputeCluster(BaseCluster):
                         client=gcc,
                         endpoint_slug=endpoint_slug,
                     )
-                    if int(endpoint_status["details"].get("managers", 0)) == 0:
+                    if (
+                        not endpoint_status
+                        or int(endpoint_status["details"].get("managers", 0)) == 0
+                    ):
                         result["running"][i]["Model Status"] = "disconnected"
 
         except Exception as e:
             log.warning(f"Failed to refine qstat model status: {e}")
 
         # Convert dashes into underscores
-        try:
-            result["private_batch_running"] = result["private-batch-running"]
-            result["private_batch_queued"] = result["private-batch-queued"]
-        except Exception as e:
-            return GetJobsResponse(
-                error_message=f"Error: Could not parse batch details: {e}",
-                error_code=500,
-            )
+        result["private_batch_running"] = result["private-batch-running"]
+        result["private_batch_queued"] = result["private-batch-queued"]
 
         # Build response
-        try:
-            response = GetJobsResponse(jobs=Jobs(**result))
-        except Exception as e:
-            return GetJobsResponse(
-                error_message=f"Error: Could not generate GetJobsResponse: {e}",
-                error_code=500,
-            )
+        response = JobsByStatus(**result)
 
         # Cache the result for 60 seconds
-        try:
-            cache.set(cache_key, response, 60)
-        except Exception as e:
-            log.warning(f"Failed to cache cluster status: {e}")
+        cache.set(cache_key, response, 60)
 
         # Return qstat result
         return response
 
     # Read-only access to the configuration
     @property
-    def config(self):
+    def config(self) -> ClusterConfig:
         return self.__config

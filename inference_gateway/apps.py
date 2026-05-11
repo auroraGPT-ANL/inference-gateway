@@ -8,7 +8,7 @@ from ninja.constants import NOT_SET_TYPE
 class AuthCheckConfig(AppConfig):
     name = "inference_gateway"
 
-    def ready(self):
+    def ready(self) -> None:
         # Skip is this is an automated test suite
         if settings.RUNNING_AUTOMATED_TEST_SUITE:
             return
@@ -32,7 +32,7 @@ class AuthCheckConfig(AppConfig):
 
         # Recover the Globus policy
         client = globus_sdk.ConfidentialAppAuthClient(
-            settings.SERVICE_ACCOUNT_ID, settings.SERVICE_ACCOUNT_SECRET
+            str(settings.SERVICE_ACCOUNT_ID), str(settings.SERVICE_ACCOUNT_SECRET)
         )
         token_response = client.oauth2_client_credentials_tokens()
         globus_auth_token = token_response.by_resource_server["auth.globus.org"][
@@ -66,7 +66,11 @@ class AuthCheckConfig(AppConfig):
             raise ImproperlyConfigured(
                 "The Django Ninja API does not have an `.auth` attribute defined."
             )
-        if not isinstance(api.auth, GlobalAuth):
+        if (
+            not isinstance(api.auth, list)
+            and len(api.auth) == 1
+            and isinstance(api.auth[0], GlobalAuth)
+        ):
             raise ImproperlyConfigured(
-                "The Django Ninja API `.auth` attribute must be a GlobalAuth instance."
+                "The Django Ninja API `.auth` attribute must be a list containing one GlobalAuth instance."
             )

@@ -9,8 +9,9 @@ from django.utils import timezone
 from httpx import AsyncClient
 from pydantic import BaseModel
 
+from resource_server_async.auth import TokenIntrospectionResult
 from resource_server_async.models import Endpoint
-from utils.pydantic_models.db_models import AccessLogPydantic
+from resource_server_async.schemas.structured_logs import AccessLogPydantic
 
 # =============
 #   Constants
@@ -38,6 +39,12 @@ MOCK_POLICY_UUID = "mock_policy_uuid"
 class AsyncClientPostResponse(BaseModel):
     status_code: int
     text: str
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> str:
+        return self.text
 
 
 # ====================================
@@ -90,7 +97,7 @@ def get_mock_headers(access_token="", bearer=True):
 def introspect_token(access_token):
     # Emulate an error in the introspection call
     if (ACTIVE not in access_token) or (EXPIRED in access_token):
-        return None, [], "mock error message"
+        return TokenIntrospectionResult(None, [], error="mock error message")
 
     # Define IdP domain from token
     if HAS_ALLOWED_DOMAIN in access_token:
@@ -132,8 +139,8 @@ def introspect_token(access_token):
         },
     }
 
-    # Return the mock token introspection and the Globus group details (here []])
-    return introspection, user_groups, ""
+    # Return the mock token introspection and the Globus group details
+    return TokenIntrospectionResult(introspection, user_groups)
 
 
 # ======================
@@ -193,7 +200,7 @@ def get_globus_client():
 
 
 # Mock get_compute_client_from_globus_app function
-def get_compute_client_from_globus_app():
+def get_compute_client_from_globus_app(**kwargs):
     return MockGlobusComputeClient()
 
 
@@ -236,8 +243,8 @@ class MockFuture(Future):
 class MockAsyncClient(AsyncClient):
     async def post(self, *args, **kwargs):
         # Log the intercepted call
-        url = args[0] if args else kwargs.get("url", "unknown")
-        print(f"[MOCK] Intercepted HTTP POST to: {url}")
+        # url = args[0] if args else kwargs.get("url", "unknown")
+        # print(f"[MOCK] Intercepted HTTP POST to: {url}")
         return AsyncClientPostResponse(status_code=200, text=MOCK_RESPONSE)
 
 
@@ -273,7 +280,7 @@ class MockStreamingHttpResponse(StreamingHttpResponse):
 # ==========
 
 
-# Mock utils.metis_utils.fetch_metis_status function
+# Mock fetch_metis_status function
 async def mock_fetch_metis_status(use_cache):
     metis_models = [e.model async for e in Endpoint.objects.filter(cluster="metis")]
     metis_status = {

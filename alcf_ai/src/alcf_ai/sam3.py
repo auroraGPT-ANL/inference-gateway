@@ -16,15 +16,13 @@ from PIL.Image import Image, fromarray
 from PIL.Image import open as imopen
 
 from .auth import STAGING_COLLECTION_ROOT
-from .resources.sam3 import Sam3ImageResult
+from .resources.sam3 import Sam3BatchResult, Sam3ImageResult
 
 NDArray = npt.NDArray[Any]
 
 logger = logging.getLogger(__name__)
 
 cli = typer.Typer(no_args_is_help=True)
-
-NDArray = npt.NDArray[Any]
 
 COLORS = np.array(
     [
@@ -94,22 +92,23 @@ def quantile_norm(image: NDArray | Image) -> NDArray:
     if not np.issubdtype(image.dtype, np.integer):
         lo, hi = np.percentile(image, (1, 99))
         image = np.clip((image - lo) / (hi - lo), 0, 1)
+        assert isinstance(image, np.ndarray)
         image = (image * 255).astype(np.uint8)
 
     return image
 
 
 def plot_bbox(
-    img_height,
-    img_width,
-    box,
-    box_format="XYXY",
-    relative_coords=True,
-    color="r",
-    linestyle="solid",
-    text=None,
-    ax=None,
-):
+    img_height: int | float,
+    img_width: int | float,
+    box: list[float],
+    box_format: str = "XYXY",
+    relative_coords: bool = True,
+    color: str = "r",
+    linestyle: str = "solid",
+    text: str | None = None,
+    ax: Any = None,
+) -> None:
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
@@ -178,7 +177,7 @@ def to_pil(arr: NDArray) -> Image:
     raise ValueError(f"Unexpected array shape: {arr.shape}")
 
 
-def preview_sam3_result(arr: NDArray, result: Sam3ImageResult, path: Path):
+def preview_sam3_result(arr: NDArray, result: Sam3ImageResult, path: Path) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.colors import to_rgb
 
@@ -219,6 +218,7 @@ def preview_sam3_result(arr: NDArray, result: Sam3ImageResult, path: Path):
 def load_image(img_path: Path) -> NDArray:
     import tifffile
 
+    image: NDArray | Image
     if img_path.suffix in (".tif", ".tiff"):
         image = tifffile.imread(img_path)
     else:
@@ -267,7 +267,7 @@ def submit_batch(
 
     logger.info(f"Staging in {dataset_path}")
     stagein = client.stage_in(
-        dataset_path, dataset_path.name, from_collection_id=from_collection_id
+        dataset_path, Path(dataset_path.name), from_collection_id=from_collection_id
     )
     logger.info(f"Stage in complete: {stagein}")
 
@@ -279,15 +279,17 @@ def submit_batch(
 
     logger.info(f"Polling on inference task {resp.task_id!r}...")
     result = client.sam3.poll_task_result(resp.task_id)
+    assert isinstance(result, Sam3BatchResult)
     logger.info(f"Inference completed: {result}")
 
     logger.info(f"Staging out result file: {result.result_path}")
-    stageout = client.stage_out(
-        from_collection_id,
-        Path(result.result_path).name,
-        dataset_path.with_suffix(".results.tar"),
-    )
-    logger.info(f"Stage out complete: {stageout}")
+    if from_collection_id:
+        stageout = client.stage_out(
+            from_collection_id,
+            Path(Path(result.result_path).name),
+            dataset_path.with_suffix(".results.tar"),
+        )
+        logger.info(f"Stage out complete: {stageout}")
 
 
 @cli.command()
@@ -303,13 +305,14 @@ def submit_image(
 
     if "://" not in image_uri and Path(image_uri).is_file():
         logger.info(f"{image_uri} is a local file; staging in...")
-        stagein = client.stage_in(Path(image_uri), Path(image_uri).name)
+        stagein = client.stage_in(Path(image_uri), Path(Path(image_uri).name))
         process_uri = STAGING_COLLECTION_ROOT + str(stagein.destination_path)
     else:
         process_uri = image_uri
 
     resp = client.sam3.submit_image(process_uri, prompt)
-    result: Sam3ImageResult = client.sam3.poll_task_result(resp.task_id)
+    result = client.sam3.poll_task_result(resp.task_id)
+    assert isinstance(result, Sam3ImageResult)
     logger.info(result.model_dump(exclude={"labelmap_npy"}))
 
     if save_preview and result.num_objects > 0:

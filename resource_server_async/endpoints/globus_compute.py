@@ -3,62 +3,74 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, List, Optional
+from typing import Any, AsyncGenerator, Optional, cast, override
 
-from django.core.cache import cache
 from django.http import StreamingHttpResponse
-from globus_compute_sdk import Executor
-from globus_compute_sdk.errors import TaskPending
-from pydantic import BaseModel, Field
+from globus_compute_sdk import Client, Executor
+from globus_compute_sdk.errors import TaskPending as GlobusTaskPending
+from pydantic import BaseModel
 
+from resource_server_async import globus_utils
+from resource_server_async.cache import (
+    cache_item,
+    is_cached,
+    remove_endpoint_from_cache,
+)
 from resource_server_async.endpoints.endpoint import (
     BaseEndpoint,
-    BaseModelWithError,
-    GetBatchStatusResponse,
-    SubmitBatchResponse,
-    SubmitStreamingTaskResponse,
-    SubmitTaskAsyncResponse,
-    SubmitTaskResponse,
 )
-from resource_server_async.models import BatchLog
-from resource_server_async.utils import (
+from resource_server_async.streaming import (
     create_streaming_response_headers,
-    extract_prompt,
     format_streaming_error_for_openai,
     get_streaming_data_and_status_batch,
     get_streaming_metadata,
-    is_cached,
     prepare_streaming_task_data,
     process_streaming_completion_async,
-    remove_endpoint_from_cache,
     set_streaming_error,
     set_streaming_status,
 )
-from utils import globus_utils
-from utils.pydantic_models.batch import BatchStatusEnum
+
+from ..errors import BatchNotFound, EndpointError, TaskPending
+from ..logging import get_request_context
+from ..models import BatchLog
+from ..schemas.batch import BatchStatus, BatchSubmit
+from ..schemas.endpoints import (
+    BatchStatusResult,
+    SubmitBatchResult,
+    SubmitStreamingTaskResponse,
+    SubmitTaskAsyncResponse,
+    SubmitTaskResult,
+)
 
 log = logging.getLogger(__name__)
-
-
-class GetEndpointStatusResponse(BaseModelWithError):
-    status: Optional[Any] = None
 
 
 class GlobusComputeEndpointConfig(BaseModel):
     api_port: int
     endpoint_uuid: str
     function_uuid: str
-    batch_endpoint_uuid: Optional[str] = Field(default=None)
-    batch_function_uuid: Optional[str] = Field(default=None)
+    batch_endpoint_uuid: Optional[str] = None
+    batch_function_uuid: Optional[str] = None
 
 
-class EndpointError(Exception):
-    def __init__(self, error_message: str, error_code: int) -> None:
-        self.error_message = error_message
-        self.error_code = error_code
+# Extract user prompt
+def extract_prompt(model_params: dict[str, Any]) -> Any:
+    """Extract the user input text from the requested model parameters."""
 
-    def __repr__(self):
-        return f"EndpointError(error_code={self.error_code}, error_message={self.error_message})"
+    # Completions
+    if "prompt" in model_params:
+        return model_params["prompt"]
+
+    # Chat completions
+    elif "messages" in model_params:
+        return model_params["messages"]
+
+    # Embeddings
+    elif "input" in model_params:
+        return model_params["input"]
+
+    # Undefined
+    return "default"
 
 
 # Globus Compute implementation of a BaseEndpoint
@@ -74,9 +86,11 @@ class GlobusComputeEndpoint(BaseEndpoint):
         framework: str,
         model: str,
         endpoint_adapter: str,
-        allowed_globus_groups: List[str] = None,
-        allowed_domains: List[str] = None,
-        config: dict = None,
+        tpm_model: int,
+        tpm_user: int,
+        config: dict[str, Any],
+        allowed_globus_groups: list[str] | None = None,
+        allowed_domains: list[str] | None = None,
     ):
         # Validate endpoint configuration
         self.__config = GlobusComputeEndpointConfig(**config)
@@ -90,28 +104,41 @@ class GlobusComputeEndpoint(BaseEndpoint):
             framework,
             model,
             endpoint_adapter,
+            tpm_model,
+            tpm_user,
             allowed_globus_groups,
             allowed_domains,
         )
 
+    @override
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        del state["_client_lock"]  # pickle-friendly
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._client_lock = asyncio.Lock()
+
     # Get endpoint status
     async def get_endpoint_status(
-        self, gcc=None, check_managers=False, for_batch=False
-    ) -> GetEndpointStatusResponse:
+        self,
+        gcc: Client | None = None,
+        check_managers: bool = False,
+        for_batch: bool = False,
+    ) -> dict[str, Any]:
         """Return endpoint status or an error is the endpoint cannot receive requests."""
 
         # Get Globus Compute client
         if gcc is None:
-            try:
-                gcc = globus_utils.get_compute_client_from_endpoint_id(
-                    self.config.endpoint_uuid
-                )
-            except Exception as e:
-                return GetEndpointStatusResponse(error_message=str(e), error_code=500)
+            gcc = globus_utils.get_compute_client_from_endpoint_id(
+                self.config.endpoint_uuid
+            )
 
         # Query the status of the targetted Globus Compute endpoint
         # NOTE: Do not await here, cache the "first" request to avoid too-many-requests Globus error
         if for_batch:
+            assert self.config.batch_endpoint_uuid is not None
             endpoint_status, error_message = globus_utils.get_endpoint_status(
                 endpoint_uuid=self.config.batch_endpoint_uuid,
                 client=gcc,
@@ -123,47 +150,35 @@ class GlobusComputeEndpoint(BaseEndpoint):
                 client=gcc,
                 endpoint_slug=self.endpoint_slug,
             )
-        if len(error_message) > 0:
-            return GetEndpointStatusResponse(
-                error_message=error_message, error_code=500
-            )
+        if len(error_message) > 0 or endpoint_status is None:
+            raise EndpointError(error_message)
 
         # Check if the endpoint is online
         if not endpoint_status["status"] == "online":
-            return GetEndpointStatusResponse(
-                error_message=f"Error: Endpoint {self.endpoint_slug} is offline.",
-                error_code=503,
+            raise EndpointError(
+                f"Endpoint {self.endpoint_slug!r} is offline.", status_code=503
             )
 
         # If managers should be checked ...
         # This is to prevent submitting requests to an endpoint that is not ready yet
         if check_managers:
             # Extract whether managers are deployed on the online endpoint
-            try:
-                resources_ready = (
-                    int(endpoint_status.get("details", {}).get("managers", 0)) > 0
-                )
-            except Exception as e:
-                return GetEndpointStatusResponse(
-                    error_message=f"Error: Cannot parse endpoint status: {e}",
-                    error_code=500,
-                )
+            resources_ready = (
+                int(endpoint_status.get("details", {}).get("managers", 0)) > 0
+            )
 
             # If the compute resource is not ready (if node not acquired, worker_init not completed, or lost managers) ...
             if not resources_ready:
                 # If a user already triggered the model (model currently loading) ...
                 cache_key = f"endpoint_triggered:{self.endpoint_slug}"
-                if is_cached(cache_key, create_empty=False):
+                if is_cached(cache_key):
                     # Send an error to avoid overloading the Globus Compute endpoint
                     # This also reduces memory footprint on the API application
                     error_message = f"Error: Endpoint {self.endpoint_slug} online but not ready to receive tasks. "
                     error_message += "Please try again later."
-                    return GetEndpointStatusResponse(
-                        error_message=error_message, error_code=503
-                    )
+                    raise EndpointError(error_message, status_code=503)
 
-        # Return endpoint status
-        return GetEndpointStatusResponse(status=endpoint_status)
+        return endpoint_status
 
     async def prepare_executor(self, for_batch: bool = False) -> Executor:
         # Get Globus Compute client and executor
@@ -173,112 +188,71 @@ class GlobusComputeEndpoint(BaseEndpoint):
             )
             gce = globus_utils.get_compute_executor(client=gcc)
         except Exception as e:
-            raise EndpointError(error_code=500, error_message=str(e)) from e
+            raise EndpointError(str(e)) from e
 
         # Check endpoint status
-        response = await self.get_endpoint_status(
+        await self.get_endpoint_status(
             gcc=gcc, check_managers=True, for_batch=for_batch
         )
-        if response.error_message:
-            raise EndpointError(
-                error_code=response.error_code,
-                error_message=str(response.error_message),
-            )
 
         return gce
 
     # Submit task
-    async def submit_task(self, data: dict) -> SubmitTaskResponse:
+    @override
+    async def submit_task(self, data: dict[str, Any]) -> SubmitTaskResult:
         """Submits a single interactive task to the compute resource."""
-        try:
-            gce = await self.prepare_executor()
-        except EndpointError as e:
-            return SubmitTaskResponse(
-                error_message=e.error_message, error_code=e.error_code
-            )
+        gce = await self.prepare_executor()
 
         # Add API port to the input data
-        try:
-            data.setdefault("model_params", {})["api_port"] = self.config.api_port
-        except Exception as e:
-            remove_endpoint_from_cache(self.endpoint_slug)
-            return SubmitTaskResponse(
-                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}",
-                error_code=400,
-            )
+        model_params = data.setdefault("model_params", {})
+        if isinstance(model_params, dict):
+            model_params["api_port"] = self.config.api_port
 
-        # Submit Globus Compute task and wait for the result
-        (
-            result,
-            task_id,
-            error_message,
-            error_code,
-        ) = await globus_utils.submit_and_get_result(
+        return await globus_utils.submit_and_get_result(
             gce,
             self.config.endpoint_uuid,
             self.config.function_uuid,
             data=data,
             endpoint_slug=self.endpoint_slug,
         )
-        if len(error_message) > 0:
-            return SubmitTaskResponse(
-                error_message=error_message, error_code=error_code
-            )
-
-        # Return the successful result
-        return SubmitTaskResponse(result=result, task_id=task_id)
 
     async def submit_task_async(
         self, data: dict[str, Any], endpoint_config: dict[str, Any] | None = None
     ) -> SubmitTaskAsyncResponse:
-        try:
-            gce = await self.prepare_executor()
-        except EndpointError as e:
-            return SubmitTaskAsyncResponse(
-                error_message=e.error_message, error_code=e.error_code
-            )
+        gce = await self.prepare_executor()
 
         gcc = gce.client
         batch = gcc.create_batch(user_endpoint_config=endpoint_config)
-        batch.add(self.config.function_uuid, args=[data])
+        batch.add(self.config.function_uuid, args=(data,))
 
         async with self._client_lock:
-            r = await asyncio.to_thread(
-                gcc.batch_run, endpoint_id=self.config.endpoint_uuid, batch=batch
+            resp: dict[str, Any] = await asyncio.to_thread(
+                gcc.batch_run,
+                endpoint_id=self.config.endpoint_uuid,
+                batch=batch,
             )
 
-        task_id = r["tasks"][self.config.function_uuid][0]
+        task_id: str = str(resp["tasks"][self.config.function_uuid][0])
         return SubmitTaskAsyncResponse(task_id=task_id)
 
-    async def get_task_result(self, task_id: str) -> SubmitTaskResponse:
-        try:
-            gce = await self.prepare_executor()
-        except EndpointError as e:
-            return SubmitTaskResponse(
-                error_message=e.error_message, error_code=e.error_code
-            )
+    async def get_task_result(self, task_id: str) -> SubmitTaskResult:
+        gce = await self.prepare_executor()
 
         gcc = gce.client
 
         try:
             async with self._client_lock:
                 result = await asyncio.to_thread(gcc.get_result, task_id)
-        except TaskPending:
-            return SubmitTaskResponse(
-                error_message="Task is still pending, try again soon.",
-                error_code=400,
-                task_id=task_id,
-            )
-        except Exception as e:
-            return SubmitTaskResponse(
-                error_message=f"Task failed: {str(e)}", error_code=500, task_id=task_id
-            )
+        except GlobusTaskPending:
+            raise TaskPending(task_id)
         else:
-            return SubmitTaskResponse(result=result, task_id=task_id)
+            result = globus_utils.unwrap_json(result)
+            return SubmitTaskResult(result=result, task_id=task_id)
 
     # Submit streaming task
+    @override
     async def submit_streaming_task(
-        self, data: dict, request_log_id: str
+        self, data: dict[str, Any]
     ) -> SubmitStreamingTaskResponse:
         """Submits a single interactive task to the compute resource with streaming enabled."""
 
@@ -290,78 +264,70 @@ class GlobusComputeEndpoint(BaseEndpoint):
         data = prepare_streaming_task_data(data, stream_task_id)
 
         # Add API port to the input data
-        try:
-            data["model_params"]["api_port"] = self.config.api_port
-        except Exception as e:
+        model_params = data.setdefault("model_params", {})
+        if isinstance(model_params, dict):
+            model_params["api_port"] = self.config.api_port
+        else:
             remove_endpoint_from_cache(self.endpoint_slug)
-            return SubmitStreamingTaskResponse(
-                error_message=f"Error: Could not process endpoint data for {self.endpoint_slug}: {e}",
-                error_code=400,
+            raise AssertionError(
+                f"Error: Could not process endpoint data for {self.endpoint_slug}"
             )
 
         # Submit task to Globus Compute (same logic as non-streaming)
+        # Assign endpoint UUID to the executor (same as submit_and_get_result)
+        gce = await self.prepare_executor()
+
+        gce.endpoint_id = self.config.endpoint_uuid
+
+        # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
+        future = gce.submit_to_registered_function(
+            self.config.function_uuid, args=(data,)
+        )
+
+        # Wait briefly for task to be registered with Globus (like submit_and_get_result does)
+        # This allows the task_uuid to be populated without waiting for full completion
         try:
-            # Assign endpoint UUID to the executor (same as submit_and_get_result)
-            try:
-                gce = await self.prepare_executor()
-            except EndpointError as e:
-                return SubmitStreamingTaskResponse(
-                    error_message=e.error_message, error_code=e.error_code
-                )
+            asyncio_future: asyncio.Future[Any] = asyncio.wrap_future(future)
+            # Wait just long enough for task registration (not full completion)
+            await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=1.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            # Timeout/cancellation is expected - we just want task registration, not completion
+            pass
+        except Exception:
+            # Other exceptions don't prevent us from getting task_uuid
+            pass
 
-            gce.endpoint_id = self.config.endpoint_uuid
-
-            # Submit Globus Compute task and collect the future object (same as submit_and_get_result)
-            future = gce.submit_to_registered_function(
-                self.config.function_uuid, args=[data]
-            )
-
-            # Wait briefly for task to be registered with Globus (like submit_and_get_result does)
-            # This allows the task_uuid to be populated without waiting for full completion
-            try:
-                asyncio_future = asyncio.wrap_future(future)
-                # Wait just long enough for task registration (not full completion)
-                await asyncio.wait_for(asyncio.shield(asyncio_future), timeout=1.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                # Timeout/cancellation is expected - we just want task registration, not completion
-                pass
-            except Exception:
-                # Other exceptions don't prevent us from getting task_uuid
-                pass
-
-            # Get task_id from the future (should be available after brief wait)
-            task_uuid = globus_utils.get_task_uuid(future)
-
-        except Exception as e:
-            return SubmitStreamingTaskResponse(
-                error_message=f"Error: Could not submit streaming task: {e}",
-                error_code=500,
-            )
+        # Get task_id from the future (should be available after brief wait)
+        task_uuid = globus_utils.get_task_uuid(future) or ""
 
         # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
         cache_key = f"endpoint_triggered:{self.endpoint_slug}"
-        ttl = 600  # 10 minutes
+        cache_item(cache_key, True, ttl=600)
+
         try:
-            cache.set(cache_key, True, ttl)
-        except Exception as e:
-            log.warning(f"Failed to cache endpoint_triggered:{self.endpoint_slug}: {e}")
+            context = get_request_context()
+        except LookupError:
+            context = None
 
         # Start background processing for metrics collection (fire and forget)
-        asyncio.create_task(
-            process_streaming_completion_async(
-                task_uuid,
-                stream_task_id,
-                request_log_id,
-                future,
-                streaming_start_time,
+        if context is not None:
+            original_prompt = (
                 extract_prompt(data["model_params"])
                 if data.get("model_params")
-                else None,
+                else None
             )
-        )
+            asyncio.create_task(
+                process_streaming_completion_async(
+                    task_uuid,
+                    stream_task_id,
+                    context,
+                    streaming_start_time,
+                    original_prompt,
+                )
+            )
 
         # Create simple SSE streaming response
-        async def sse_generator():
+        async def sse_generator() -> AsyncGenerator[str, None]:
             """Simple SSE generator with fast Redis polling - P0 OPTIMIZED with pipeline batching"""
             try:
                 max_wait_time = 300  # 5 minutes total timeout
@@ -398,7 +364,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
                             f"Streaming task {stream_task_id} - authentication failure detected"
                         )
                         set_streaming_status(stream_task_id, "error")
-                        set_streaming_error(stream_task_id, error_msg.get("message"))
+                        set_streaming_error(stream_task_id, error_msg.get("message"))  # type: ignore
                         yield f"data: {json.dumps(error_msg)}\n\n"
                         yield "data: [DONE]\n\n"
                         break
@@ -417,7 +383,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
                             f"Streaming task {stream_task_id} timed out - no data received after {first_data_timeout}s"
                         )
                         set_streaming_status(stream_task_id, "error")
-                        set_streaming_error(stream_task_id, error_msg.get("message"))
+                        set_streaming_error(stream_task_id, error_msg.get("message"))  # type: ignore
                         yield f"data: {json.dumps(error_msg)}\n\n"
                         yield "data: [DONE]\n\n"
                         break
@@ -492,7 +458,8 @@ class GlobusComputeEndpoint(BaseEndpoint):
 
         # Create streaming response
         response = StreamingHttpResponse(
-            streaming_content=sse_generator(), content_type="text/event-stream"
+            streaming_content=sse_generator(),
+            content_type="text/event-stream",
         )
 
         # Set headers for SSE using utility function
@@ -504,6 +471,7 @@ class GlobusComputeEndpoint(BaseEndpoint):
         return SubmitStreamingTaskResponse(response=response, task_id=task_uuid)
 
     # Enable batch support
+    @override
     def has_batch_enabled(self) -> bool:
         """Return True if batch can be used for this endpoint, False otherwise."""
         return (self.config.batch_endpoint_uuid is not None) and (
@@ -511,17 +479,13 @@ class GlobusComputeEndpoint(BaseEndpoint):
         )
 
     # Submit batch
+    @override
     async def submit_batch(
-        self, batch_data: dict, username: str
-    ) -> SubmitBatchResponse:
+        self, batch_data: BatchSubmit, username: str
+    ) -> SubmitBatchResult:
         """Submits a batch job to the compute resource."""
 
-        try:
-            gce = await self.prepare_executor(for_batch=True)
-        except EndpointError as e:
-            return SubmitBatchResponse(
-                error_message=e.error_message, error_code=e.error_code
-            )
+        gce = await self.prepare_executor(for_batch=True)
 
         gcc = gce.client
 
@@ -531,139 +495,92 @@ class GlobusComputeEndpoint(BaseEndpoint):
         params_list = [
             {
                 "model_params": {
-                    "input_file": batch_data["input_file"],
-                    "model": batch_data["model"],
+                    "input_file": batch_data.input_file,
+                    "model": batch_data.model,
                 },
                 "batch_id": batch_id,
                 "username": username,
             }
         ]
-        if "output_folder_path" in batch_data:
-            params_list[0]["model_params"]["output_folder_path"] = batch_data[
-                "output_folder_path"
-            ]
-
-        # Prepare the batch job
-        try:
-            batch = gcc.create_batch()
-            for params in params_list:
-                batch.add(function_id=self.config.batch_function_uuid, args=[params])
-        except Exception as e:
-            return SubmitBatchResponse(
-                error_message=f"Error: Could not create Globus Compute batch: {e}",
-                error_code=500,
+        if batch_data.output_folder_path:
+            assert isinstance(params_list[0]["model_params"], dict)
+            params_list[0]["model_params"]["output_folder_path"] = (
+                batch_data.output_folder_path
             )
 
+        # Prepare the batch job
+        batch = gcc.create_batch()
+        assert self.config.batch_function_uuid is not None
+        for params in params_list:
+            batch.add(function_id=self.config.batch_function_uuid, args=(params,))
+
         # Submit batch to Globus Compute and update batch status if submission is successful
-        try:
-            async with self._client_lock:
-                batch_response = await asyncio.to_thread(
+        async with self._client_lock:
+            batch_response = cast(
+                dict[str, Any],
+                await asyncio.to_thread(
                     gcc.batch_run,
                     endpoint_id=self.config.batch_endpoint_uuid,
                     batch=batch,
-                )
-        except Exception as e:
-            return SubmitBatchResponse(
-                error_message=f"Error: Could not submit the Globus Compute batch: {e}",
-                error_code=500,
+                ),
             )
 
         # Extract the Globus batch UUID from submission
         # Temporary: globus_batch_uuid not used
-        try:
-            _ = batch_response["request_id"]
-        except Exception as e:
-            return SubmitBatchResponse(
-                batch_id=batch_id,
-                error_message=f"Error: Batch submitted but no batch UUID recovered: {e}",
-                error_code=500,
-            )
+        if "request_id" not in batch_response:
+            raise EndpointError("Batch submitted but no batch UUID recovered")
 
         # Extract the batch and task UUIDs from submission
-        try:
-            globus_task_uuids = ""
-            for _, task_uuids in batch_response["tasks"].items():
-                globus_task_uuids += ",".join(task_uuids) + ","
-            globus_task_uuids = globus_task_uuids[:-1]
-        except Exception as e:
-            return SubmitBatchResponse(
-                batch_id=batch_id,
-                error_message=f"Error: Batch submitted but no task UUID recovered: {e}",
-                error_code=500,
-            )
+        tasks: dict[str, Any] = batch_response["tasks"]
+        task_uuids: list[str]
+        globus_task_uuids = ""
+        for task_uuids in tasks.values():
+            globus_task_uuids += ",".join(task_uuids) + ","
+        globus_task_uuids = globus_task_uuids[:-1]
 
         # Return success response with batch ID
-        return SubmitBatchResponse(
+        return SubmitBatchResult(
             batch_id=batch_id,
+            input_file=batch_data.input_file,
             task_ids=globus_task_uuids,
-            status=BatchStatusEnum.pending.value,
+            status=BatchStatus.pending,
+            output_folder_path=batch_data.output_folder_path,
         )
 
     # Get batch status
-    async def get_batch_status(self, batch: BatchLog) -> GetBatchStatusResponse:
+    @override
+    async def get_batch_status(self, batch: BatchLog) -> BatchStatusResult:
         """Get the status and results of a batch job."""
 
-        # Get the Globus batch status response
-        status_response, error_message, error_code = globus_utils.get_batch_status(
-            batch.task_ids
+        if not batch.task_ids:
+            raise BatchNotFound("Cannot get batch status with missing task_ids")
+
+        task_statuses = globus_utils.get_batch_status(batch.task_ids)
+
+        for task in task_statuses.values():
+            if task.get("status") == "failed":
+                return BatchStatusResult(
+                    status=BatchStatus.failed, result=str(task.get("error"))
+                )
+
+        any_pending = any(task["pending"] for task in task_statuses.values())
+        all_success = all(
+            task["status"] == "success" for task in task_statuses.values()
         )
-
-        # If there is an error when recovering Globus tasks status/results ...
-        if len(error_message) > 0:
-            # Mark the batch as failed if the function execution failed
-            if "TaskExecutionFailed" in error_message:
-                return GetBatchStatusResponse(
-                    status=BatchStatusEnum.failed.value, result=error_message
-                )
-
-            # Return error message if something else occured
-            return GetBatchStatusResponse(
-                error_message=error_message, error_code=error_code
-            )
-
-        # Parse Globus batch status response
-        try:
-            status_response_values = list(status_response.values())
-            pending_list = [status["pending"] for status in status_response_values]
-            status_list = [status["status"] for status in status_response_values]
-        except Exception as e:
-            return GetBatchStatusResponse(
-                error_message=f"Error: Could not parse get_batch_status response for status: {e}",
-                error_code=500,
-            )
-
-        # Collect latest batch status
-        try:
-            if pending_list.count(True) > 0:
-                latest_batch_status = BatchStatusEnum.pending.value
-            elif status_list.count("success") == len(status_list):
-                latest_batch_status = BatchStatusEnum.completed.value
-            else:
-                latest_batch_status = BatchStatusEnum.failed.value
-        except Exception as e:
-            return GetBatchStatusResponse(
-                error_message=f"Error: Could not define batch status: {e}",
-                error_code=500,
-            )
-
-        # If batch result is available ...
         batch_result = None
-        if latest_batch_status == BatchStatusEnum.completed.value:
-            # Parse Globus batch status response to extract result
-            try:
-                result_list = [status["result"] for status in status_response_values]
-                batch_result = ",".join(result_list) + ","
-                batch_result = batch_result[:-1]
-            except Exception as e:
-                return GetBatchStatusResponse(
-                    error_message=f"Error: Could not parse get_batch_status response for result: {e}",
-                    error_code=500,
-                )
 
-        # Return latest batch status and result
-        return GetBatchStatusResponse(status=latest_batch_status, result=batch_result)
+        if any_pending:
+            latest_batch_status = BatchStatus.pending
+        elif all_success:
+            latest_batch_status = BatchStatus.completed
+            result_list = [status["result"] for status in task_statuses.values()]
+            batch_result = ",".join(map(str, result_list))
+        else:
+            latest_batch_status = BatchStatus.failed
+
+        return BatchStatusResult(status=latest_batch_status, result=batch_result)
 
     # Read-only access to the configuration
     @property
-    def config(self):
+    def config(self) -> GlobusComputeEndpointConfig:
         return self.__config

@@ -19,8 +19,6 @@ dependencies = [
     "django-ninja",
     "django-redis",
     "django",
-    "djangorestframework>=3.16.1,<4",
-    "drf-spectacular",
     "globus-compute-sdk>=3.16.1,<4",
     "globus-sdk>=3.65.0,<4",
     "gunicorn",
@@ -33,17 +31,22 @@ dependencies = [
     "python-dotenv<2",
     "redis<7",
     "requests<3",
+    "python-json-logger>=2.0",
     "uvicorn[standard]>=0.30.6",
+    "pyzstd",
 ]
 
 [dependency-groups]
 
 # Dependencies for development/testing:
 dev = [
-    "pyright[nodejs]",
+    "mypy",
     "ruff",
     "alcf-ai",
     "pre-commit>=4.5.1",
+    "django-stubs[compatible-mypy]",
+    "types-PyYAML",
+    "types-cachetools",
 ]
 
 # Documentation dependencies:
@@ -64,7 +67,6 @@ members = ["alcf_ai/"]
 
 [tool.uv.build-backend]
 module-name = [
-    "resource_server",
     "resource_server_async",
     "dashboard_async",
     "utils",
@@ -81,7 +83,6 @@ build-backend = "uv_build"
 line-length = 88
 target-version = "py312"
 extend-exclude = [
-    "resource_server/migrations/*",
     "resource_server_async/migrations/*"
 ]
 
@@ -89,31 +90,56 @@ extend-exclude = [
 select = ["F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["alcf_ai", "resource_server_async", "dashboard_async", "resource_server", "utils"]
+known-first-party = ["alcf_ai", "resource_server_async", "dashboard_async", "utils"]
 
 
-
-[tool.pyright]
-# https://microsoft.github.io/pyright/#/configuration
-include = ["alcf_ai", "compute-functions", "cron_jobs", "dashboard_async", "*.py", "inference_gateway", "resource_server", "resource_server_async", "utils"]
+[tool.mypy]
+files = ["alcf_ai", "inference_gateway", "resource_server_async"]
 exclude = [
-    "**/.*",
-    "**/__pycache__",
-    "**/.venv",
-    "**/node_modules",
-    "build",
-    "dist",
-    "utils/tests/test*.py"
+    '^\..*',
+    '__pycache__',
+    '\.venv',
+    'node_modules',
+    '^build/',
+    '^dist/',
+    'utils/tests/test.*\.py$',
+    'resource_server_async/tests/.*.py$',
+    '^compute-functions/.*$',
+    '^cron-jobs/.*$',
 ]
+python_version = "3.12"
+mypy_path = ".venv"
+plugins = [
+    "pydantic.mypy",
+    "mypy_django_plugin.main",
+]
+strict = true
+warn_unused_configs = true        # warn on unused [[tool.mypy.overrides]]
+warn_unreachable = true           # ~ reportUnreachable; not in strict
+no_implicit_optional = true       # explicit Optional[X], not bare = None
 
-pythonVersion = "3.12"
+pretty = true
+show_error_codes = true
+show_column_numbers = true
 
-typeCheckingMode = "strict"
+[tool.django-stubs]
+django_settings_module = "inference_gateway._settings_typechecker"
+strict_settings = true
 
-reportMissingImports = "error"
-reportMissingTypeStubs = "warning"
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
 
-reportUnusedImport = "error"
-reportUnusedVariable = "error"
-reportPrivateUsage = "warning"
-reportImplicitOverride = "error"
+[[tool.mypy.overrides]]
+module = ["smart_open"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["resource_server_async.migrations.*", "resource_server_async.management.commands.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "*.tests.*"
+disallow_untyped_defs = true
