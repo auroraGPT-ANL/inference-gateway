@@ -451,8 +451,7 @@ async def get_realtime_metrics(request, cluster: str = "all"):
             "time_bounds": None,
         }
 
-        # Cache for 30 seconds
-        cache.set(cache_key, result, timeout=30)
+        cache.set(cache_key, result, timeout=300)
         return result
     except Exception as e:
         log.error(f"Error fetching realtime metrics: {e}")
@@ -603,7 +602,6 @@ def _parse_series_window(window: str):
 async def get_users_per_model(request, cluster: str = "all"):
     """Get unique users per model with caching to reduce DB load."""
     try:
-        # Check cache first (5 minute TTL)
         cache_key = f"dashboard:users_per_model:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -630,8 +628,7 @@ async def get_users_per_model(request, cluster: str = "all"):
 
         result = [r async for r in request_log_set]
 
-        # Cache for 30 seconds
-        cache.set(cache_key, result, timeout=30)
+        cache.set(cache_key, result, timeout=300)
         return result
     except Exception as e:
         log.error(f"Error fetching users per model: {e}")
@@ -642,7 +639,6 @@ async def get_users_per_model(request, cluster: str = "all"):
 async def get_users_table(request, cluster: str = "all"):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
     try:
-        # Check cache first (1 minute TTL)
         cache_key = f"dashboard:users_table:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -700,8 +696,7 @@ async def get_users_table(request, cluster: str = "all"):
                 }
             )
 
-        # Cache for 60 seconds
-        cache.set(cache_key, results, timeout=60)
+        cache.set(cache_key, results, timeout=300)
         return results
     except Exception as e:
         log.error(f"Error fetching users table: {e}")
@@ -1021,8 +1016,7 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             "free_nodes": cluster_status.get("free_nodes"),
         }
 
-        # Cache for 2 minutes and return data
-        cache.set(cache_key, payload, timeout=120)
+        cache.set(cache_key, payload, timeout=300)
         return JsonResponse(payload)
 
     # Error if something wrong happened
@@ -1036,7 +1030,6 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 async def get_requests_per_user(request, cluster: str = "all"):
     """Overall requests per user (from AccessLog/User)."""
     try:
-        # Check cache first (1 minute TTL)
         cache_key = f"dashboard:requests_per_user:{cluster}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -1070,8 +1063,7 @@ async def get_requests_per_user(request, cluster: str = "all"):
 
         result = [r async for r in requests_per_user_set]
 
-        # Cache for 60 seconds
-        cache.set(cache_key, result, timeout=60)
+        cache.set(cache_key, result, timeout=300)
         return result
     except Exception as e:
         log.error(f"Error fetching requests per user: {e}")
@@ -1082,7 +1074,6 @@ async def get_requests_per_user(request, cluster: str = "all"):
 async def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
     try:
-        # Check cache first (1 minute TTL)
         cache_key = "dashboard:batch_overview"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -1108,8 +1099,7 @@ async def get_batch_overview(request):
                 "completed_jobs": completed_jobs,
                 "success_rate": success_rate,
             }
-            # Cache for 60 seconds
-            cache.set(cache_key, result, timeout=60)
+            cache.set(cache_key, result, timeout=300)
             return result
         except Exception:
             pass
@@ -1145,8 +1135,7 @@ async def get_batch_overview(request):
             "completed_jobs": completed_jobs,
             "success_rate": success_rate,
         }
-        # Cache for 60 seconds
-        cache.set(cache_key, result, timeout=60)
+        cache.set(cache_key, result, timeout=300)
         return result
     except Exception as e:
         log.error(f"Error fetching batch overview: {e}")
