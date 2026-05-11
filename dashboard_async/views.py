@@ -969,21 +969,15 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         # Get the jobs response from the cluster wrapper
         try:
             cluster_adapter = await BaseCluster.load_adapter(cluster)
-        except Exception as exc:
-            err = str(exc)
-            cluster_status = None
-        else:
             jobs_response: JobsByStatus = await cluster_adapter.get_jobs(mock_auth)
-            err = jobs_response.error_message
-            cluster_status = jobs_response.jobs
-
-        # Empty (or cached values) if error occured
-        if err or not cluster_status:
-            return JsonResponse({"error": str(err)}, status=500)
+            cluster_status = jobs_response.cluster_status
+        except Exception as exc:
+            # Empty (or cached values) if error occured
+            return JsonResponse({"error": str(exc)}, status=500)
 
         # Fill model status for what is reported in the cluster status (/jobs URL)
         items = []
-        for block_list in [cluster_status.running, cluster_status.queued]:
+        for block_list in [jobs_response.running, jobs_response.queued]:
             for block in block_list:
                 block = block.model_dump()
                 model_list = [
@@ -1024,7 +1018,7 @@ async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         # Build data to be displayed on the dashboard
         payload = {
             "items": items,
-            "free_nodes": cluster_status.cluster_status.get("free_nodes"),
+            "free_nodes": cluster_status.get("free_nodes"),
         }
 
         # Cache for 2 minutes and return data
