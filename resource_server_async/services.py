@@ -287,7 +287,13 @@ async def submit_openai_inference_request(
         timestamp_compute_request=timezone.now(),
     )
 
-    data = {"model_params": payload.model_dump(exclude_none=True, mode="json")}
+    data = {
+        "model_params": payload.model_dump(
+            exclude_none=True, exclude_unset=True, mode="json"
+        )
+    }
+    data["model_params"]["openai_endpoint"] = payload.openai_endpoint
+    logger.debug("Sending openai inference request", extra={"openai_payload": data})
 
     # Submit task
     task_response: SubmitStreamingTaskResponse | SubmitTaskResult
