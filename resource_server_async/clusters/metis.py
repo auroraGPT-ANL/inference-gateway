@@ -54,20 +54,7 @@ class MetisCluster(DirectAPICluster):
         if cached_result is not None:
             return cached_result
 
-        # Get the raw status data
-        try:
-            metis_status: dict[str, Any] = await self.httpx_client.get(
-                self.config.status_url
-            )
-        except TimeoutException:
-            raise GetJobsError(
-                f"Timeout calling {self.config.status_url!r}", status_code=504
-            )
-        except HTTPError as e:
-            raise GetJobsError(
-                f"Unexpected error calling {self.config.status_url!r}: {e}"
-            )
-
+        metis_status = await self._fetch_metis_status()
         if not isinstance(metis_status, dict):
             raise GetJobsError("Unexpected response type from Metis status URL")
 
@@ -123,3 +110,16 @@ class MetisCluster(DirectAPICluster):
 
         # Return jobs result
         return formatted
+
+    async def _fetch_metis_status(self) -> Any:
+        """Get the raw status data."""
+        try:
+            return await self.httpx_client.get(self.config.status_url)
+        except TimeoutException:
+            raise GetJobsError(
+                f"Timeout calling {self.config.status_url!r}", status_code=504
+            )
+        except HTTPError as e:
+            raise GetJobsError(
+                f"Unexpected error calling {self.config.status_url!r}: {e}"
+            )

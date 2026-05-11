@@ -281,13 +281,13 @@ class MockStreamingHttpResponse(StreamingHttpResponse):
 
 
 # Mock fetch_metis_status function
-async def mock_fetch_metis_status(use_cache):
-    metis_models = [e.model async for e in Endpoint.objects.filter(cluster="metis")]
-    metis_status = {
+async def mock_fetch_metis_status(self):
+    return {
         m: {"model": m, "status": "Live", "endpoint_id": str(uuid.uuid4())}
-        for m in metis_models
+        async for m in Endpoint.objects.filter(cluster="metis").values_list(
+            "model", flat=True
+        )
     }
-    return metis_status, ""
 
 
 # Mock __initialize_access_log_data function

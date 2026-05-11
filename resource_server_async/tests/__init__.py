@@ -1,69 +1,24 @@
-import asyncio
 import copy
 import json
+import os
 import re
+from contextlib import ContextDecorator
 from inspect import iscoroutinefunction
 from typing import override
+from unittest.mock import patch
 
-import httpx
-from django.conf import settings
 from django.core.management import call_command
 
 # Tools to test with Django Ninja
 from django.test import TestCase
 from ninja.testing import TestAsyncClient
 
-import resource_server_async.auth as auth
-import resource_server_async.globus_utils as globus_utils
 import resource_server_async.tests.mock_utils as mock_utils
-from resource_server_async import api
 from resource_server_async.api import api as ninja_api
-from resource_server_async.endpoints import direct_api, globus_compute, metis
 from resource_server_async.logging import (
     RequestContext,
+    _request_context,
 )
-from resource_server_async.logging import (
-    _request_context as _request_context_var,
-)
-
-# Overwrite log data initialization
-api.GlobalAuth._GlobalAuth__initialize_access_log_data = (
-    mock_utils.mock_initialize_access_log_data
-)
-
-# Overwrite Globus SDK classes and functions
-auth.get_globus_client = mock_utils.get_globus_client
-globus_utils.get_compute_client_from_globus_app = (
-    mock_utils.get_compute_client_from_globus_app
-)
-globus_utils.get_compute_executor = mock_utils.get_compute_executor
-auth.introspect_token = mock_utils.introspect_token
-
-# Overwrite future
-asyncio.wrap_future = mock_utils.wrap_future
-asyncio.wait_for = mock_utils.wait_for
-
-# Overwrite httpx client
-httpx.AsyncClient = mock_utils.MockAsyncClient
-
-# Overwrite streaming utilities
-# Below does not work, you need to overwrite in the module that actually imports the StreamingHttpResponse
-# django_http.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
-
-# Overwrite StreamingHttpResponse in endpoint modules where it's actually imported
-globus_compute.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
-direct_api.StreamingHttpResponse = mock_utils.MockStreamingHttpResponse
-
-# Overwrite metis fetch status call
-# Need to overwrite in metis module where it's actually imported
-metis.fetch_metis_status = mock_utils.mock_fetch_metis_status
-
-# Overwrite settings variables
-settings.MAX_BATCHES_PER_USER = 1000
-settings.AUTHORIZED_IDP_DOMAINS = [mock_utils.MOCK_DOMAIN]
-settings.NUMBER_OF_GLOBUS_POLICIES = 1
-settings.GLOBUS_POLICIES = mock_utils.MOCK_POLICY_UUID
-
 
 # Create mock access tokens
 ACTIVE_TOKEN = mock_utils.get_mock_access_token(
@@ -84,18 +39,6 @@ HEADERS = mock_utils.get_mock_headers(access_token=ACTIVE_TOKEN, bearer=True)
 PREMIUM_HEADERS = mock_utils.get_mock_headers(
     access_token=ACTIVE_PREMIUM_TOKEN, bearer=True
 )
-
-# Import views to trigger route registration on the Ninja API/router
-# Create request Django Ninja test client instance
-# Skip Ninja's namespace registry check — Django's URL loading already registered
-# the NinjaAPI namespace, so TestAsyncClient(api) would hit a false duplicate.
-import os as _os
-
-from resource_server_async import views as _views  # noqa: E402, F401
-
-_os.environ["NINJA_SKIP_REGISTRY"] = "true"
-KWARGS = {"content_type": "application/json"}
-CLIENT = TestAsyncClient(ninja_api)
 
 # Load valid test input data (OpenAI format)
 base_path = "resource_server_async/tests/json"
@@ -269,7 +212,89 @@ def get_response_json(response):
             return str(response)
 
 
+class mock_override(ContextDecorator):
+    """
+    Decorator to apply all `mock_utils` patches needed for `TestCase`s.
+    """
+
+    PATCHERS = (
+        # Overwrite Globus SDK classes and functions
+        patch(
+            "resource_server_async.auth.get_globus_client", mock_utils.get_globus_client
+        ),
+        patch(
+            "resource_server_async.globus_utils.get_compute_client_from_globus_app",
+            mock_utils.get_compute_client_from_globus_app,
+        ),
+        patch(
+            "resource_server_async.globus_utils.get_compute_executor",
+            mock_utils.get_compute_executor,
+        ),
+        patch(
+            "resource_server_async.auth.introspect_token", mock_utils.introspect_token
+        ),
+        # Overwrite future
+        patch("asyncio.wrap_future", mock_utils.wrap_future),
+        patch("asyncio.wait_for", mock_utils.wait_for),
+        # Overwrite httpx client
+        patch("httpx.AsyncClient", mock_utils.MockAsyncClient),
+        # Overwrite StreamingHttpResponse in endpoint modules where it's actually imported
+        patch(
+            "resource_server_async.endpoints.globus_compute.StreamingHttpResponse",
+            mock_utils.MockStreamingHttpResponse,
+        ),
+        patch(
+            "resource_server_async.endpoints.direct_api.StreamingHttpResponse",
+            mock_utils.MockStreamingHttpResponse,
+        ),
+        # Overwrite metis fetch status call
+        patch(
+            "resource_server_async.clusters.metis.MetisCluster._fetch_metis_status",
+            mock_utils.mock_fetch_metis_status,
+        ),
+        # Overwrite settings variables
+        patch("django.conf.settings.MAX_BATCHES_PER_USER", 1000),
+        patch("django.conf.settings.AUTHORIZED_IDP_DOMAINS", [mock_utils.MOCK_DOMAIN]),
+        patch("django.conf.settings.NUMBER_OF_GLOBUS_POLICIES", 1),
+        patch("django.conf.settings.GLOBUS_POLICIES", mock_utils.MOCK_POLICY_UUID),
+    )
+
+    def __enter__(self):
+        for p in self.PATCHERS:
+            p.start()
+
+    def __exit__(self, *_):
+        for p in self.PATCHERS:
+            p.stop()
+
+
+with mock_override():
+    # Import views to trigger route registration on the Ninja API/router
+    from resource_server_async import views as _  # noqa: E402, F401
+
+    # Skip Ninja's namespace registry check — Django's URL loading already
+    # registered the NinjaAPI namespace, so TestAsyncClient(api) would hit a
+    # false duplicate.
+    os.environ["NINJA_SKIP_REGISTRY"] = "true"
+
+    # Create request Django Ninja test client instance
+    KWARGS = {"content_type": "application/json"}
+    CLIENT = TestAsyncClient(ninja_api)
+
+
 class ResourceServerTestCase(TestCase):
+    @override
+    def setUp(self):
+        """
+        Initialization that will happen per test.
+        """
+        super().setUp()
+
+        self.enterContext(mock_override())
+        _request_context.set(
+            RequestContext(mock_utils.mock_initialize_access_log_data(None, None))
+        )
+
     @classmethod
     @override
     def setUpTestData(cls):
@@ -282,13 +307,6 @@ class ResourceServerTestCase(TestCase):
         call_command("loaddata", "fixtures/clusters.json")
 
         return super().setUpTestData()
-
-    @override
-    def setUp(self):
-        super().setUp()
-        _request_context_var.set(
-            RequestContext(mock_utils.mock_initialize_access_log_data(None, None))
-        )
 
     @classmethod
     def template_test(cls, test_name, *args, **kwargs):
