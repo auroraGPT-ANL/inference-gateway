@@ -8,7 +8,7 @@ from ..models import Cluster
 from ..schemas import ListEndpointsResponse
 from ..schemas.auth import AuthedRequest
 from ..schemas.clusters import JobInfo, JobsByStatus
-from ..schemas.db_models import (
+from ..schemas.structured_logs import (
     UserPydantic,
 )
 from ..services import (

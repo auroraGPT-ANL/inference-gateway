@@ -12,7 +12,7 @@ from resource_server_async.clusters.cluster import BaseCluster
 from ..errors import EndpointError, GetJobsError
 from ..models import Endpoint
 from ..schemas.clusters import JobsByStatus
-from ..schemas.db_models import UserPydantic
+from ..schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 

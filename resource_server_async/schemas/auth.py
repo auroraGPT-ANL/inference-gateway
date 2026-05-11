@@ -6,7 +6,7 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from django.http import HttpRequest
 
-from resource_server_async.schemas.db_models import (
+from resource_server_async.schemas.structured_logs import (
     UserPydantic,
 )
 

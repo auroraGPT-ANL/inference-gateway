@@ -9,7 +9,7 @@ from resource_server_async.clusters.direct_api import DirectAPICluster
 
 from ..errors import GetJobsError
 from ..schemas.clusters import JobInfo, JobsByStatus
-from ..schemas.db_models import UserPydantic
+from ..schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 

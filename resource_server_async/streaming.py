@@ -15,7 +15,7 @@ from django.http import HttpRequest
 
 from .cache import get_redis_client
 from .logging import RequestContext
-from .schemas.db_models import UsageTokens
+from .schemas.structured_logs import UsageTokens
 
 logger = getLogger(__name__)
 

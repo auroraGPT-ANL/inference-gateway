@@ -13,6 +13,8 @@ _user_slog = getLogger("resource_server_async.structured.user")
 _access_slog = getLogger("resource_server_async.structured.access_log")
 _request_slog = getLogger("resource_server_async.structured.request_log")
 _request_metrics_slog = getLogger("resource_server_async.structured.request_metrics")
+_batch_slog = getLogger("resource_server_async.structured.batch_log")
+_batch_metrics_slog = getLogger("resource_server_async.structured.batch_metrics")
 
 
 @dataclass(slots=True)
@@ -203,6 +205,29 @@ class BatchLogPydantic(BaseModel):
         if isinstance(v, UUID):
             return str(v)
         return v
+
+    def emit(self, action: str) -> None:
+        _batch_slog.info(action, extra=self.model_dump(mode="json"))
+
+    def emit_metrics(
+        self,
+        total_tokens: int | None,
+        num_responses: int | None,
+        response_time_sec: float | None,
+        throughput_tokens_per_sec: float | None,
+    ) -> None:
+        defaults = {
+            "cluster": self.cluster,
+            "framework": self.framework,
+            "model": self.model,
+            "status": self.status,
+            "total_tokens": total_tokens,
+            "num_responses": num_responses,
+            "response_time_sec": response_time_sec,
+            "throughput_tokens_per_sec": throughput_tokens_per_sec,
+            "completed_at": self.completed_at,
+        }
+        _batch_metrics_slog.info("upserted", extra={"batch_id": self.id, **defaults})
 
 
 def _parse_dict(raw: str) -> Any:

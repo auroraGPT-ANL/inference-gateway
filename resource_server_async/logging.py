@@ -10,7 +10,7 @@ from logging import getLogger
 from asgiref.sync import markcoroutinefunction
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
-from resource_server_async.schemas.db_models import (
+from resource_server_async.schemas.structured_logs import (
     AccessLogPydantic,
     RequestLogPydantic,
     UserPydantic,

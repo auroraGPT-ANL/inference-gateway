@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from resource_server_async.auth import TokenIntrospectionResult
 from resource_server_async.models import Endpoint
-from resource_server_async.schemas.db_models import AccessLogPydantic
+from resource_server_async.schemas.structured_logs import AccessLogPydantic
 
 # =============
 #   Constants

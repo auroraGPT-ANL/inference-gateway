@@ -18,13 +18,13 @@ from ..errors import (
 )
 from ..models import BatchLog, Endpoint
 from ..schemas.batch import BatchSubmit
-from ..schemas.db_models import UserPydantic
 from ..schemas.endpoints import (
     BatchStatusResult,
     SubmitBatchResult,
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
+from ..schemas.structured_logs import UserPydantic
 
 _adapter_cache: TTLCache[str, "BaseEndpoint"] = TTLCache(maxsize=128, ttl=60)
 

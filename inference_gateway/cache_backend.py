@@ -9,7 +9,7 @@ from django.core.cache.backends.base import DEFAULT_TIMEOUT, BaseCache
 
 log = logging.getLogger(__name__)
 
-# Djanog constructs a new cache instance per request, so this state needs to be
+# Django constructs a new cache instance per request, so this state needs to be
 # module-scoped:
 _primary_healthy = True
 _last_failure_at = 0.0

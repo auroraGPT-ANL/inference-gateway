@@ -18,7 +18,7 @@ from ..schemas.clusters import (
     ClusterStatus,
     JobsByStatus,
 )
-from ..schemas.db_models import UserPydantic
+from ..schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from ninja.security import HttpBearer
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle, BaseThrottle
 
 from resource_server_async.auth import validate_access_token
-from resource_server_async.schemas.db_models import UserPydantic
+from resource_server_async.schemas.structured_logs import UserPydantic
 
 from .errors import BaseError, TaskPending
 from .logging import get_request_context

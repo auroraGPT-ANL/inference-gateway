@@ -8,14 +8,14 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from resource_server_async.globus_utils import get_transfer_client
-from resource_server_async.schemas.db_models import (
-    RequestLogPydantic,
-)
 from resource_server_async.schemas.openai_chat_completions import (
     OpenAIChatCompletionsPydantic,
 )
 from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
 from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.structured_logs import (
+    RequestLogPydantic,
+)
 
 from .clusters import BaseCluster
 from .endpoints import BaseEndpoint
@@ -36,7 +36,6 @@ from .schemas.batch import (
     BatchSubmit,
 )
 from .schemas.clusters import JobsByStatus
-from .schemas.db_models import UserPydantic
 from .schemas.endpoints import (
     ClusterSummary,
     FrameworkSummary,
@@ -45,6 +44,7 @@ from .schemas.endpoints import (
     SubmitStreamingTaskResponse,
     SubmitTaskResult,
 )
+from .schemas.structured_logs import UserPydantic
 
 OpenAIRequestPayload = (
     OpenAIChatCompletionsPydantic | OpenAICompletionsPydantic | OpenAIEmbeddingsPydantic

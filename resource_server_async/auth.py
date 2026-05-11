@@ -18,7 +18,7 @@ from resource_server_async.schemas.auth import (
     GlobusActiveIntrospectResponse,
     GlobusIntrospectResponse,
 )
-from resource_server_async.schemas.db_models import UserPydantic
+from resource_server_async.schemas.structured_logs import UserPydantic
 
 log = logging.getLogger(__name__)
 

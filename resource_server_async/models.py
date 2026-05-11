@@ -11,17 +11,15 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 
 from resource_server_async.schemas.batch import BatchStatus
-from resource_server_async.schemas.db_models import (
+from resource_server_async.schemas.endpoints import BatchStatusResult
+from resource_server_async.schemas.structured_logs import (
     BatchLogPydantic,
 )
-from resource_server_async.schemas.endpoints import BatchStatusResult
 
 from .logging import RequestContext
 from .schemas.endpoints import SubmitBatchResult
 
 logger = getLogger(__name__)
-_batch_slog = getLogger("resource_server_async.structured.batch_log")
-_batch_metrics_slog = getLogger("resource_server_async.structured.batch_metrics")
 
 
 # Supported authentication origins
@@ -251,28 +249,8 @@ class BatchLog(models.Model):
         )
 
         batch_log = BatchLogPydantic.model_validate(obj)
-        _batch_slog.info("submitted-batch", extra=batch_log.model_dump(mode="json"))
+        batch_log.emit("submitted-batch")
         return obj
-
-    async def log_metrics(
-        self,
-        total_tokens: int | None,
-        num_responses: int | None,
-        response_time_sec: float | None,
-        throughput_tokens_per_sec: float | None,
-    ) -> None:
-        defaults = {
-            "cluster": self.cluster,
-            "framework": self.framework,
-            "model": self.model,
-            "status": self.status,
-            "total_tokens": total_tokens,
-            "num_responses": num_responses,
-            "response_time_sec": response_time_sec,
-            "throughput_tokens_per_sec": throughput_tokens_per_sec,
-            "completed_at": self.completed_at,
-        }
-        _batch_metrics_slog.info("upserted", extra={"batch_id": self.id, **defaults})
 
     async def update(self, new_status: BatchStatusResult) -> None:
         status = new_status.status
@@ -291,10 +269,15 @@ class BatchLog(models.Model):
         elif self.status == BatchStatus.completed:
             self.completed_at = timezone.now()
 
-        # Try to parse metrics summary from result if available
         if result:
             self.result = result
 
+        await self.asave()
+        batch_log = BatchLogPydantic.model_validate(self)
+        batch_log.emit("updated")
+
+        # Try to parse metrics summary from result if available
+        if result:
             total_tokens = None
             num_responses = None
             response_time_sec = None
@@ -311,16 +294,12 @@ class BatchLog(models.Model):
             except Exception:
                 pass
             else:
-                await self.log_metrics(
+                batch_log.emit_metrics(
                     total_tokens=total_tokens,
                     num_responses=num_responses,
                     response_time_sec=response_time_sec,
                     throughput_tokens_per_sec=throughput,
                 )
-
-        await self.asave()
-        batch_log = BatchLogPydantic.model_validate(self)
-        _batch_slog.info("updated", extra=batch_log.model_dump(mode="json"))
 
 
 # Request metrics model (1:1 with RequestLog)

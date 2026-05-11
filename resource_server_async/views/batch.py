@@ -38,7 +38,6 @@ async def post_batch_inference(
 
     context = get_request_context()
     batch_response = await submit_batch(context, cluster_name, framework, batch_data)
-    context = get_request_context()
     await BatchLog.create(
         context, batch_response, cluster_name, framework, batch_data.model
     )
