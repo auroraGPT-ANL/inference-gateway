@@ -174,14 +174,6 @@ Check database logs:
 docker-compose logs postgres
 ```
 
-### Can't access admin panel
-
-Ensure you created a superuser:
-
-```bash
-docker-compose exec inference-gateway python manage.py createsuperuser
-```
-
 ### 502 Bad Gateway from Nginx
 
 Vefiry that the gateway container is running:

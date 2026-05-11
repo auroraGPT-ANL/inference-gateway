@@ -47,7 +47,6 @@ This directory contains all the necessary files for deploying the FIRST Inferenc
 ## Accessing the Gateway
 
 - Gateway API: http://localhost:8000
-- Admin panel: http://localhost:8000/admin
 
 ## Managing the Services
 
