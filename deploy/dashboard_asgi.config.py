@@ -1,6 +1,6 @@
 import os
 
-"""Dashboard Gunicorn WSGI server configuration."""
+"""Dashboard Gunicorn ASGI server configuration."""
 
 # Determine if we're in production or development
 environment = os.getenv("ENV", "production")
@@ -27,7 +27,7 @@ max_requests_jitter = 300
 backlog = 2048
 
 # Type of workers
-# worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
+worker_class = "resource_server_async.uvicorn_workers.InferenceUvicornWorker"
 
 # Worker configuration
 workers = 1
