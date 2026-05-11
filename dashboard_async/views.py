@@ -1042,7 +1042,9 @@ async def get_requests_per_user(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        requests_per_user_set = AsyncAccessLog.objects.select_related("user")
+        requests_per_user_set = AsyncAccessLog.objects.select_related("user").filter(
+            user__isnull=False
+        )
         if cluster and cluster.lower() != "all":
             requests_per_user_set = requests_per_user_set.select_related(
                 "request_log"
