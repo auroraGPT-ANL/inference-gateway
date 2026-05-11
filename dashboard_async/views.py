@@ -1206,17 +1206,12 @@ async def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     try:
         start_index = page * per_page
         end_index = start_index + per_page
-        qs = AsyncBatchLog.objects.select_related("access_log__user").order_by(
-            "-completed_at", "-in_progress_at"
-        )
+        users = AsyncUser.objects.all()
+        qs = AsyncBatchLog.objects.order_by("-completed_at", "-in_progress_at")
         sliced = qs[start_index:end_index]
         results = []
         async for bl in sliced:
-            access = getattr(bl, "access_log", None)
-            user = getattr(access, "user", None) if access else None
-            duration = None
-            if bl.completed_at and bl.in_progress_at:
-                duration = (bl.completed_at - bl.in_progress_at).total_seconds()
+            user = await users.aget(id__exact=bl.user_id)
             results.append(
                 {
                     "time": (bl.completed_at or bl.in_progress_at).isoformat()
@@ -1227,7 +1222,9 @@ async def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
                     "model": bl.model,
                     "cluster": bl.cluster,
                     "status": bl.status,
-                    "latency": duration,
+                    "latency": (bl.completed_at - bl.in_progress_at).total_seconds()
+                    if (bl.completed_at and bl.in_progress_at)
+                    else None,
                 }
             )
         return results
