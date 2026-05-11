@@ -71,6 +71,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "dashboard_async.urls"
+FORCE_SCRIPT_NAME = "/dashboard"
 
 WSGI_APPLICATION = "dashboard_async.wsgi.application"
 

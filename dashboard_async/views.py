@@ -1,14 +1,36 @@
 import logging
+import secrets
+import time
 from datetime import timedelta
+from functools import wraps
+from urllib.parse import urlencode
 
+from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.core.cache import cache
+from django.db import connection
+from django.db.models import (
+    Count,
+    F,
+    FilteredRelation,
+    Max,
+    Q,
+    Sum,
+)
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.security import SessionAuth
 
+from dashboard_async.globus_auth import (
+    exchange_code_for_tokens,
+    get_authorization_url,
+    refresh_access_token,
+    revoke_token,
+    validate_dashboard_token,
+)
+from resource_server_async.clusters import BaseCluster
 from resource_server_async.models import (
     AccessLog as AsyncAccessLog,
 )
@@ -16,11 +38,21 @@ from resource_server_async.models import (
     BatchLog as AsyncBatchLog,
 )
 from resource_server_async.models import (
+    BatchMetrics as AsyncBatchMetrics,
+)
+from resource_server_async.models import (
     Endpoint as AsyncEndpoint,
+)
+from resource_server_async.models import (
+    RequestLog as AsyncRequestLog,
+)
+from resource_server_async.models import (
+    RequestMetrics as AsyncRequestMetrics,
 )
 from resource_server_async.models import (
     User as AsyncUser,
 )
+from resource_server_async.schemas.clusters import JobsByStatus
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +62,6 @@ class DjangoSessionAuth(SessionAuth):
     """Use Globus session authentication for API endpoints."""
 
     def authenticate(self, request: HttpRequest, key):
-        import time
-
-        from dashboard_async.globus_auth import validate_dashboard_token
-
         # Check for Globus tokens in session
         if "globus_tokens" not in request.session:
             return None
@@ -76,8 +104,6 @@ api.add_router("/", router)
 
 def dashboard_login_view(request):
     """Initiate Globus OAuth2 login flow."""
-    from dashboard_async.globus_auth import validate_dashboard_token
-
     # Check if already authenticated via Globus
     if "globus_tokens" in request.session:
         tokens = request.session["globus_tokens"]
@@ -99,8 +125,6 @@ def dashboard_login_view(request):
     request.session.pop("next_url", None)
 
     # Generate new state for CSRF protection
-    import secrets
-
     state = secrets.token_urlsafe(32)
     request.session["oauth_state"] = state
     request.session["next_url"] = request.GET.get("next", "dashboard_analytics")
@@ -110,8 +134,6 @@ def dashboard_login_view(request):
     request.session.save()
 
     # Get Globus authorization URL
-    from dashboard_async.globus_auth import get_authorization_url
-
     auth_url = get_authorization_url(state=state)
 
     return redirect(auth_url)
@@ -119,10 +141,6 @@ def dashboard_login_view(request):
 
 def dashboard_callback_view(request):
     """Handle Globus OAuth2 callback."""
-    from dashboard_async.globus_auth import (
-        exchange_code_for_tokens,
-        validate_dashboard_token,
-    )
 
     # Check for errors from Globus
     error = request.GET.get("error")
@@ -213,9 +231,6 @@ def dashboard_callback_view(request):
 
 def dashboard_logout_view(request):
     """Logout and clear both local and Globus sessions."""
-    from urllib.parse import urlencode
-
-    from dashboard_async.globus_auth import revoke_token
 
     # Revoke Globus tokens if present
     if "globus_tokens" in request.session:
@@ -252,13 +267,6 @@ def globus_login_required(view_func):
     Decorator to require Globus authentication for dashboard views.
     Validates Globus token from session and refreshes if needed.
     """
-    import time
-    from functools import wraps
-
-    from dashboard_async.globus_auth import (
-        refresh_access_token,
-        validate_dashboard_token,
-    )
 
     @wraps(view_func)
     def wrapped_view(request, *args, **kwargs):
@@ -336,7 +344,7 @@ def analytics_realtime_view(request):
 
 
 @router.get("/analytics/metrics")
-def get_realtime_metrics(request, cluster: str = "all"):
+async def get_realtime_metrics(request, cluster: str = "all"):
     """Overall realtime metrics from RequestMetrics (no window)."""
     try:
         # Check cache first (include cluster in cache key)
@@ -344,8 +352,6 @@ def get_realtime_metrics(request, cluster: str = "all"):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-
-        from django.db import connection
 
         # Refined breakdown of requests using HTTP status codes:
         # - Successful: status_code 200-299 or 0 (all successful requests)
@@ -355,141 +361,93 @@ def get_realtime_metrics(request, cluster: str = "all"):
         #   - No RequestLog with error status = failed before reaching inference (likely auth/validation)
         # - Failed Inference: Has RequestLog AND status_code >= 300 AND status_code NOT IN (401, 403)
         #   - These reached inference but failed during processing
-        #
-        # OPTIMIZED: Use single JOIN-based query instead of correlated subqueries for better performance
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                # Cluster-filtered query using INNER JOIN - only count requests that reached this cluster
-                cursor.execute(
-                    """
-                    SELECT
-                        COUNT(*)::bigint AS total_all_requests,
-                        COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful_requests,
-                        COUNT(*) FILTER (WHERE al.status_code IN (401, 403)) AS auth_failures,
-                        COUNT(*) FILTER (WHERE al.status_code >= 300 AND al.status_code NOT IN (401, 403)) AS failed_inference,
-                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics rm WHERE rm.cluster = %s) AS total_tokens
-                    FROM resource_server_async_accesslog al
-                    INNER JOIN resource_server_async_requestlog rl
-                        ON rl.access_log_id = al.id AND rl.cluster = %s
-                    """,
-                    [cluster.lower(), cluster.lower()],
-                )
-            else:
-                # Non-filtered query using LEFT JOIN - much faster than correlated subqueries
-                cursor.execute(
-                    """
-                    WITH access_with_request AS (
-                        SELECT
-                            al.id,
-                            al.status_code,
-                            CASE WHEN rl.id IS NOT NULL THEN 1 ELSE 0 END AS has_request_log
-                        FROM resource_server_async_accesslog al
-                        LEFT JOIN resource_server_async_requestlog rl
-                            ON rl.access_log_id = al.id
-                    )
-                    SELECT
-                        COUNT(*)::bigint AS total_all_requests,
-                        COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful_requests,
-                        COUNT(*) FILTER (WHERE (
-                            status_code IN (401, 403)
-                            OR (has_request_log = 0 AND status_code >= 300)
-                        )) AS auth_failures,
-                        COUNT(*) FILTER (WHERE has_request_log = 1 AND status_code >= 300 AND status_code NOT IN (401, 403)) AS failed_inference,
-                        (SELECT COALESCE(SUM(total_tokens), 0) FROM resource_server_async_requestmetrics) AS total_tokens
-                    FROM access_with_request
-                    """
-                )
-            row = cursor.fetchone()
-            (
-                total_all_requests,
-                successful_requests,
-                auth_failures,
-                failed_inference,
-                total_tokens,
-            ) = row
+        access_log_set = AsyncAccessLog.objects
+        request_metrics_set = AsyncRequestMetrics.objects
+        unique_users_set = AsyncUser.objects
+        if cluster and cluster.lower() != "all":
+            access_log_set = access_log_set.select_related("request_log").filter(
+                request_log__cluster__iexact=cluster
+            )
+            request_metrics_set = request_metrics_set.filter(cluster__iexact=cluster)
+            unique_users_set = unique_users_set.select_related(
+                "access_logs__request_log"
+            ).filter(access_logs__request_log__cluster__iexact=cluster)
+
+        request_counts = await access_log_set.aaggregate(
+            all=Count("id"),
+            successful=Count(
+                "id",
+                filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+            ),
+            auth_failures=Count(
+                "id",
+                filter=~Q(status_code__in=(401, 403))
+                | Q(request_log__isnull=True) & Q(status_code__gte=300),
+            ),
+            failed_inference=Count(
+                "id",
+                filter=Q(request_log__isnull=False)
+                & Q(status_code__gte=300)
+                & ~Q(status_code__in=(401, 403)),
+            ),
+        )
+        metrics_counts = await request_metrics_set.aaggregate(
+            total_tokens=Sum("total_tokens")
+        )
 
         # Success rate calculation:
         # - Numerator: Successful requests (AccessLog with 200-299)
         # - Denominator: All requests that reached inference (successful + failed_inference)
         # - Excludes: Auth failures (never reached inference)
-        total_inference_requests = successful_requests + failed_inference
+        total_inference_requests = (
+            request_counts["successful"] + request_counts["failed_inference"]
+        )
 
         # Success rate based on real request/response (not auth failures)
         success_rate = (
-            (successful_requests / total_inference_requests)
-            if total_inference_requests and total_inference_requests > 0
-            else 0.0
+            request_counts["successful"] / total_inference_requests
+            if total_inference_requests > 0
+            else 0
         )
 
         # Unique users: count users who have requests in this cluster
         try:
-            if cluster and cluster.lower() != "all":
-                unique_users = (
-                    AsyncUser.objects.filter(
-                        access_logs__request_log__cluster=cluster.lower()
-                    )
-                    .distinct()
-                    .count()
-                )
-            else:
-                unique_users = AsyncUser.objects.count()
+            unique_users = await unique_users_set.distinct().acount()
         except Exception:
             # Fallback to 0 on any ORM error
             unique_users = 0
 
-        # OPTIMIZED: Per-model aggregates directly from RequestMetrics (with cluster filter if needed)
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT model,
-                           COUNT(*)::bigint AS total_requests,
-                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
-                           COALESCE(SUM(total_tokens), 0) AS total_tokens
-                    FROM resource_server_async_requestmetrics
-                    WHERE cluster = %s
-                    GROUP BY model
-                    ORDER BY total_requests DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT model,
-                           COUNT(*)::bigint AS total_requests,
-                           COUNT(*) FILTER (WHERE status_code = 0 OR status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS failed,
-                           COALESCE(SUM(total_tokens), 0) AS total_tokens
-                    FROM resource_server_async_requestmetrics
-                    GROUP BY model
-                    ORDER BY total_requests DESC
-                    """
-                )
-            per_model = [
-                {
-                    "model": row[0],
-                    "total_requests": int(row[1] or 0),
-                    "successful": int(row[2] or 0),
-                    "failed": int(row[3] or 0),
-                    "total_tokens": int(row[4] or 0),
-                }
-                for row in cursor.fetchall()
-            ]
+        # Per-model aggregates directly from RequestMetrics
+        per_model_counts = [
+            c
+            async for c in request_metrics_set.values("model")
+            .annotate(
+                total_requests=Count("request"),
+                successful=Count(
+                    "request",
+                    filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "request",
+                    filter=Q(status_code__isnull=True) | Q(status_code__gte=300),
+                ),
+                total_tokens=Sum("total_tokens"),
+            )
+            .order_by("-total_requests")
+        ]
 
         result = {
             "totals": {
-                "total_tokens": int(total_tokens or 0),
-                "total_requests": int(total_all_requests or 0),
+                "total_tokens": int(metrics_counts["total_tokens"] or 0),
+                "total_requests": int(request_counts["all"] or 0),
                 "total_inference_requests": int(total_inference_requests or 0),
-                "successful": int(successful_requests or 0),
-                "failed": int(failed_inference or 0),
-                "auth_failures": int(auth_failures or 0),
+                "successful": int(request_counts["successful"] or 0),
+                "failed": int(request_counts["failed_inference"] or 0),
+                "auth_failures": int(request_counts["auth_failures"] or 0),
                 "success_rate": success_rate,
                 "unique_users": int(unique_users or 0),
             },
-            "per_model": per_model,
+            "per_model": per_model_counts,
             "time_bounds": None,
         }
 
@@ -502,7 +460,7 @@ def get_realtime_metrics(request, cluster: str = "all"):
 
 
 @router.get("/analytics/logs")
-def get_realtime_logs(
+async def get_realtime_logs(
     request, page: int = 0, per_page: int = 500, cluster: str = "all"
 ):
     """Latest AccessLog with optional joined RequestLog and User (LEFT JOIN semantics)."""
@@ -512,34 +470,30 @@ def get_realtime_logs(
 
         # OPTIMIZED: LEFT JOIN semantics with metrics for pre-calculated latency
         # Utilize DB indexes: order by indexed timestamp_request desc, then status_code
-        qs = (
-            AsyncAccessLog.objects.select_related(
-                "user", "request_log", "request_log__metrics"
-            )  # Add metrics
-            .only(  # only pull these fields, defer everything else
-                "id",
-                "timestamp_request",
-                "status_code",
-                "api_route",
-                "error",
-                "user__id",
-                "user__name",
-                "user__username",
-                "user__idp_id",
-                "user__idp_name",
-                "user__auth_service",
-                "request_log__id",
-                "request_log__cluster",
-                "request_log__model",
-                "request_log__openai_endpoint",
-                "request_log__timestamp_compute_request",
-                "request_log__timestamp_compute_response",
-                "request_log__task_uuid",
-                "request_log__metrics__response_time_sec",  # Pre-calculated latency
-            )
-            .defer(  # explicitly defer heavy text fields
-                "request_log__prompt", "request_log__result"
-            )
+        qs = AsyncAccessLog.objects.select_related(
+            "user", "request_log", "request_log__metrics"
+        ).only(  # Add metrics  # only pull these fields, defer everything else
+            "id",
+            "timestamp_request",
+            "status_code",
+            "api_route",
+            "error",
+            "user__id",
+            "user__name",
+            "user__username",
+            "user__idp_id",
+            "user__idp_name",
+            "user__auth_service",
+            "request_log__id",
+            "request_log__cluster",
+            "request_log__model",
+            "request_log__openai_endpoint",
+            "request_log__timestamp_compute_request",
+            "request_log__timestamp_compute_response",
+            "request_log__task_uuid",
+            "request_log__metrics__response_time_sec",  # Pre-calculated latency
+            "request_log__prompt",  # Expensive fields are lazy-loaded
+            "request_log__result",
         )
 
         # Filter by cluster if specified
@@ -551,7 +505,7 @@ def get_realtime_logs(
         sliced = qs[start_index:end_index]
 
         results = []
-        for al in sliced:
+        async for al in sliced:
             rl = getattr(al, "request_log", None)
             user = getattr(al, "user", None)
 
@@ -646,7 +600,7 @@ def _parse_series_window(window: str):
 
 
 @router.get("/analytics/users-per-model")
-def get_users_per_model(request, cluster: str = "all"):
+async def get_users_per_model(request, cluster: str = "all"):
     """Get unique users per model with caching to reduce DB load."""
     try:
         # Check cache first (5 minute TTL)
@@ -655,34 +609,26 @@ def get_users_per_model(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        request_log_set = (
+            AsyncRequestLog.objects.select_related("access_log")
+            .annotate(
+                filtered_log=FilteredRelation(
+                    "access_log",
+                    condition=Q(access_log__user__isnull=False)
+                    & ~Q(access_log__user__exact=""),
+                ),
+            )
+            .values("model")
+            .annotate(
+                user_count=Count("filtered_log__user", distinct=True),
+            )
+            .order_by("-user_count")
+        )
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
-                    FROM resource_server_async_requestlog rl
-                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                    WHERE al.user_id IS NOT NULL AND al.user_id <> '' AND rl.cluster = %s
-                    GROUP BY rl.model
-                    ORDER BY user_count DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT rl.model, COUNT(DISTINCT al.user_id) AS user_count
-                    FROM resource_server_async_requestlog rl
-                    JOIN resource_server_async_accesslog al ON al.id = rl.access_log_id
-                    WHERE al.user_id IS NOT NULL AND al.user_id <> ''
-                    GROUP BY rl.model
-                    ORDER BY user_count DESC
-                    """
-                )
-            rows = cursor.fetchall()
-        result = [{"model": r[0], "user_count": int(r[1] or 0)} for r in rows]
+        if cluster and cluster.lower() != "all":
+            request_log_set = request_log_set.filter(Q(cluster__iexact=cluster))
+
+        result = [r async for r in request_log_set]
 
         # Cache for 30 seconds
         cache.set(cache_key, result, timeout=30)
@@ -693,7 +639,7 @@ def get_users_per_model(request, cluster: str = "all"):
 
 
 @router.get("/analytics/users-table")
-def get_users_table(request, cluster: str = "all"):
+async def get_users_table(request, cluster: str = "all"):
     """Tabular list of users with last access, success/failure counts, success%, last failure time."""
     try:
         # Check cache first (1 minute TTL)
@@ -702,61 +648,55 @@ def get_users_table(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        users_table_set = AsyncUser.objects.select_related("access_logs")
+        if cluster and cluster.lower() != "all":
+            users_table_set = users_table_set.select_related(
+                "access_logs__request_log"
+            ).filter(
+                Q(access_logs__request_log__cluster__iexact=cluster)
+                | Q(access_logs__request_log__cluster__isnull=True)
+            )
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT
-                      u.name,
-                      u.username,
-                      MAX(al.timestamp_request) AS last_access,
-                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
-                    FROM resource_server_async_user u
-                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
-                    LEFT JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
-                    WHERE (rl.cluster = %s OR rl.cluster IS NULL)
-                    GROUP BY u.name, u.username
-                    HAVING COUNT(rl.id) > 0 OR COUNT(al.id) = 0
-                    ORDER BY last_access DESC NULLS LAST, u.username
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                      u.name,
-                      u.username,
-                      MAX(al.timestamp_request) AS last_access,
-                      COUNT(*) FILTER (WHERE al.status_code = 0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                      COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed,
-                      MAX(al.timestamp_request) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS last_failure
-                    FROM resource_server_async_user u
-                    LEFT JOIN resource_server_async_accesslog al ON al.user_id = u.id
-                    GROUP BY u.name, u.username
-                    ORDER BY last_access DESC NULLS LAST, u.username
-                    """
-                )
-            rows = cursor.fetchall()
+        users_table_set = (
+            users_table_set.values("name", "username")
+            .annotate(
+                last_access=Max("access_logs__timestamp_request"),
+                successful=Count(
+                    "access_logs",
+                    filter=Q(access_logs__status_code__exact=0)
+                    | Q(access_logs__status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "access_logs",
+                    filter=Q(access_logs__status_code__isnull=True)
+                    | Q(access_logs__status_code__gte=300),
+                ),
+                last_failure=Max(
+                    "access_logs__timestamp_request",
+                    filter=Q(access_logs__status_code__isnull=True)
+                    | Q(access_logs__status_code__gte=300),
+                ),
+            )
+            .order_by(F("last_access").desc(nulls_last=True), "username")
+        )
 
         results = []
-        for r in rows:
-            name, username, last_access, successful, failed, last_failure = r
-            total = int((successful or 0)) + int((failed or 0))
-            success_rate = (float(successful) / total) if total > 0 else 0.0
+        async for r in users_table_set:
+            total = int((r["successful"] or 0)) + int((r["failed"] or 0))
+            success_rate = (float(r["successful"]) / total) if total > 0 else 0.0
             results.append(
                 {
-                    "name": name,
-                    "username": username,
-                    "last_access": last_access.isoformat() if last_access else None,
-                    "successful": int(successful or 0),
-                    "failed": int(failed or 0),
+                    "name": r["name"],
+                    "username": r["username"],
+                    "last_access": r["last_access"].isoformat()
+                    if r["last_access"]
+                    else None,
+                    "successful": int(r["successful"] or 0),
+                    "failed": int(r["failed"] or 0),
                     "success_rate": success_rate,
-                    "last_failure": last_failure.isoformat() if last_failure else None,
+                    "last_failure": r["last_failure"].isoformat()
+                    if r["last_failure"]
+                    else None,
                 }
             )
 
@@ -769,10 +709,8 @@ def get_users_table(request, cluster: str = "all"):
 
 
 @router.get("/analytics/series")
-def get_overall_series(request, window: str = "24h", cluster: str = "all"):
+async def get_overall_series(request, window: str = "24h", cluster: str = "all"):
     try:
-        from django.db import connection
-
         delta, trunc_unit = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
@@ -788,10 +726,122 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
             cluster_filter = "AND rl.cluster = %s"
             cluster_params = [cluster.lower()]
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
+        @sync_to_async
+        def _get_rows():
+            with connection.cursor() as cursor:
+                if cluster and cluster.lower() != "all":
+                    cursor.execute(
+                        f"""
+                        WITH series AS (
+                          SELECT generate_series(
+                            date_trunc(%s, %s::timestamptz),
+                            date_trunc(%s, %s::timestamptz),
+                            CASE %s
+                              WHEN 'minute' THEN interval '1 minute'
+                              WHEN 'hour' THEN interval '1 hour'
+                              WHEN 'day' THEN interval '1 day'
+                              WHEN 'week' THEN interval '1 week'
+                              WHEN 'month' THEN interval '1 month'
+                            END
+                          ) AS bucket
+                        )
+                        SELECT s.bucket,
+                               COALESCE(a.ok, 0) AS ok,
+                               COALESCE(a.fail, 0) AS fail
+                        FROM series s
+                        LEFT JOIN (
+                          SELECT date_trunc(%s, al.timestamp_request) AS bucket,
+                                 COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
+                                 COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
+                          FROM resource_server_async_accesslog al
+                          {cluster_join}
+                          WHERE al.timestamp_request >= %s AND al.timestamp_request <= %s {cluster_filter}
+                          GROUP BY bucket
+                        ) a ON a.bucket = s.bucket
+                        ORDER BY s.bucket
+                        """,
+                        [
+                            trunc_unit,
+                            start_ts,
+                            trunc_unit,
+                            end_ts,
+                            trunc_unit,
+                            trunc_unit,
+                            start_ts,
+                            end_ts,
+                        ]
+                        + cluster_params,
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        WITH series AS (
+                          SELECT generate_series(
+                            date_trunc(%s, %s::timestamptz),
+                            date_trunc(%s, %s::timestamptz),
+                            CASE %s
+                              WHEN 'minute' THEN interval '1 minute'
+                              WHEN 'hour' THEN interval '1 hour'
+                              WHEN 'day' THEN interval '1 day'
+                              WHEN 'week' THEN interval '1 week'
+                              WHEN 'month' THEN interval '1 month'
+                            END
+                          ) AS bucket
+                        )
+                        SELECT s.bucket,
+                               COALESCE(a.ok, 0) AS ok,
+                               COALESCE(a.fail, 0) AS fail
+                        FROM series s
+                        LEFT JOIN (
+                          SELECT date_trunc(%s, timestamp_request) AS bucket,
+                                 COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
+                                 COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
+                          FROM resource_server_async_accesslog
+                          WHERE timestamp_request >= %s AND timestamp_request <= %s
+                          GROUP BY bucket
+                        ) a ON a.bucket = s.bucket
+                        ORDER BY s.bucket
+                        """,
+                        [
+                            trunc_unit,
+                            start_ts,
+                            trunc_unit,
+                            end_ts,
+                            trunc_unit,
+                            trunc_unit,
+                            start_ts,
+                            end_ts,
+                        ],
+                    )
+                return cursor.fetchall()
+
+        rows = await _get_rows()
+
+        # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
+        return [
+            {"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)}
+            for r in rows
+        ]
+    except Exception as e:
+        log.error(f"Error fetching overall series: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@router.get("/analytics/model/series")
+async def get_model_series(request, model: str, window: str = "24h"):
+    try:
+        delta, trunc_unit = _parse_series_window(window)
+        end_ts = timezone.now()
+        start_ts = end_ts - delta
+        log.debug(
+            f"model_series: model={model} window={window} trunc={trunc_unit} start={start_ts.isoformat()} end={end_ts.isoformat()}"
+        )
+
+        @sync_to_async
+        def _get_rows():
+            with connection.cursor() as cursor:
                 cursor.execute(
-                    f"""
+                    """
                     WITH series AS (
                       SELECT generate_series(
                         date_trunc(%s, %s::timestamptz),
@@ -813,9 +863,8 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
                       SELECT date_trunc(%s, al.timestamp_request) AS bucket,
                              COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
                              COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
-                      FROM resource_server_async_accesslog al
-                      {cluster_join}
-                      WHERE al.timestamp_request >= %s AND al.timestamp_request <= %s {cluster_filter}
+                      FROM resource_server_async_accesslog al JOIN resource_server_async_requestlog rl ON al.id = rl.access_log_id
+                      WHERE rl.model = %s AND al.timestamp_request >= %s AND al.timestamp_request <= %s
                       GROUP BY bucket
                     ) a ON a.bucket = s.bucket
                     ORDER BY s.bucket
@@ -827,117 +876,14 @@ def get_overall_series(request, window: str = "24h", cluster: str = "all"):
                         end_ts,
                         trunc_unit,
                         trunc_unit,
-                        start_ts,
-                        end_ts,
-                    ]
-                    + cluster_params,
-                )
-            else:
-                cursor.execute(
-                    """
-                    WITH series AS (
-                      SELECT generate_series(
-                        date_trunc(%s, %s::timestamptz),
-                        date_trunc(%s, %s::timestamptz),
-                        CASE %s
-                          WHEN 'minute' THEN interval '1 minute'
-                          WHEN 'hour' THEN interval '1 hour'
-                          WHEN 'day' THEN interval '1 day'
-                          WHEN 'week' THEN interval '1 week'
-                          WHEN 'month' THEN interval '1 month'
-                        END
-                      ) AS bucket
-                    )
-                    SELECT s.bucket,
-                           COALESCE(a.ok, 0) AS ok,
-                           COALESCE(a.fail, 0) AS fail
-                    FROM series s
-                    LEFT JOIN (
-                      SELECT date_trunc(%s, timestamp_request) AS bucket,
-                             COUNT(*) FILTER (WHERE status_code=0 OR status_code BETWEEN 200 AND 299) AS ok,
-                             COUNT(*) FILTER (WHERE status_code >= 300 OR status_code IS NULL) AS fail
-                      FROM resource_server_async_accesslog
-                      WHERE timestamp_request >= %s AND timestamp_request <= %s
-                      GROUP BY bucket
-                    ) a ON a.bucket = s.bucket
-                    ORDER BY s.bucket
-                    """,
-                    [
-                        trunc_unit,
-                        start_ts,
-                        trunc_unit,
-                        end_ts,
-                        trunc_unit,
-                        trunc_unit,
+                        model,
                         start_ts,
                         end_ts,
                     ],
                 )
-            rows = cursor.fetchall()
-        # OPTIMIZED: Removed unnecessary debug query that duplicates the main query
-        return [
-            {"t": r[0].isoformat(), "ok": int(r[1] or 0), "fail": int(r[2] or 0)}
-            for r in rows
-        ]
-    except Exception as e:
-        log.error(f"Error fetching overall series: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
+                return cursor.fetchall()
 
-
-@router.get("/analytics/model/series")
-def get_model_series(request, model: str, window: str = "24h"):
-    try:
-        from django.db import connection
-
-        delta, trunc_unit = _parse_series_window(window)
-        end_ts = timezone.now()
-        start_ts = end_ts - delta
-        log.debug(
-            f"model_series: model={model} window={window} trunc={trunc_unit} start={start_ts.isoformat()} end={end_ts.isoformat()}"
-        )
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                WITH series AS (
-                  SELECT generate_series(
-                    date_trunc(%s, %s::timestamptz),
-                    date_trunc(%s, %s::timestamptz),
-                    CASE %s
-                      WHEN 'minute' THEN interval '1 minute'
-                      WHEN 'hour' THEN interval '1 hour'
-                      WHEN 'day' THEN interval '1 day'
-                      WHEN 'week' THEN interval '1 week'
-                      WHEN 'month' THEN interval '1 month'
-                    END
-                  ) AS bucket
-                )
-                SELECT s.bucket,
-                       COALESCE(a.ok, 0) AS ok,
-                       COALESCE(a.fail, 0) AS fail
-                FROM series s
-                LEFT JOIN (
-                  SELECT date_trunc(%s, al.timestamp_request) AS bucket,
-                         COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS ok,
-                         COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS fail
-                  FROM resource_server_async_accesslog al JOIN resource_server_async_requestlog rl ON al.id = rl.access_log_id
-                  WHERE rl.model = %s AND al.timestamp_request >= %s AND al.timestamp_request <= %s
-                  GROUP BY bucket
-                ) a ON a.bucket = s.bucket
-                ORDER BY s.bucket
-                """,
-                [
-                    trunc_unit,
-                    start_ts,
-                    trunc_unit,
-                    end_ts,
-                    trunc_unit,
-                    trunc_unit,
-                    model,
-                    start_ts,
-                    end_ts,
-                ],
-            )
-            rows = cursor.fetchall()
+        rows = await _get_rows()
         total_ok = sum(int(r[1] or 0) for r in rows)
         total_fail = sum(int(r[2] or 0) for r in rows)
         log.debug(
@@ -953,30 +899,34 @@ def get_model_series(request, model: str, window: str = "24h"):
 
 
 @router.get("/analytics/model/box")
-def get_model_box(request, model: str, window: str = "24h"):
+async def get_model_box(request, model: str, window: str = "24h"):
     try:
-        from django.db import connection
-
         delta, _ = _parse_series_window(window)
         end_ts = timezone.now()
         start_ts = end_ts - delta
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  AVG(throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  AVG(response_time_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
-                FROM resource_server_async_requestmetrics
-                WHERE model = %s AND timestamp_compute_request >= %s AND timestamp_compute_request <= %s
-                  AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
-                """,
-                [model, start_ts, end_ts],
-            )
-            row = cursor.fetchone()
+
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      AVG(throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      AVG(response_time_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
+                    FROM resource_server_async_requestmetrics
+                    WHERE model = %s AND timestamp_compute_request >= %s AND timestamp_compute_request <= %s
+                      AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
+                    """,
+                    [model, start_ts, end_ts],
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
+
         return {
             "throughput": {
                 "mean": float(row[0] or 0.0),
@@ -995,25 +945,17 @@ def get_model_box(request, model: str, window: str = "24h"):
 
 
 @router.get("/analytics/health")
-def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
+async def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
     """Proxy health info so the browser doesn't need a bearer token.
     Combines qstat job data (for Sophia/Polaris) or Metis API status with configured endpoints to mark offline models.
     """
     try:
-        from asgiref.sync import async_to_sync
-
-        from resource_server_async.clusters import BaseCluster
-        from resource_server_async.schemas.clusters import JobsByStatus
-
         # Try cache first unless refresh requested
         cache_key = f"dashboard_health:{cluster}"
         if not refresh:
             cached_payload = cache.get(cache_key)
             if cached_payload:
                 return JsonResponse(cached_payload)
-
-        # Create mock auth object to pass to get_jobs
-        from resource_server_async.models import User
 
         mock_auth_data = {
             "id": "ALCF-dashboard-id",
@@ -1022,35 +964,20 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
             "idp_id": "ALCF-dashboard-idp-id",
             "idp_name": "ALCF-dashboard-idp-name",
         }
-        mock_auth = User(**mock_auth_data)
+        mock_auth = AsyncUser(**mock_auth_data)
 
         # Get the jobs response from the cluster wrapper
         try:
-            cluster_adapter = async_to_sync(BaseCluster.load_adapter)(cluster)
+            cluster_adapter = await BaseCluster.load_adapter(cluster)
+            jobs_response: JobsByStatus = await cluster_adapter.get_jobs(mock_auth)
+            cluster_status = jobs_response.cluster_status
         except Exception as exc:
-            err = str(exc)
-            cluster_status = None
-        else:
-            jobs_response: JobsByStatus = async_to_sync(cluster_adapter.get_jobs)(
-                mock_auth
-            )
-            err = jobs_response.error_message
-            cluster_status = jobs_response.jobs
-
-        # Empty (or cached values) if error occured
-        if err or not cluster_status:
-            return JsonResponse({"error": str(err)}, status=500)
-
-        # Get all models listed for the targeted cluster
-        configured_models = set(
-            AsyncEndpoint.objects.filter(cluster=cluster).values_list(
-                "model", flat=True
-            )
-        )
+            # Empty (or cached values) if error occured
+            return JsonResponse({"error": str(exc)}, status=500)
 
         # Fill model status for what is reported in the cluster status (/jobs URL)
         items = []
-        for block_list in [cluster_status.running, cluster_status.queued]:
+        for block_list in [jobs_response.running, jobs_response.queued]:
             for block in block_list:
                 block = block.model_dump()
                 model_list = [
@@ -1071,8 +998,13 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         # Gather the list of models that are already present in the items list
         present_models = {i["model"] for i in items}
 
+        # Get all models listed for the targeted cluster
+        configured_models = AsyncEndpoint.objects.filter(
+            Q(cluster=cluster) & ~Q(model__in=present_models)
+        ).values_list("model", flat=True)
+
         # Add offline models to the list
-        for model in sorted(configured_models - present_models):
+        async for model in configured_models:
             items.append(
                 {
                     "model": model,
@@ -1086,7 +1018,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
         # Build data to be displayed on the dashboard
         payload = {
             "items": items,
-            "free_nodes": cluster_status.cluster_status.get("free_nodes"),
+            "free_nodes": cluster_status.get("free_nodes"),
         }
 
         # Cache for 2 minutes and return data
@@ -1101,7 +1033,7 @@ def get_health_status(request, cluster: str = "sophia", refresh: int = 0):
 
 # ========= Additional realtime endpoints =========
 @router.get("/analytics/requests-per-user")
-def get_requests_per_user(request, cluster: str = "all"):
+async def get_requests_per_user(request, cluster: str = "all"):
     """Overall requests per user (from AccessLog/User)."""
     try:
         # Check cache first (1 minute TTL)
@@ -1110,50 +1042,33 @@ def get_requests_per_user(request, cluster: str = "all"):
         if cached is not None:
             return cached
 
-        from django.db import connection
+        requests_per_user_set = AsyncAccessLog.objects.select_related("user").filter(
+            user__isnull=False
+        )
+        if cluster and cluster.lower() != "all":
+            requests_per_user_set = requests_per_user_set.select_related(
+                "request_log"
+            ).filter(request_log__cluster__iexact=cluster)
 
-        with connection.cursor() as cursor:
-            if cluster and cluster.lower() != "all":
-                cursor.execute(
-                    """
-                    SELECT u.name, u.username,
-                           COUNT(*)::bigint AS total,
-                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
-                    FROM resource_server_async_accesslog al
-                    JOIN resource_server_async_user u ON u.id = al.user_id
-                    JOIN resource_server_async_requestlog rl ON rl.access_log_id = al.id
-                    WHERE rl.cluster = %s
-                    GROUP BY u.name, u.username
-                    ORDER BY total DESC
-                    """,
-                    [cluster.lower()],
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT u.name, u.username,
-                           COUNT(*)::bigint AS total,
-                           COUNT(*) FILTER (WHERE al.status_code=0 OR al.status_code BETWEEN 200 AND 299) AS successful,
-                           COUNT(*) FILTER (WHERE al.status_code >= 300 OR al.status_code IS NULL) AS failed
-                    FROM resource_server_async_accesslog al
-                    JOIN resource_server_async_user u ON u.id = al.user_id
-                    GROUP BY u.name, u.username
-                    ORDER BY total DESC
-                    """
-                )
-            rows = cursor.fetchall()
+        requests_per_user_set = (
+            requests_per_user_set.values(
+                name=F("user__name"), username=F("user__username")
+            )
+            .annotate(
+                total=Count("id"),
+                successful=Count(
+                    "id",
+                    filter=Q(status_code__exact=0) | Q(status_code__range=(200, 299)),
+                ),
+                failed=Count(
+                    "id",
+                    filter=Q(status_code__isnull=True) | Q(status_code__gte=300),
+                ),
+            )
+            .order_by("-total")
+        )
 
-        result = [
-            {
-                "name": r[0],
-                "username": r[1],
-                "total": int(r[2] or 0),
-                "successful": int(r[3] or 0),
-                "failed": int(r[4] or 0),
-            }
-            for r in rows
-        ]
+        result = [r async for r in requests_per_user_set]
 
         # Cache for 60 seconds
         cache.set(cache_key, result, timeout=60)
@@ -1164,7 +1079,7 @@ def get_requests_per_user(request, cluster: str = "all"):
 
 
 @router.get("/analytics/batch/overview")
-def get_batch_overview(request):
+async def get_batch_overview(request):
     """Batch metrics overview (prefers BatchMetrics, falls back to parsing BatchLog.result)."""
     try:
         # Check cache first (1 minute TTL)
@@ -1173,57 +1088,51 @@ def get_batch_overview(request):
         if cached is not None:
             return cached
 
-        from django.db import connection
-
         # Try BatchMetrics
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(total_tokens),0) AS tokens,
-                           COALESCE(SUM(num_responses),0) AS requests,
-                           COUNT(*)::bigint AS total_jobs,
-                           COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
-                    FROM resource_server_async_batchmetrics
-                    """
-                )
-                row = cursor.fetchone()
-                if row is not None and any(row):
-                    total_tokens = int(row[0] or 0)
-                    total_requests = int(row[1] or 0)
-                    total_jobs = int(row[2] or 0)
-                    completed_jobs = int(row[3] or 0)
-                    success_rate = (
-                        (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
-                    )
-                    result = {
-                        "total_tokens": total_tokens,
-                        "total_requests": total_requests,
-                        "total_jobs": total_jobs,
-                        "completed_jobs": completed_jobs,
-                        "success_rate": success_rate,
-                    }
-                    # Cache for 60 seconds
-                    cache.set(cache_key, result, timeout=60)
-                    return result
+            row = await AsyncBatchMetrics.objects.aaggregate(
+                tokens=Sum("total_tokens"),
+                requests=Sum("num_responses"),
+                total_jobs=Count("*"),
+                completed_jobs=Count("*", filter=Q(status__exact="completed")),
+            )
+            total_tokens = int(row["tokens"] or 0)
+            total_requests = int(row["requests"] or 0)
+            total_jobs = int(row["total_jobs"] or 0)
+            completed_jobs = int(row["completed_jobs"] or 0)
+            success_rate = (completed_jobs / total_jobs) if total_jobs > 0 else 0.0
+            result = {
+                "total_tokens": total_tokens,
+                "total_requests": total_requests,
+                "total_jobs": total_jobs,
+                "completed_jobs": completed_jobs,
+                "success_rate": success_rate,
+            }
+            # Cache for 60 seconds
+            cache.set(cache_key, result, timeout=60)
+            return result
         except Exception:
             pass
 
         # Fallback to BatchLog parsing
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
-                                     THEN (result::jsonb -> 'metrics' ->> 'total_tokens')::bigint ELSE 0 END)),0) AS tokens,
-                  COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
-                                     THEN (result::jsonb -> 'metrics' ->> 'num_responses')::bigint ELSE 0 END)),0) AS requests,
-                  COUNT(*)::bigint AS total_jobs,
-                  COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
-                FROM resource_server_async_batchlog
-                """
-            )
-            row = cursor.fetchone()
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
+                                         THEN (result::jsonb -> 'metrics' ->> 'total_tokens')::bigint ELSE 0 END)),0) AS tokens,
+                      COALESCE(SUM((CASE WHEN jsonb_typeof(result::jsonb -> 'metrics') = 'object'
+                                         THEN (result::jsonb -> 'metrics' ->> 'num_responses')::bigint ELSE 0 END)),0) AS requests,
+                      COUNT(*)::bigint AS total_jobs,
+                      COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs
+                    FROM resource_server_async_batchlog
+                    """
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
         total_tokens = int(row[0] or 0)
         total_requests = int(row[1] or 0)
         total_jobs = int(row[2] or 0)
@@ -1245,28 +1154,31 @@ def get_batch_overview(request):
 
 
 @router.get("/analytics/batch/model-summary")
-def get_batch_model_summary(request, model: str):
+async def get_batch_model_summary(request, model: str):
     """Batch model throughput/latency summary (mean, p50, p99)."""
     try:
-        from django.db import connection
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  AVG(throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
-                  AVG(response_time_sec),
-                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
-                  PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
-                FROM resource_server_async_batchmetrics
-                WHERE model = %s
-                  AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
-                """,
-                [model],
-            )
-            row = cursor.fetchone()
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      AVG(throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY throughput_tokens_per_sec),
+                      AVG(response_time_sec),
+                      PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY response_time_sec),
+                      PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY response_time_sec)
+                    FROM resource_server_async_batchmetrics
+                    WHERE model = %s
+                      AND throughput_tokens_per_sec IS NOT NULL AND response_time_sec IS NOT NULL
+                    """,
+                    [model],
+                )
+                return cursor.fetchone()
+
+        row = await _get_row()
         return {
             "throughput": {
                 "mean": float(row[0] or 0.0),
@@ -1285,22 +1197,17 @@ def get_batch_model_summary(request, model: str):
 
 
 @router.get("/analytics/batch-logs")
-def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
+async def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
     """Paginated batch logs from Async tables with user info and duration."""
     try:
         start_index = page * per_page
         end_index = start_index + per_page
-        qs = AsyncBatchLog.objects.select_related("access_log__user").order_by(
-            "-completed_at", "-in_progress_at"
-        )
+        users = AsyncUser.objects.all()
+        qs = AsyncBatchLog.objects.order_by("-completed_at", "-in_progress_at")
         sliced = qs[start_index:end_index]
         results = []
-        for bl in sliced:
-            access = getattr(bl, "access_log", None)
-            user = getattr(access, "user", None) if access else None
-            duration = None
-            if bl.completed_at and bl.in_progress_at:
-                duration = (bl.completed_at - bl.in_progress_at).total_seconds()
+        async for bl in sliced:
+            user = await users.aget(id__exact=bl.user_id)
             results.append(
                 {
                     "time": (bl.completed_at or bl.in_progress_at).isoformat()
@@ -1311,7 +1218,9 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
                     "model": bl.model,
                     "cluster": bl.cluster,
                     "status": bl.status,
-                    "latency": duration,
+                    "latency": (bl.completed_at - bl.in_progress_at).total_seconds()
+                    if (bl.completed_at and bl.in_progress_at)
+                    else None,
                 }
             )
         return results
@@ -1321,11 +1230,9 @@ def get_batch_logs_rt(request, page: int = 0, per_page: int = 100):
 
 
 @router.get("/analytics/query-logs")
-def query_logs_custom(request):
+async def query_logs_custom(request):
     """Custom log query builder with flexible filters."""
     try:
-        from django.db import connection
-
         # Parse query parameters
         rows = int(request.GET.get("rows", 10))
         rows = min(max(1, rows), 10000)  # Clamp between 1 and 10000
@@ -1425,12 +1332,16 @@ def query_logs_custom(request):
         """
 
         # Execute query
-        with connection.cursor() as cursor:
-            # Set timezone first
-            cursor.execute("SET TIME ZONE %s", [tzname])
-            # Then execute the main query
-            cursor.execute(query, params + [rows])
-            result = cursor.fetchone()
+        @sync_to_async
+        def _get_row():
+            with connection.cursor() as cursor:
+                # Set timezone first
+                cursor.execute("SET TIME ZONE %s", [tzname])
+                # Then execute the main query
+                cursor.execute(query, params + [rows])
+                return cursor.fetchone()
+
+        result = await _get_row()
 
         # Return JSON array or empty array if no results
         data = result[0] if result and result[0] else []
