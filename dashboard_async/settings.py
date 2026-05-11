@@ -83,8 +83,6 @@ DATABASES = {
             "pool": {
                 "min_size": 0,
                 "max_size": 2,  # HARD LIMIT imposed here
-                "timeout": 5,  # seconds to wait for a free conn
-                "max_waiting": 10,  # queue depth before pool raises
             },
         },
         "CONN_MAX_AGE": 0,
