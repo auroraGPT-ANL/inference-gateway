@@ -248,11 +248,10 @@ class mock_override(ContextDecorator):
             mock_utils.MockStreamingHttpResponse,
         ),
         # Overwrite metis fetch status call
-        # Need to overwrite in metis module where it's actually imported
-        # patch(
-        #     "resource_server_async.endpoints.metis.fetch_metis_status",
-        #     mock_utils.mock_fetch_metis_status,
-        # ),
+        patch(
+            "resource_server_async.clusters.metis.MetisCluster._fetch_metis_status",
+            mock_utils.mock_fetch_metis_status,
+        ),
         # Overwrite settings variables
         patch("django.conf.settings.MAX_BATCHES_PER_USER", 1000),
         patch("django.conf.settings.AUTHORIZED_IDP_DOMAINS", [mock_utils.MOCK_DOMAIN]),
