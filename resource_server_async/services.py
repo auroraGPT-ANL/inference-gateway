@@ -8,11 +8,15 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from resource_server_async.globus_utils import get_transfer_client
+from resource_server_async.schemas.anthropic_messages import AnthropicMessagesPydantic
 from resource_server_async.schemas.openai_chat_completions import (
     OpenAIChatCompletionsPydantic,
 )
 from resource_server_async.schemas.openai_completions import OpenAICompletionsPydantic
 from resource_server_async.schemas.openai_embeddings import OpenAIEmbeddingsPydantic
+from resource_server_async.schemas.openai_responses import (
+    OpenAIResponsesPydantic,
+)
 from resource_server_async.schemas.structured_logs import (
     RequestLogPydantic,
 )
@@ -47,7 +51,11 @@ from .schemas.endpoints import (
 from .schemas.structured_logs import UserPydantic
 
 OpenAIRequestPayload = (
-    OpenAIChatCompletionsPydantic | OpenAICompletionsPydantic | OpenAIEmbeddingsPydantic
+    OpenAIChatCompletionsPydantic
+    | OpenAICompletionsPydantic
+    | OpenAIEmbeddingsPydantic
+    | OpenAIResponsesPydantic
+    | AnthropicMessagesPydantic
 )
 
 logger = logging.getLogger(__name__)
@@ -229,6 +237,12 @@ async def submit_openai_inference_request(
     elif isinstance(payload, OpenAIEmbeddingsPydantic):
         stream = False
         prompt = payload.input
+    elif isinstance(payload, OpenAIResponsesPydantic):
+        stream = payload.stream or False
+        prompt = payload.model_dump(include={"input"}, mode="json")["input"]
+    elif isinstance(payload, AnthropicMessagesPydantic):
+        stream = payload.stream or False
+        prompt = payload.model_dump(include={"messages"}, mode="json")["messages"]
     else:
         raise ValueError(f"Invalid {payload=}")
 

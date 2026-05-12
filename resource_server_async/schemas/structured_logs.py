@@ -249,9 +249,26 @@ def _get_int(data: dict[str, Any], key: str) -> int | None:
 
 def extract_usage(result: str) -> UsageTokens:
     """
-    Attempt to parse token usage counts from a JSON response body containing
-    'usage' or 'metrics' keys with 'prompt_tokens', 'completion_tokens',
-    'total_tokens'.
+    Attempt to parse token usage counts from a JSON response body.
+
+    Handles three shapes:
+
+    - OpenAI chat/completions, completions, embeddings::
+        {"usage": {"prompt_tokens": int,
+                   "completion_tokens": int,
+                   "total_tokens": int}}
+    - OpenAI Responses API::
+        {"usage": {"input_tokens": int,
+                   "output_tokens": int,
+                   "total_tokens": int}}
+    - Anthropic Messages API::
+        {"usage": {"input_tokens": int,
+                   "output_tokens": int}}  # no total_tokens
+
+    Also honours a top-level ``metrics.total_tokens`` if present (the compute
+    function attaches that to non-streaming responses).  When the upstream
+    only reports input/output tokens, total_tokens is computed as their sum
+    so token-rate-limit accounting still works.
     """
     try:
         data = json.loads(result)
@@ -264,9 +281,21 @@ def extract_usage(result: str) -> UsageTokens:
     usage = _get_dict(data, "usage")
     metrics = _get_dict(data, "metrics")
 
+    prompt_tokens = _get_int(usage, "prompt_tokens") or _get_int(usage, "input_tokens")
+    completion_tokens = _get_int(usage, "completion_tokens") or _get_int(
+        usage, "output_tokens"
+    )
+    total_tokens = _get_int(usage, "total_tokens") or _get_int(metrics, "total_tokens")
+
+    # Anthropic does not report total_tokens; derive it from input/output so
+    # TPM accounting still charges the right amount.
+    if total_tokens is None and (
+        prompt_tokens is not None or completion_tokens is not None
+    ):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
     return UsageTokens(
-        prompt_tokens=_get_int(usage, "prompt_tokens"),
-        completion_tokens=_get_int(usage, "completion_tokens"),
-        total_tokens=_get_int(usage, "total_tokens")
-        or _get_int(metrics, "total_tokens"),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
     )
