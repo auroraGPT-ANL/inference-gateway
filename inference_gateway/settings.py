@@ -296,10 +296,6 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (matches typical OAuth token lifetime)
 SESSION_SAVE_EVERY_REQUEST = False  # Don't save on every request (performance)
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Keep session after browser close (better UX)
 
-# CSRF cookie settings for production security
-CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
-CSRF_COOKIE_SAMESITE = "Lax"  # Match session cookie
-
 # Streaming server configuration
 STREAMING_SERVER_HOST = os.environ.get(
     "STREAMING_SERVER_HOST", "data-portal-dev.cels.anl.gov"

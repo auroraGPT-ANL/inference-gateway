@@ -306,7 +306,6 @@ REDIS_URL="redis://redis-prod.internal:6379/0"
 # Enable security features
 SECURE_SSL_REDIRECT=True
 SESSION_COOKIE_SECURE=True
-CSRF_COOKIE_SECURE=True
 ```
 
 ## Secrets Management

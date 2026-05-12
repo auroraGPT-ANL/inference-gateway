@@ -46,15 +46,12 @@ LOGOUT_REDIRECT_URL = "/dashboard/login/"
 
 # Override settings specific to the Dashboard
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
     "resource_server_async",
-    "drf_spectacular",
     "dashboard_async",
     # Configuration checks (mostly for making sure auth guards are in place)
     "inference_gateway.apps.AuthCheckConfig",
@@ -64,10 +61,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "dashboard_async.urls"
@@ -89,8 +83,6 @@ DATABASES = {
             "pool": {
                 "min_size": 0,
                 "max_size": 2,  # HARD LIMIT imposed here
-                "timeout": 5,  # seconds to wait for a free conn
-                "max_waiting": 10,  # queue depth before pool raises
             },
         },
         "CONN_MAX_AGE": 0,
