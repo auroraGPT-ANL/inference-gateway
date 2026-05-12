@@ -15,7 +15,7 @@ from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
 
 from resource_server_async.cache import cache_item, get_item_from_cache
-from resource_server_async.errors import EndpointError, RequestTimeout
+from resource_server_async.errors import EndpointError, EndpointNotFound, RequestTimeout
 from resource_server_async.schemas.endpoints import SubmitTaskResult
 
 log = logging.getLogger(__name__)
@@ -238,6 +238,11 @@ async def submit_and_get_result(
             "TimeoutError while attempting to access compute resources. Please try again later.",
             info={"task_id": task_id},
         )
+    except Exception as exc:
+        error_msg = str(exc)
+        if "API request" in error_msg and "Not Found" in error_msg:
+            raise EndpointNotFound("The upstream API returned a 'Not Found' response.")
+        raise
 
     result = unwrap_json(result)
 
