@@ -88,7 +88,6 @@ class MetisEndpoint(DirectAPIEndpoint):
         api_request_data["stream"] = False
 
         # Remove internal field that shouldn't be sent to Metis
-        api_request_data.pop("openai_endpoint", None)
         api_request_data.pop("api_port", None)
 
         # Log model and Metis endpoint ID
@@ -112,7 +111,6 @@ class MetisEndpoint(DirectAPIEndpoint):
         api_request_data["stream"] = True
 
         # Remove internal field that shouldn't be sent to Metis
-        api_request_data.pop("openai_endpoint", None)
         api_request_data.pop("api_port", None)
 
         # Log model and Metis endpoint ID
