@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
-from resource_server_async import globus_utils
-from resource_server_async.endpoints import BaseEndpoint
-
 """Internal health monitor for inference endpoints.
 
 This script is intended to be executed from a trusted VM (cron job).
@@ -23,6 +18,8 @@ It performs the following tasks:
 The script exits after a single run; the cron scheduler is responsible for
 periodic execution.
 """
+
+from __future__ import annotations
 
 import ast
 import asyncio
@@ -62,14 +59,17 @@ django.setup()
 # ---------------------------------------------------------------------------
 
 from cron_jobs.check_application_health import ApplicationHealthChecker  # noqa: E402
-from resource_server_async.clusters import BaseCluster  # noqa: E402
+from resource_server_async import globus_utils
+from resource_server_async.clusters import (
+    BaseCluster,  # noqa: E402
+    MetisCluster,
+)
+from resource_server_async.endpoints import MetisEndpoint
 from resource_server_async.errors import BaseError
 from resource_server_async.models import (
     Endpoint,  # noqa: E402
     User,
 )
-from resource_server_async.schemas.clusters import JobsByStatus  # noqa: E402
-from utils import metis_utils  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -204,7 +204,7 @@ async def gather_endpoints() -> Dict[str, EndpointInfo]:
     return await sync_to_async(_load)()
 
 
-async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optional[str]]:
+async def fetch_qstat_running_models() -> Tuple[Dict[str, Dict], Optional[str]]:
     """Return mapping of running model name -> qstat entry."""
 
     # Create mock User object to run get_jobs()
@@ -218,20 +218,18 @@ async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optiona
     mock_auth = User(**mock_auth_data)
 
     # Get the jobs response from the cluster adapter
+    jobs_response = None
+    error_message = None
+    error_code = None
     try:
         cluster = await BaseCluster.load_adapter("sophia")
+        jobs_response = await cluster.get_jobs(mock_auth)
     except BaseError as exc:
         error_message = str(exc)
         error_code = exc.status_code
     except Exception as exc:
-        cluster = None
         error_message = str(exc)
         error_code = 500
-    else:
-        jobs_response: JobsByStatus = await cluster.get_jobs(mock_auth)
-        del mock_auth
-        error_message = jobs_response.error_message
-        error_code = jobs_response.error_code
 
     if error_message:
         log.error(
@@ -240,31 +238,20 @@ async def fetch_qstat_running_models(gcc, gce) -> Tuple[Dict[str, Dict], Optiona
             error_message,
         )
         return {}, error_message
+    else:
+        assert jobs_response is not None
 
-    # Access the qstat jobs raw result (convert pydantic to raw dictionary)
-    raw_result = jobs_response.jobs.model_dump()
+    result = {}
 
-    try:
-        if isinstance(raw_result, (bytes, str)):
-            qstat_payload = json.loads(raw_result)
-        else:
-            qstat_payload = raw_result
-    except json.JSONDecodeError as exc:
-        msg = f"Invalid qstat JSON: {exc}"
-        log.error(msg)
-        return {}, msg
-
-    running_entries = qstat_payload.get("running", []) or []
-    result: Dict[str, Dict] = {}
-    for entry in running_entries:
-        models_field = entry.get("Models", "")
-        model_status = entry.get("Model Status", "")
+    for entry in jobs_response.running:
+        models_field = entry.Models
+        model_status = entry.model_dump().get("Model Status", "")
         if not models_field:
             continue
         for model_name in models_field.split(","):
             model = normalize_model_name(model_name)
             if model:
-                result[model] = {**entry, "Model Status": model_status}
+                result[model] = {**entry.model_dump(), "Model Status": model_status}
     return result, None
 
 
@@ -319,7 +306,7 @@ async def check_sophia_models() -> List[HealthRecord]:
         endpoint_status_cache[info.endpoint_slug] = (status, err)
         return status, err
 
-    running_models, qstat_error = await fetch_qstat_running_models(gcc, gce)
+    running_models, qstat_error = await fetch_qstat_running_models()
 
     if qstat_error:
         records.append(
@@ -414,18 +401,20 @@ async def check_sophia_models() -> List[HealthRecord]:
             info.api_port,
         )
         start = time.monotonic()
-        (
-            result,
-            task_uuid,
-            error_message,
-            error_code,
-        ) = await globus_utils.submit_and_get_result(
-            gce,
-            info.endpoint_uuid,
-            info.function_uuid,
-            data=params,
-            timeout=GLOBUS_HEALTH_TIMEOUT,
-        )
+        try:
+            result = await globus_utils.submit_and_get_result(
+                gce,
+                info.endpoint_uuid,
+                info.function_uuid,
+                data=params,
+                timeout=GLOBUS_HEALTH_TIMEOUT,
+            )
+        except Exception as e:
+            error_message, error_code = str(e), 500
+        else:
+            error_message, error_code = None, None
+            result, task_uuid = result.result, result.task_id
+
         elapsed = time.monotonic() - start
 
         log.info(
@@ -527,24 +516,25 @@ async def check_metis_models() -> List[HealthRecord]:
     """Run health checks for active Metis models."""
 
     records: List[HealthRecord] = []
-    status_data, error_msg = await metis_utils.fetch_metis_status(use_cache=False)
-
-    if error_msg:
+    metis = await MetisCluster.load_adapter("metis")
+    try:
+        jobs = await metis.get_jobs(None)
+    except Exception as e:
         records.append(
             HealthRecord(
                 model="Metis status",
                 cluster="metis",
                 status="failed",
-                detail=error_msg,
+                detail=str(e),
             )
         )
         return records
 
-    if not status_data:
+    if not jobs:
         log.warning("Metis status returned no data.")
         return records
 
-    models = extract_metis_models(status_data)
+    models = jobs.running
 
     if not models:
         records.append(
@@ -557,136 +547,99 @@ async def check_metis_models() -> List[HealthRecord]:
         )
         return records
 
+    url = "https://metis.alcf.anl.gov/v1/health"
+
     for model_entry in models:
-        model_name = model_entry["model"]
-        model_info = model_entry["model_info"]
+        for model_name in model_entry.Models.split(","):
+            model_name = model_name.strip()
 
-        api_url = model_info.get("url")
-        if not api_url:
-            records.append(
-                HealthRecord(
-                    model=model_name,
-                    cluster="metis",
-                    status="failed",
-                    detail="Metis model missing base URL",
-                )
-            )
-            continue
+            endpoint = await MetisEndpoint.load_adapter("metis", "api", model_name)
+            headers = endpoint.httpx_client.headers
 
-        # Get API key for the model
-        # token = metis_utils.get_metis_api_token_for_endpoint(endpoint_id)
+            payload = {"model": model_name}
 
-        try:
-            endpoint = await BaseEndpoint.load_adapter("metis", "api", model_name)
-            api_key_env_name = endpoint.config.api_key_env_name
-            token = os.environ.get(api_key_env_name, None)
-        except:
-            token = None
+            log.info("Calling Metis health: model=%s url=%s", model_name, url)
+            start = time.monotonic()
+            try:
+                async with httpx.AsyncClient(timeout=METIS_HEALTH_TIMEOUT) as client:
+                    response = await client.post(url, json=payload, headers=headers)
+                    elapsed = time.monotonic() - start
 
-        if not token:
-            records.append(
-                HealthRecord(
-                    model=model_name,
-                    cluster="metis",
-                    status="failed",
-                    detail="Missing Metis API token",
-                )
-            )
-            continue
+                    if response.status_code >= 400:
+                        detail = response.text.strip()
+                        records.append(
+                            HealthRecord(
+                                model=model_name,
+                                cluster="metis",
+                                status="failed",
+                                detail=f"HTTP {response.status_code}: {detail}",
+                                elapsed=elapsed,
+                            )
+                        )
+                        continue
 
-        # url = f"{api_url.rstrip('/')}/{health_path.lstrip('/')}"
-        url = "https://metis.alcf.anl.gov/v1/health"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+                    resp_time, status_text = parse_health_payload(response.text)
+                    detail_text = status_text or "ok"
 
-        payload = {
-            "model": model_name,
-        }
+                    record_status = "healthy"
+                    if (
+                        resp_time is not None and resp_time > SLOW_THRESHOLD_SECONDS
+                    ) or elapsed > SLOW_THRESHOLD_SECONDS:
+                        record_status = "slow"
+                        detail_text += f" (slow: resp={format_duration(resp_time)}, elapsed={format_duration(elapsed)})"
+                    else:
+                        detail_text += f" (resp={format_duration(resp_time)}, elapsed={format_duration(elapsed)})"
 
-        log.info("Calling Metis health: model=%s url=%s", model_name, url)
-        start = time.monotonic()
-        try:
-            async with httpx.AsyncClient(timeout=METIS_HEALTH_TIMEOUT) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                elapsed = time.monotonic() - start
-
-                if response.status_code >= 400:
-                    detail = response.text.strip()
                     records.append(
                         HealthRecord(
                             model=model_name,
                             cluster="metis",
-                            status="failed",
-                            detail=f"HTTP {response.status_code}: {detail}",
+                            status=record_status,
+                            detail=detail_text,
+                            response_time=resp_time,
                             elapsed=elapsed,
                         )
                     )
-                    continue
-
-                resp_time, status_text = parse_health_payload(response.text)
-                detail_text = status_text or "ok"
-
-                record_status = "healthy"
-                if (
-                    resp_time is not None and resp_time > SLOW_THRESHOLD_SECONDS
-                ) or elapsed > SLOW_THRESHOLD_SECONDS:
-                    record_status = "slow"
-                    detail_text += f" (slow: resp={format_duration(resp_time)}, elapsed={format_duration(elapsed)})"
-                else:
-                    detail_text += f" (resp={format_duration(resp_time)}, elapsed={format_duration(elapsed)})"
-
+                    log.info(
+                        "Metis health succeeded model=%s status=%s resp=%s elapsed=%s",
+                        model_name,
+                        record_status,
+                        format_duration(resp_time),
+                        format_duration(elapsed),
+                    )
+            except httpx.TimeoutException:
+                elapsed = time.monotonic() - start
                 records.append(
                     HealthRecord(
                         model=model_name,
                         cluster="metis",
-                        status=record_status,
-                        detail=detail_text,
-                        response_time=resp_time,
+                        status="failed",
+                        detail=f"Timeout after {METIS_HEALTH_TIMEOUT}s",
                         elapsed=elapsed,
                     )
                 )
-                log.info(
-                    "Metis health succeeded model=%s status=%s resp=%s elapsed=%s",
-                    model_name,
-                    record_status,
-                    format_duration(resp_time),
-                    format_duration(elapsed),
+            except httpx.HTTPError as exc:
+                elapsed = time.monotonic() - start
+                records.append(
+                    HealthRecord(
+                        model=model_name,
+                        cluster="metis",
+                        status="failed",
+                        detail=f"HTTP error: {exc}",
+                        elapsed=elapsed,
+                    )
                 )
-        except httpx.TimeoutException:
-            elapsed = time.monotonic() - start
-            records.append(
-                HealthRecord(
-                    model=model_name,
-                    cluster="metis",
-                    status="failed",
-                    detail=f"Timeout after {METIS_HEALTH_TIMEOUT}s",
-                    elapsed=elapsed,
+            except Exception as exc:
+                elapsed = time.monotonic() - start
+                records.append(
+                    HealthRecord(
+                        model=model_name,
+                        cluster="metis",
+                        status="failed",
+                        detail=f"Unexpected error: {exc}",
+                        elapsed=elapsed,
+                    )
                 )
-            )
-        except httpx.HTTPError as exc:
-            elapsed = time.monotonic() - start
-            records.append(
-                HealthRecord(
-                    model=model_name,
-                    cluster="metis",
-                    status="failed",
-                    detail=f"HTTP error: {exc}",
-                    elapsed=elapsed,
-                )
-            )
-        except Exception as exc:
-            elapsed = time.monotonic() - start
-            records.append(
-                HealthRecord(
-                    model=model_name,
-                    cluster="metis",
-                    status="failed",
-                    detail=f"Unexpected error: {exc}",
-                    elapsed=elapsed,
-                )
-            )
 
     return records
 

@@ -1,7 +1,7 @@
 import ast
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, Type
+from typing import Any, Self, Type
 
 from cachetools import TTLCache
 from django.forms.models import model_to_dict
@@ -184,13 +184,12 @@ class BaseEndpoint(ABC):
         )
 
     @classmethod
-    async def load_adapter(
-        cls, cluster: str, framework: str, model: str
-    ) -> "BaseEndpoint":
+    async def load_adapter(cls, cluster: str, framework: str, model: str) -> Self:
         """Extract the endpoint from the database and return its underlying adapter object."""
         endpoint_slug = slugify(f"{cluster} {framework} {model.lower()}")
 
         if (adapter := _adapter_cache.get(endpoint_slug)) is not None:
+            assert isinstance(adapter, cls)
             return adapter
 
         try:
@@ -217,5 +216,9 @@ class BaseEndpoint(ABC):
 
         # Instantiate the adaptor class
         endpoint = AdapterClass(**endpoint_dictionary)
+        if not isinstance(endpoint, cls):
+            raise AssertionError(
+                f"Endpoint adapter {db_endpoint.endpoint_adapter} is not an instance of {cls.__name__}"
+            )
         _adapter_cache[endpoint_slug] = endpoint
         return endpoint
