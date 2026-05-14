@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PYTHON_BIN="${PYTHON_BIN:-/home/webportal/miniconda3/envs/python3.12.6-env/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/home/webportal/inference-gateway/.venv/bin/python}"
 
 exec "$PYTHON_BIN" "$SCRIPT_DIR/direct_health_monitor.py" "$@"
 
