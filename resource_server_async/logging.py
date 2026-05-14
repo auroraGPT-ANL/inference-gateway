@@ -62,7 +62,8 @@ def initialize_access_log(request: HttpRequest) -> AccessLogPydantic:
     )
 
 
-def _write_logs_sync(
+@sync_to_async(thread_sensitive=False)
+def write_logs(
     context: RequestContext, response: HttpResponse | StreamingHttpResponse
 ) -> None:
     context.access_log.emit(context.user, response)
@@ -77,9 +78,6 @@ def _write_logs_sync(
 
         if not isinstance(response, StreamingHttpResponse):
             async_to_sync(context.request_log.emit_metrics)()
-
-
-write_logs = sync_to_async(_write_logs_sync, thread_sensitive=False)
 
 
 class AccessLogMiddleware:
