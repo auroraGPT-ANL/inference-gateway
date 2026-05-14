@@ -10,6 +10,9 @@ ENV DJANGO_SETTINGS_MODULE=inference_gateway.settings
 # Set work directory
 WORKDIR /app
 
+# Copy project files
+COPY . .
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -21,9 +24,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --all-extras --dev --no-install-project
-
-# Copy project files
-COPY . .
 
 # Sync project
 RUN --mount=type=cache,target=/root/.cache/uv \
