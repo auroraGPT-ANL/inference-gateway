@@ -15,7 +15,7 @@ from globus_compute_sdk.sdk.executor import log as EXECUTOR_LOG
 from globus_sdk import TransferClient
 
 from resource_server_async.cache import cache_item, get_item_from_cache
-from resource_server_async.errors import EndpointError, EndpointNotFound, RequestTimeout
+from resource_server_async.errors import EndpointError, RequestTimeout
 from resource_server_async.schemas.endpoints import SubmitTaskResult
 
 log = logging.getLogger(__name__)
@@ -240,8 +240,8 @@ async def submit_and_get_result(
         )
     except Exception as exc:
         error_msg = str(exc)
-        if "API request" in error_msg and "Not Found" in error_msg:
-            raise EndpointNotFound("The upstream API returned a 'Not Found' response.")
+        if "API request" in error_msg:
+            raise EndpointError(error_msg)
         raise
 
     result = unwrap_json(result)

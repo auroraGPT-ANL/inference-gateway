@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from inspect import iscoroutinefunction
 from logging import getLogger
 
-from asgiref.sync import markcoroutinefunction
+from asgiref.sync import async_to_sync, markcoroutinefunction, sync_to_async
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 
 from resource_server_async.schemas.structured_logs import (
@@ -62,7 +62,8 @@ def initialize_access_log(request: HttpRequest) -> AccessLogPydantic:
     )
 
 
-async def write_logs(
+@sync_to_async(thread_sensitive=False)
+def write_logs(
     context: RequestContext, response: HttpResponse | StreamingHttpResponse
 ) -> None:
     context.access_log.emit(context.user, response)
@@ -76,7 +77,7 @@ async def write_logs(
         context.request_log.emit(body, response.status_code)
 
         if not isinstance(response, StreamingHttpResponse):
-            await context.request_log.emit_metrics()
+            async_to_sync(context.request_log.emit_metrics)()
 
 
 class AccessLogMiddleware:
