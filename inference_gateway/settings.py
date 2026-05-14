@@ -322,6 +322,9 @@ METIS_API_TOKENS = os.environ.get("METIS_API_TOKENS", "{}")
 # inference_data_staging Globus Guest Collection:
 DATA_STAGING_GLOBUS_COLLECTION_ID = "96c7390b-a3e8-4dd4-a327-1af7d143283e"
 
+PROMPT_STORAGE_DIR = Path(os.environ.get("PROMPT_STORAGE_DIR", "prompt-records"))
+PROMPT_STORAGE_DIR.mkdir(exist_ok=True, parents=True)
+
 
 # --- Optional: Grafana Admin Credentials (for Docker setup) ---
 # GF_SECURITY_ADMIN_USER=admin

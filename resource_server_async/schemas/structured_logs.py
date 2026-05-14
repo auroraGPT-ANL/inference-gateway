@@ -3,11 +3,20 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from logging import getLogger
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 from uuid import UUID
 
+from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    computed_field,
+    field_validator,
+)
 
 _user_slog = getLogger("resource_server_async.structured.user")
 _access_slog = getLogger("resource_server_async.structured.access_log")
@@ -15,6 +24,17 @@ _request_slog = getLogger("resource_server_async.structured.request_log")
 _request_metrics_slog = getLogger("resource_server_async.structured.request_metrics")
 _batch_slog = getLogger("resource_server_async.structured.batch_log")
 _batch_metrics_slog = getLogger("resource_server_async.structured.batch_metrics")
+
+MAX_LEN = 1800
+
+
+def _truncate_str(value: str) -> str:
+    if len(value) <= MAX_LEN:
+        return value
+    return value[:MAX_LEN] + f"...<truncated {len(value) - MAX_LEN} chars>"
+
+
+TruncatedStr = Annotated[str, PlainSerializer(_truncate_str)]
 
 
 @dataclass(slots=True)
@@ -53,7 +73,7 @@ class AccessLogPydantic(BaseModel):
     origin_ip: str | None
     timestamp_response: datetime | None = None
     status_code: int | None = None
-    error: str | None = None
+    error: TruncatedStr | None = None
     authorized_groups: str | None = None
 
     def emit(
@@ -88,16 +108,19 @@ class RequestLogPydantic(BaseModel):
     framework: str
     model: str
     openai_endpoint: str
-    prompt: str
+    prompt: TruncatedStr
     timestamp_compute_request: datetime
     status_code: int | None = None
     timestamp_compute_response: datetime | None = None
-    result: str | None = None
+    result: TruncatedStr | None = None
     task_uuid: str | None = None
 
     def emit(self, response_body: str, status_code: int | None) -> None:
         """
         Log an LLM prompt request and results.
+
+        Large prompt/result payloads exceeding MAX_LEN will be written to the
+        filesystem.
         """
         self.status_code = status_code
         self.result = response_body
@@ -109,6 +132,16 @@ class RequestLogPydantic(BaseModel):
             "created",
             extra=self.model_dump(mode="json"),
         )
+
+        if len(self.prompt) > MAX_LEN or len(self.result) > MAX_LEN:
+            full = {"prompt": self.prompt, "result": self.result}
+            prompt_dir = Path(settings.PROMPT_STORAGE_DIR)
+            prompt_file = Path(prompt_dir) / f"{self.id}.json"
+            try:
+                prompt_file.write_text(json.dumps(full, indent=2))
+            except FileNotFoundError:
+                prompt_file.parent.mkdir(parents=True, exist_ok=True)
+                prompt_file.write_text(json.dumps(full, indent=2))
 
     async def emit_metrics(self, usage: UsageTokens | None = None) -> None:
         """
@@ -192,7 +225,7 @@ class BatchLogPydantic(BaseModel):
 
     globus_batch_uuid: str | None = None
     task_ids: str | None = None
-    result: str | None = Field(default="")
+    result: TruncatedStr | None = Field(default="")
 
     status: str | None = None
     in_progress_at: datetime | None = None
