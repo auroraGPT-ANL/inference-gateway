@@ -81,6 +81,7 @@ def chat(
     oai = client.clusters(cluster).openai
 
     response: Any
+    all_chunks = []
     if stream:
         collected = []
         with console.status("[dim]Thinking…[/dim]", spinner="dots"):
@@ -93,13 +94,14 @@ def chat(
             )
 
         for chunk in response:
+            all_chunks.append(chunk)
             if chunk.choices and chunk.choices[0].delta.content:
                 token = chunk.choices[0].delta.content
                 print(token, end="")
                 collected.append(token)
 
         if not collected:
-            print(str(response))
+            print(all_chunks)
 
         print("")
 
