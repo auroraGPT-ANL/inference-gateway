@@ -2,7 +2,6 @@ import ast
 import asyncio
 import json
 import logging
-import time
 from typing import Any, TypedDict
 
 import globus_sdk
@@ -218,8 +217,7 @@ async def submit_and_get_result(
     # Clear cache if the Executor is shut down in order for subsequent requests to work
     except Exception as e:
         if "is shutdown" in str(e):
-            executor_cache.clear()
-            time.sleep(2)
+            await clear_executor_cache()
         raise
 
     # Cache the endpoint slug to tell the application that a user already submitted a request to this endpoint
@@ -234,6 +232,9 @@ async def submit_and_get_result(
         result = await asyncio.wait_for(asyncio_future, timeout=timeout)
     except TimeoutError:
         task_id = get_task_uuid(future)
+        # Prevent hanging Executor ResultWatchers from leaking by shutting it down
+        gce.shutdown(wait=False, cancel_futures=True)  # type: ignore[no-untyped-call]
+        await clear_executor_cache()
         raise RequestTimeout(
             "TimeoutError while attempting to access compute resources. Please try again later.",
             info={"task_id": task_id},
@@ -249,6 +250,14 @@ async def submit_and_get_result(
     # Task ID not populated immediately; access after wait_for!
     task_id = get_task_uuid(future)
     return SubmitTaskResult(result=result, task_id=task_id)
+
+
+async def clear_executor_cache() -> None:
+    """
+    Wipes the executor cache (prunes shutdown Executors)
+    """
+    executor_cache.clear()
+    await asyncio.sleep(2)
 
 
 def get_task_uuid(future: ComputeFuture) -> str | None:
