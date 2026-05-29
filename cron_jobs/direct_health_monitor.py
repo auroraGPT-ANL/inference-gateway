@@ -411,6 +411,7 @@ async def check_sophia_models() -> List[HealthRecord]:
             )
         except Exception as e:
             error_message, error_code = str(e), 500
+            task_uuid = None
         else:
             error_message, error_code = None, None
             result, task_uuid = result.result, result.task_id
