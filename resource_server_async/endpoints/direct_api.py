@@ -80,6 +80,7 @@ class DirectAPIEndpoint(BaseEndpoint):
             endpoint_adapter,
             tpm_model,
             tpm_user,
+            config,
             allowed_globus_groups,
             allowed_domains,
         )
