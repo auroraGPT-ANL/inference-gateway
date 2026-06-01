@@ -29,6 +29,14 @@ from ..schemas.structured_logs import UserPydantic
 _adapter_cache: TTLCache[str, "BaseEndpoint"] = TTLCache(maxsize=128, ttl=60)
 
 
+MODEL_DETAILS_KEYS = {
+    "max_model_len",
+    "max_num_seqs",
+    "enable_auto_tool_choice",
+    "tool_call_parser",
+}
+
+
 class BaseEndpoint(ABC):
     """Generic abstract base class that enforces a common set of methods for inference endpoints."""
 
@@ -43,6 +51,7 @@ class BaseEndpoint(ABC):
         endpoint_adapter: str,
         tpm_model: int,
         tpm_user: int,
+        config: dict[str, Any],
         allowed_globus_groups: list[str] | None = None,
         allowed_domains: list[str] | None = None,
     ):
@@ -55,6 +64,9 @@ class BaseEndpoint(ABC):
         self.__endpoint_adapter = endpoint_adapter
         self.__allowed_globus_groups = allowed_globus_groups
         self.__allowed_domains = allowed_domains
+        self.__model_details = BaseEndpoint.build_model_details(
+            cluster, framework, model, tpm_model, tpm_user, config
+        )
         self.__token_limiter = BaseEndpoint.build_token_limiter(
             cluster, framework, model, tpm_model, tpm_user
         )
@@ -156,6 +168,10 @@ class BaseEndpoint(ABC):
     @property
     def endpoint_adapter(self) -> str:
         return self.__endpoint_adapter
+    
+    @property
+    def model_details(self) -> dict[str, Any]:
+        return self.__model_details
 
     @property
     def allowed_globus_groups(self) -> list[str] | None:
@@ -222,3 +238,35 @@ class BaseEndpoint(ABC):
             )
         _adapter_cache[endpoint_slug] = endpoint
         return endpoint
+
+    @staticmethod
+    def build_model_details(
+        cluster: str, framework: str, model: str, tpm_model: int, tpm_user: int, config: dict[str,Any]
+    ) -> dict[str, Any] | None:
+        """Builds model details to be exposed to users."""
+
+        # Base metadata
+        model_details = {
+            "id": model,
+            "object": "model",
+            "cluster": cluster,
+            "framework": framework
+        }
+
+        # Model specific details
+        model_details.update(
+            {
+                key: value
+                for key, value in config.items()
+                if key in MODEL_DETAILS_KEYS
+            }
+        )
+    
+        # Token rate limits
+        if tpm_model > 0:
+            model_details["rate_limit_token_per_minute"] = tpm_model
+        if tpm_user > 0:
+            model_details["rate_limit_token_per_minute_per_user"] = tpm_user
+
+        return model_details
+
