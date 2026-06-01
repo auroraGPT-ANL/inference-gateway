@@ -126,7 +126,7 @@ async def get_models(
             raise EndpointNotFound(
                 f"{model_id} model not found on cluster {cluster_name}."
             )
-        return endpoint.model_details
+        return [endpoint.model_details]
 
     # Return model details of all authorized endpoints
     return [
