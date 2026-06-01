@@ -7,6 +7,7 @@ from cachetools import TTLCache
 from django.forms.models import model_to_dict
 from django.utils.text import slugify
 
+from inference_gateway.settings import MODEL_DETAILS_KEYS
 from resource_server_async.cache import get_redis_client
 from resource_server_async.rate_limiters import TokenLimiterCheck, TokenRateLimiter
 
@@ -27,14 +28,6 @@ from ..schemas.endpoints import (
 from ..schemas.structured_logs import UserPydantic
 
 _adapter_cache: TTLCache[str, "BaseEndpoint"] = TTLCache(maxsize=128, ttl=60)
-
-
-MODEL_DETAILS_KEYS = {
-    "max_model_len",
-    "max_num_seqs",
-    "enable_auto_tool_choice",
-    "tool_call_parser",
-}
 
 
 class BaseEndpoint(ABC):
