@@ -168,7 +168,7 @@ class BaseEndpoint(ABC):
     @property
     def endpoint_adapter(self) -> str:
         return self.__endpoint_adapter
-    
+
     @property
     def model_details(self) -> dict[str, Any]:
         return self.__model_details
@@ -241,7 +241,12 @@ class BaseEndpoint(ABC):
 
     @staticmethod
     def build_model_details(
-        cluster: str, framework: str, model: str, tpm_model: int, tpm_user: int, config: dict[str,Any]
+        cluster: str,
+        framework: str,
+        model: str,
+        tpm_model: int,
+        tpm_user: int,
+        config: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Builds model details to be exposed to users."""
 
@@ -250,18 +255,14 @@ class BaseEndpoint(ABC):
             "id": model,
             "object": "model",
             "cluster": cluster,
-            "framework": framework
+            "framework": framework,
         }
 
         # Model specific details
         model_details.update(
-            {
-                key: value
-                for key, value in config.items()
-                if key in MODEL_DETAILS_KEYS
-            }
+            {key: value for key, value in config.items() if key in MODEL_DETAILS_KEYS}
         )
-    
+
         # Token rate limits
         if tpm_model > 0:
             model_details["rate_limit_token_per_minute"] = tpm_model
@@ -269,4 +270,3 @@ class BaseEndpoint(ABC):
             model_details["rate_limit_token_per_minute_per_user"] = tpm_user
 
         return model_details
-
