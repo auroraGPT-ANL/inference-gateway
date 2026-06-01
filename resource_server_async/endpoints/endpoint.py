@@ -7,6 +7,7 @@ from cachetools import TTLCache
 from django.forms.models import model_to_dict
 from django.utils.text import slugify
 
+from inference_gateway.settings import MODEL_DETAILS_KEYS
 from resource_server_async.cache import get_redis_client
 from resource_server_async.rate_limiters import TokenLimiterCheck, TokenRateLimiter
 
@@ -43,6 +44,7 @@ class BaseEndpoint(ABC):
         endpoint_adapter: str,
         tpm_model: int,
         tpm_user: int,
+        config: dict[str, Any],
         allowed_globus_groups: list[str] | None = None,
         allowed_domains: list[str] | None = None,
     ):
@@ -55,6 +57,9 @@ class BaseEndpoint(ABC):
         self.__endpoint_adapter = endpoint_adapter
         self.__allowed_globus_groups = allowed_globus_groups
         self.__allowed_domains = allowed_domains
+        self.__model_details = BaseEndpoint.build_model_details(
+            cluster, framework, model, tpm_model, tpm_user, config
+        )
         self.__token_limiter = BaseEndpoint.build_token_limiter(
             cluster, framework, model, tpm_model, tpm_user
         )
@@ -158,6 +163,10 @@ class BaseEndpoint(ABC):
         return self.__endpoint_adapter
 
     @property
+    def model_details(self) -> dict[str, Any]:
+        return self.__model_details
+
+    @property
     def allowed_globus_groups(self) -> list[str] | None:
         return self.__allowed_globus_groups
 
@@ -222,3 +231,35 @@ class BaseEndpoint(ABC):
             )
         _adapter_cache[endpoint_slug] = endpoint
         return endpoint
+
+    @staticmethod
+    def build_model_details(
+        cluster: str,
+        framework: str,
+        model: str,
+        tpm_model: int,
+        tpm_user: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Builds model details to be exposed to users."""
+
+        # Base metadata
+        model_details: dict[str, Any] = {
+            "id": model,
+            "object": "model",
+            "cluster": cluster,
+            "framework": framework,
+        }
+
+        # Model specific details
+        model_details.update(
+            {key: value for key, value in config.items() if key in MODEL_DETAILS_KEYS}
+        )
+
+        # Token rate limits
+        if tpm_model > 0:
+            model_details["rate_limit_token_per_minute"] = tpm_model
+        if tpm_user > 0:
+            model_details["rate_limit_token_per_minute_per_user"] = tpm_user
+
+        return model_details

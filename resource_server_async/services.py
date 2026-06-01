@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, List
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -61,6 +61,26 @@ OpenAIRequestPayload = (
 logger = logging.getLogger(__name__)
 
 
+async def get_all_endpoints(
+    user: UserPydantic, cluster: BaseCluster
+) -> List[BaseEndpoint]:
+    """Generate and return all endpoint adaptors for a given cluster."""
+
+    # For all endpoints in the database for this cluster ...
+    endpoint_adaptors: List[BaseEndpoint] = []
+    async for db_endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
+        endpoint = await BaseEndpoint.load_adapter(
+            db_endpoint.cluster, db_endpoint.framework, db_endpoint.model
+        )
+
+        # Add endpoint adaptor to the list if authorized
+        if endpoint.check_permission(user, raise_exc=False):
+            endpoint_adaptors.append(endpoint)
+
+    # Return list of authorized endpoints
+    return endpoint_adaptors
+
+
 async def get_list_endpoints_data(user: UserPydantic) -> ListEndpointsResponse:
     """Prepare and return data for the list of available frameworks and models."""
     by_cluster: dict[str, ClusterSummary] = {}
@@ -75,25 +95,20 @@ async def get_list_endpoints_data(user: UserPydantic) -> ListEndpointsResponse:
     ]
 
     for cluster in authorized_clusters:
-        # For each endpoint related to this cluster ...
+        # For each authorized endpoint related to this cluster ...
         frameworks: dict[str, FrameworkSummary] = {}
 
-        async for db_endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
-            endpoint = await BaseEndpoint.load_adapter(
-                db_endpoint.cluster, db_endpoint.framework, db_endpoint.model
-            )
+        authorized_endpoints = await get_all_endpoints(user, cluster)
+        for endpoint in authorized_endpoints:
+            # Add framework if needed
+            if endpoint.framework not in frameworks:
+                frameworks[endpoint.framework] = FrameworkSummary(
+                    models=[],
+                    endpoints=[f"/v1/{e}" for e in cluster.openai_endpoints],
+                )
 
-            # If the user is allowed to see this endpoint ...
-            if endpoint.check_permission(user, raise_exc=False):
-                # Add framework if needed
-                if endpoint.framework not in frameworks:
-                    frameworks[endpoint.framework] = FrameworkSummary(
-                        models=[],
-                        endpoints=[f"/v1/{e}" for e in cluster.openai_endpoints],
-                    )
-
-                # Add model to the framework
-                frameworks[endpoint.framework].models.append(endpoint.model)
+            # Add model to the framework
+            frameworks[endpoint.framework].models.append(endpoint.model)
 
         # Sort models alphabetically
         for fw in frameworks:
