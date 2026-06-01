@@ -67,7 +67,7 @@ async def get_all_endpoints(
     """Generate and return all endpoint adaptors for a given cluster."""
 
     # For all endpoints in the database for this cluster ...
-    endpoint_adaptors: BaseEndpoint = []
+    endpoint_adaptors: List[BaseEndpoint] = []
     async for db_endpoint in Endpoint.objects.filter(cluster=cluster.cluster_name):
         endpoint = await BaseEndpoint.load_adapter(
             db_endpoint.cluster, db_endpoint.framework, db_endpoint.model
