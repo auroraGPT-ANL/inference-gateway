@@ -251,7 +251,7 @@ class BaseEndpoint(ABC):
         """Builds model details to be exposed to users."""
 
         # Base metadata
-        model_details = {
+        model_details: dict[str, Any] = {
             "id": model,
             "object": "model",
             "cluster": cluster,
