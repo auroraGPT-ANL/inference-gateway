@@ -61,7 +61,9 @@ OpenAIRequestPayload = (
 logger = logging.getLogger(__name__)
 
 
-async def get_all_endpoints(user: UserPydantic, cluster: BaseCluster) -> List[BaseEndpoint]:
+async def get_all_endpoints(
+    user: UserPydantic, cluster: BaseCluster
+) -> List[BaseEndpoint]:
     """Generate and return all endpoint adaptors for a given cluster."""
 
     # For all endpoints in the database for this cluster ...
@@ -98,7 +100,6 @@ async def get_list_endpoints_data(user: UserPydantic) -> ListEndpointsResponse:
 
         authorized_endpoints = await get_all_endpoints(user, cluster)
         for endpoint in authorized_endpoints:
-                
             # Add framework if needed
             if endpoint.framework not in frameworks:
                 frameworks[endpoint.framework] = FrameworkSummary(
