@@ -1,9 +1,12 @@
 import logging
 
+from typing import Any, Dict, List
+
 from django.http import HttpRequest
 from ninja import Router
 
 from ..clusters import BaseCluster
+from ..endpoints import BaseEndpoint
 from ..models import Cluster
 from ..schemas import ListEndpointsResponse
 from ..schemas.auth import AuthedRequest
@@ -14,6 +17,7 @@ from ..schemas.structured_logs import (
 from ..services import (
     filter_jobs_for_user,
     get_list_endpoints_data,
+    get_all_endpoints
 )
 
 router = Router()
@@ -23,14 +27,14 @@ log = logging.getLogger(__name__)
 # Health Check (GET) - No authentication required
 # Lightweight endpoint for Kubernetes/load balancer health checks
 @router.get("/health", auth=None)
-async def health_check(request: HttpRequest) -> dict[str, str]:
+async def health_check(request: HttpRequest) -> Dict[str, str]:
     """Lightweight health check endpoint - returns OK if API is responding."""
     return {"status": "ok"}
 
 
 # Status Check (GET) - No authentication required
 @router.get("/status", auth=None)
-async def status_check(request: HttpRequest) -> dict[str, bool]:
+async def status_check(request: HttpRequest) -> Dict[str, bool]:
     """Status check of publicly-available clusters - True if up, False if down."""
 
     # Mock auth user with basic permissions
@@ -101,3 +105,22 @@ async def get_jobs(request: AuthedRequest, cluster_name: str) -> JobsByStatus:
         )
     else:
         return await filter_jobs_for_user(cluster, request.auth)
+
+
+# Models (GET)
+@router.get("/{cluster_name}/models")
+async def get_models(request: AuthedRequest, cluster_name: str) -> List[Dict[str,Any]]:
+    """Return configuration details of all models of a given cluster (if authorized)."""
+
+    # Check cluster permission
+    cluster = await BaseCluster.load_adapter(cluster_name)
+    cluster.check_permission(request.auth)
+
+    # Gather all authorized endpoints
+    endpoints: List[BaseEndpoint] = await get_all_endpoints(request.auth, cluster)
+
+    # Return model details of all authorized endpoints
+    return [
+        endpoint.model_details 
+        for endpoint in sorted(endpoints, key=lambda endpoint: endpoint.model.lower())
+    ]
