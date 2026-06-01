@@ -247,7 +247,7 @@ class BaseEndpoint(ABC):
         tpm_model: int,
         tpm_user: int,
         config: dict[str, Any],
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any]:
         """Builds model details to be exposed to users."""
 
         # Base metadata
